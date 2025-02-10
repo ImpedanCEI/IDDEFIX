@@ -1,7 +1,15 @@
 # Changelog since v0.0.1 tag
 `git log v0.0.1... --date=short --pretty=format:"* %ad %d %s (%aN)" | copy `
 
-* 2025-02-03  (HEAD -> main, origin/main, origin/HEAD) add example using directly the wake resonator formalism as fit function for the EA (elenafuengar)
+* 2025-02-06  (HEAD -> main, origin/main, origin/HEAD) fix: remove tests outputs from remote (elenafuengar)
+* 2025-02-06  new: add text 001 to compare analytical, fft and neffint fft methods (elenafuengar)
+* 2025-02-05  docs: add publications (elenafuengar)
+* 2025-02-04  update: add partially and fully decayed impedance to result comparison (elenafuengar)
+* 2025-02-04  update: use fitFunction argument in notebook (elenafuengar)
+* 2025-02-04  fix: initialize attributes to None (elenafuengar)
+* 2025-02-04  new: generalize parameters and docstring for impedance or wake or wake potential fit function modes (elenafuengar)
+* 2025-02-03  add changelog (elenafuengar)
+* 2025-02-03  add example using directly the wake resonator formalism as fit function for the EA (elenafuengar)
 * 2025-02-03  add deconvolution routine (elenafuengar)
 * 2025-02-03  use multithreaded sum for 10x speedup! (elenafuengar)
 * 2025-02-03  feature: make sigma an optional argument for wake potential so it is suitable for using it as a fitFunction in the evolutionary algorithm (elenafuengar)
