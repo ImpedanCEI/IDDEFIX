@@ -104,6 +104,136 @@ def compute_deconvolution(data_time, data_wake_potential, sigma, fmax=3e9, sampl
     
     return f, Z
 
-def compute_ifft(data_frequency, data_impedance):
+def interpolation_error_abs(func_output, interpolant_output):
+    return np.abs(func_output - interpolant_output)
 
-    print("TODO: use neffint package to compute ifft with non-equidistant samples")
+def interpolation_error_rms(func_output, interpolant_output):
+    error = interpolant_output - func_output
+    squared_error = error**2
+    mean_squared_error = np.mean(squared_error, axis=1) # This stage changes the shape from (N, 4) to # (N,)
+    rms_error = np.sqrt(mean_squared_error)
+    return rms_error
+
+def compute_ineffint(data_freq, data_impedance, 
+                    times=np.linspace(1e-11, 50e-9, 1000),
+                    adaptative=True,
+                    interpolation='linear', 
+                    plane = 'longitudinal',
+                    error='Abs'):
+    try:
+        import neffint
+    except:
+        raise ImportError('This function uses the python package `neffint` \n \
+                           > pip install neffint')
+    from scipy.interpolate import interp1d
+
+    if not adaptative:
+        wake = neffint.fourier_integral_fixed_sampling(
+            times=times,
+            frequencies=data_freq,
+            func_values=data_impedance,
+            pos_inf_correction_term=False,
+            neg_inf_correction_term=False,
+            interpolation=interpolation # `pchip gives artificial imag. baseline`
+        )
+
+    # Using adaptative freq. refining
+    if adaptative:
+        if error.lower() == 'abs':
+            interpolation_error_norm = interpolation_error_abs
+        elif error.lower() == 'rms':
+            interpolation_error_norm = interpolation_error_rms
+
+        func = interp1d(data_freq, data_impedance, 
+                        kind='linear', fill_value="extrapolate")
+        
+        frequencies, impedance = neffint.improve_frequency_range(
+            initial_frequencies=data_freq,
+            func=func,
+            interpolation_error_norm=interpolation_error_norm,
+            absolute_integral_tolerance=1e0, # The absolute tolerance the algorithm tries to get the error below
+            step_towards_inf_factor=2, # The multiplicative step size used to scan for higher and lower frequencies to add
+            bisection_mode_condition=None, # None (the default) here gives only logarithmic bisection when adding internal points
+            max_iterations=10000,
+        )
+
+        wake = neffint.fourier_integral_fixed_sampling(
+            times=times,
+            frequencies=frequencies,
+            func_values=impedance,
+            pos_inf_correction_term=False,
+            neg_inf_correction_term=False,
+            interpolation=interpolation
+        )
+
+    # Normalize
+    wake = np.conjugate(wake)/np.pi
+
+    if plane == "longitudinal":
+        pass
+    elif plane == "transverse":
+        wake *= 1j
+
+    return times, wake.real
+
+def compute_neffint(data_time, data_wake, 
+                    frequencies=np.linspace(1, 5e9, 1000),
+                    adaptative=True, 
+                    interpolation='linear',
+                    plane='longitudinal',
+                    error='abs'):
+    try:
+        import neffint
+    except:
+        raise ImportError('This function uses the python package `neffint` \n \
+                           > pip install neffint')
+    from scipy.interpolate import interp1d
+
+    if not adaptative:
+        impedance = neffint.fourier_integral_fixed_sampling(
+            times=frequencies,
+            frequencies=data_time,
+            func_values=data_wake,
+            pos_inf_correction_term=False,
+            neg_inf_correction_term=False,
+            interpolation=interpolation # `pchip gives artificial imag. baseline`
+        )
+
+    # Using adaptative freq. refining
+    if adaptative:
+        if error.lower() == 'abs':
+            interpolation_error_norm = interpolation_error_abs
+        elif error.lower() == 'rms':
+            interpolation_error_norm = interpolation_error_rms
+
+        func = interp1d(data_time, data_wake, 
+                        kind='linear', fill_value="extrapolate")
+        
+        times, wake = neffint.improve_frequency_range(
+            initial_frequencies=data_time,
+            func=func,
+            interpolation_error_norm=interpolation_error_norm,
+            absolute_integral_tolerance=1e0, # The absolute tolerance the algorithm tries to get the error below
+            step_towards_inf_factor=2, # The multiplicative step size used to scan for higher and lower frequencies to add
+            bisection_mode_condition=None, # None (the default) here gives only logarithmic bisection when adding internal points
+            max_iterations=10000,
+        )
+
+        impedance = neffint.fourier_integral_fixed_sampling(
+            times=frequencies,
+            frequencies=times,
+            func_values=wake,
+            pos_inf_correction_term=False,
+            neg_inf_correction_term=False,
+            interpolation=interpolation
+        )
+
+    # Normalize
+    impedance = np.conjugate(impedance)/np.pi/2
+
+    if plane == "longitudinal":
+        pass
+    elif plane == "transverse":
+        impedance *= 1j
+
+    return frequencies, impedance
