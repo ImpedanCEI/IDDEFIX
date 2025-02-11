@@ -5,6 +5,7 @@ import sys
 sys.path.append('../')
 import iddefix
 from scipy.constants import c as c_light
+from scipy.interpolate import interp1d
 
 # Importing wake potential data
 data_wake_potential = np.loadtxt('../examples/data/004_SPS_model_transitions_q26.txt', comments='#', delimiter='\t')
@@ -48,19 +49,47 @@ DE_model.minimizationParameters = np.loadtxt(
 import neffint
 
 time = np.linspace(1e-11, 50e-9, 1000)
-f_fd = np.linspace(0, 5e9, 10000)
+f_fd = np.linspace(0, 5e9, 1000)
 Z_fd = DE_model.get_impedance(frequency_data=f_fd, wakelength=None) 
+adaptative = False
 
-W = neffint.fourier_integral_fixed_sampling(
-    times=time,
-    frequencies=f_fd,
-    func_values=Z_fd,
-    pos_inf_correction_term=True,
-    neg_inf_correction_term=False,
-    interpolation="linear" # Feel free to change to "linear"
-)
+if not adaptative:
+    W = neffint.fourier_integral_fixed_sampling(
+        times=time,
+        frequencies=f_fd,
+        func_values=Z_fd,
+        pos_inf_correction_term=True,
+        neg_inf_correction_term=False,
+        interpolation="linear" # `pchip gives artificial imag. baseline`
+    )
+
+# Using adaptative freq. refining
+if adaptative:
+    def interpolation_error_norm(func_output, interpolant_output):
+        return np.abs(func_output - interpolant_output)
+
+    frequencies, func_arr = neffint.improve_frequency_range(
+        initial_frequencies=f_fd,
+        func=interp1d(f_fd, Z_fd, kind='linear', fill_value="extrapolate"),
+        interpolation_error_norm=interpolation_error_norm,
+        absolute_integral_tolerance=1e0, # The absolute tolerance the algorithm tries to get the error below
+        step_towards_inf_factor=2, # The multiplicative step size used to scan for higher and lower frequencies to add
+        bisection_mode_condition=None, # None (the default) here gives only logarithmic bisection when adding internal points
+        max_iterations=10000,
+    )
+
+    W = neffint.fourier_integral_fixed_sampling(
+        times=time,
+        frequencies=frequencies,
+        func_values=func_arr,
+        pos_inf_correction_term=True,
+        neg_inf_correction_term=False,
+        interpolation="linear"
+    )
+
 
 # Compare wake functions
+
 W_de = DE_model.get_wake(time)
 fig, ax0 = plt.subplots(1, 1, figsize=(12,5))
 
@@ -88,18 +117,18 @@ f_nft, Z_nft = iddefix.compute_fft(time, W.imag/c_light/np.pi, fmax=5e9)
 Z_fft *= 1j #transverse
 Z_nft *= 1j #transverse
 
-fig = plt.figure(figsize=(8, 5))
-plt.plot(f_de, np.real(Z_de), color='tab:red', label='Fully decayed real impedance')
-plt.plot(f_de, np.imag(Z_de), color='tab:blue', label='Fully decayed imag. impedance')
-plt.plot(f_de, np.abs(Z_de), color='tab:green', label='Fully decayed Abs. impedance')
+fig = plt.figure(figsize=(12, 7))
+plt.plot(f_de, np.real(Z_de), color='tab:red', lw=3, alpha=0.7, label='Fully decayed real impedance')
+plt.plot(f_de, np.imag(Z_de), color='tab:blue', lw=3, alpha=0.7, label='Fully decayed imag. impedance')
+plt.plot(f_de, np.abs(Z_de), color='tab:green', lw=3, alpha=0.7, label='Fully decayed Abs. impedance')
 
-plt.plot(f_fft, np.real(Z_fft), color='tab:red', ls='--', label='fft real impedance')
-plt.plot(f_fft, np.imag(Z_fft), color='tab:blue', ls='--', label='fft imag. impedance')
-plt.plot(f_fft, np.abs(Z_fft), color='tab:green', ls='--', label='fft Abs. impedance')
+plt.plot(f_fft, np.real(Z_fft), color='tab:red', ls='--', label='numpy FFT real impedance')
+plt.plot(f_fft, np.imag(Z_fft), color='tab:blue', ls='--', label='numpy FFT imag. impedance')
+plt.plot(f_fft, np.abs(Z_fft), color='tab:green', ls='--', label='numpy FFT Abs. impedance')
 
-plt.plot(f_nft, np.real(Z_nft), color='tab:red', ls=':', label='nft real impedance')
-plt.plot(f_nft, np.imag(Z_nft), color='tab:blue', ls=':', label='nft imag. impedance')
-plt.plot(f_nft, np.abs(Z_nft), color='tab:green', ls=':', label='nft Abs. impedance')
+plt.plot(f_nft, np.real(Z_nft), color='tab:red', ls=':', label='Neffint real impedance')
+plt.plot(f_nft, np.imag(Z_nft), color='tab:blue', ls=':', label='Neffint imag. impedance')
+plt.plot(f_nft, np.abs(Z_nft), color='tab:green', ls=':', label='Neffint Abs. impedance')
 
 plt.legend()
 plt.xlabel('f [Hz]')
