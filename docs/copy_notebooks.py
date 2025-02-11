@@ -14,7 +14,8 @@ notebooks = [
     "001_analytical_resonator.ipynb",
     "002_extrapolation_sim_data.ipynb",
     "003_beam_wire_scanner.ipynb",
-    "004_sps_transition.ipynb",
+    "004a_sps_transition_wake.ipynb",
+    "004b_sps_transition_impedance.ipynb",
 ]
 
 # Copy each notebook to the destination

@@ -42,5 +42,6 @@ iddefix.rst
 examples/001_analytical_resonator
 examples/002_extrapolation_sim_data
 examples/003_beam_wire_scanner
-examples/004_sps_transition
+examples/004a_sps_transition_wake
+examples/004b_sps_transition_impedance
 ```
