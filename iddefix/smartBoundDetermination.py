@@ -144,3 +144,54 @@ class SmartBoundDetermination:
         plt.show()
         
         return None
+    
+    def to_table(self, to_markdown=False):
+        """
+        Displays resonance parameters in a formatted ASCII table.
+
+        Args:
+            params: A list of tuples containing resonator parameters in the order:
+                    (Rs_min, Rs_max), (Q_min, Q_max), (fres_min, fres_max).
+            to_markdown: If True, prints the table in Markdown format.
+
+        Example Output:
+        ------------------------------------------------------------
+        Resonator |   Rs [Ohm/m or Ohm]    |        Q         |    fres [Hz]     
+        ------------------------------------------------------------
+        1      |  31.12 to 311.12       |  88.20 to 180.47 |  4.16e+08 to 6.82e+08
+        2      |  85.61 to 864.12       |  120.55 to 200.23|  5.30e+08 to 7.23e+08
+        ------------------------------------------------------------
+        """
+        params = self.parameterBounds
+        N_resonators = len(params) // 3  # Compute number of resonators
+
+        # Define formatting
+        header_format = "{:^10}|{:^24}|{:^18}|{:^25}"
+        data_format = "{:^10d}|{:^24}|{:^18}|{:^25}"
+        
+        if to_markdown:
+            # Markdown Table
+            print("\n")
+            print("| Resonator | Rs [Ohm/m or Ohm] | Q | fres [Hz] |")
+            print("|-----------|------------------|---|-----------|")
+            for i in range(N_resonators):
+                rs_range = f"{params[i * 3][0]:.2f} to {params[i * 3][1]:.2f}"
+                q_range = f"{params[i * 3 + 1][0]:.2f} to {params[i * 3 + 1][1]:.2f}"
+                fres_range = f"{params[i * 3 + 2][0]:.2e} to {params[i * 3 + 2][1]:.2e}"
+                print(f"| {i + 1} | {rs_range} | {q_range} | {fres_range} |")
+        else:
+            # ASCII Table
+            print("\n" + "-" * 80)
+
+            # Print header
+            print(header_format.format("Resonator", "Rs [Ohm/m or Ohm]", "Q", "fres [Hz]"))
+            print("-" * 80)
+
+            # Print data
+            for i in range(N_resonators):
+                rs_range = f"{params[i * 3][0]:.2f} to {params[i * 3][1]:.2f}"
+                q_range = f"{params[i * 3 + 1][0]:.2f} to {params[i * 3 + 1][1]:.2f}"
+                fres_range = f"{params[i * 3 + 2][0]:.2e} to {params[i * 3 + 2][1]:.2e}"
+                print(data_format.format(i + 1, rs_range, q_range, fres_range))
+
+            print("-" * 80)
