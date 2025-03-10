@@ -18,6 +18,67 @@ class SmartBoundDetermination:
                  Rs_bounds=[0.8, 10], 
                  Q_bounds=[0.5, 5], 
                  fres_bounds=[-0.01e9, +0.01e9]):
+        """
+        Automatically determines parameter bounds for resonance fitting 
+        by detecting impedance peaks in frequency-domain data.
+
+        This class uses `scipy.signal.find_peaks` to identify resonances and 
+        estimates the bounds for resistance (Rs), quality factor (Q), and 
+        resonant frequency (fres) using the 3dB bandwidth method.
+
+        Parameters
+        ----------
+        frequency_data : numpy.ndarray
+            Frequency data in Hz.
+        impedance_data : numpy.ndarray
+            Impedance magnitude data in Ohms.
+        minimum_peak_height : float, optional
+            Minimum height for a peak to be considered a resonance. Default is 1.0.
+        Rs_bounds : list, optional
+            Scaling factors [min, max] for Rs bounds. Default is [0.8, 10].
+        Q_bounds : list, optional
+            Scaling factors [min, max] for Q bounds. Default is [0.5, 5].
+        fres_bounds : list, optional
+            Offset bounds [min, max] for frequency in Hz. Default is [-0.01e9, 0.01e9].
+
+        Attributes
+        ----------
+        peaks : numpy.ndarray or None
+            Indices of detected peaks in the impedance data.
+        peaks_height : numpy.ndarray or None
+            Heights of the detected peaks.
+        minus_3dB_points : numpy.ndarray or None
+            3dB bandwidth points for each detected peak.
+        upper_lower_bounds : numpy.ndarray or None
+            Upper and lower frequency bounds for each peak.
+        Nres : int or None
+            Number of detected resonators.
+        parameterBounds : list of tuples
+            Computed parameter bounds in the format:
+            [(Rs_min, Rs_max), (Q_min, Q_max), (fres_min, fres_max), ...].
+
+        Methods
+        -------
+        find(frequency_data=None, impedance_data=None, minimum_peak_height=None, 
+            threshold=None, distance=None, prominence=None)
+            Detects impedance peaks and determines fitting parameter bounds
+            using `scipy.signal.find_peaks`
+
+        inspect()
+            Plots the impedance data and highlights detected resonance peaks 
+            along with their 3dB bandwidth estimates.
+
+        to_table(to_markdown=False)
+            Displays resonance parameters in an ASCII or Markdown-formatted table.
+
+        Notes
+        -----
+        - The 3dB bandwidth method is used to estimate Q factors and set frequency bounds.
+        - Peak detection is based on `scipy.signal.find_peaks`.
+        - Computed parameter bounds are stored in `self.parameterBounds`.
+        - The `inspect()` method visualizes peak detection results.
+        - The `to_table()` method prints a structured table of parameter ranges.
+        """
 
         self.frequency_data = frequency_data
         self.impedance_data = impedance_data
