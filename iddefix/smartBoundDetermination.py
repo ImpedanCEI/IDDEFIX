@@ -13,15 +13,25 @@ from scipy.signal import find_peaks
 
 class SmartBoundDetermination:
 
-    def __init__(self, frequency_data, impedance_data, minimum_peak_height=1.0):
+    def __init__(self, frequency_data, impedance_data, 
+                 minimum_peak_height=1.0,
+                 Rs_bounds=[0.8, 10], 
+                 Q_bounds=[0.5, 5], 
+                 fres_bounds=[-0.01e9, +0.01e9]):
+
         self.frequency_data = frequency_data
         self.impedance_data = impedance_data
         self.minimum_peak_height = minimum_peak_height
+        self.Rs_bounds = Rs_bounds
+        self.Q_bounds = Q_bounds
+        self.fres_bounds = fres_bounds
+
         self.peaks = None
         self.peaks_height = None
         self.minus_3dB_points = None
         self.upper_lower_bounds = None
-        self.Nres = None
+        self.N_resonators = None
+
         self.parameterBounds = self.find()
 
     def find(self, frequency_data=None, impedance_data=None, 
@@ -119,9 +129,9 @@ class SmartBoundDetermination:
         
         for i in range(Nres):
             # Add the fixed bounds
-            Rs_bounds = (peaks_height['peak_heights'][i]*0.8, peaks_height['peak_heights'][i]*10)
-            Q_bounds = (initial_Qs[i]/2 , initial_Qs[i]*5)
-            freq_bounds = (frequency_data[peaks[i]]-0.01e9, frequency_data[peaks[i]]+0.01e9)
+            Rs_bounds = (peaks_height['peak_heights'][i]*self.Rs_bounds[0], peaks_height['peak_heights'][i]*self.Rs_bounds[1])
+            Q_bounds = (initial_Qs[i]*self.Q_bounds[0] , initial_Qs[i]*self.Q_bounds[1])
+            freq_bounds = (frequency_data[peaks[i]]+self.fres_bounds[0], frequency_data[peaks[i]]+self.fres_bounds[1])
         
             parameterBounds.extend([Rs_bounds, Q_bounds, freq_bounds])
 
