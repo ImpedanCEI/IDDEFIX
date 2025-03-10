@@ -126,6 +126,7 @@ class SmartBoundDetermination:
             parameterBounds.extend([Rs_bounds, Q_bounds, freq_bounds])
 
         self.N_resonators = len(parameterBounds)/3
+        self.parameterBounds = parameterBounds
         return parameterBounds
     
     def inspect(self):
