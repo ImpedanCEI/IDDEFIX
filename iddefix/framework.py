@@ -185,34 +185,54 @@ class EvolutionaryAlgorithm:
                                 solver='scipy',
                                ):    
         """
-        Generates initial parameter guesses for a minimization algorithm.
+        Generates initial parameter estimates using a Differential Evolution (DE) solver.
 
-        This function uses a differential evolution (DE) solver to find approximate
-        solutions to a minimization problem, which can be used as initial guesses for
-        more precise optimizers.
+        This function applies a DE optimization method to identify suitable initial parameters 
+        for resonance fitting. These parameters can be further refined using local minimization.
 
-        Args:
-            parameterBounds: A list of tuples representing the upper and lower bounds
-                            for each parameter.
-            objective_function: A function that calculates the cost given a set of
-                            parameters and data. The signature should be
-                            `objective_function(parameters, fit_function, x_data, y_data)`.
-            fit_function: A function that calculates the fit between a model and data.
-                        The signature should be `fit_function(parameters, x_data, y_data)`.
-            x_values_data: The x-values of the data to fit.
-            y_values_data: The y-values of the data to fit.
-            maxiter: The maximum number of iterations for the DE solver.
-            popsize: The population size for the DE algorithm.
-            mutation: A tuple of two floats representing the mutation factors.
-            crossover_rate: The crossover rate for the DE algorithm.
-            tol: The tolerance for convergence.
-            solver: The solver to use for differential evolution. Valid options are
-                    "scipy", "pyfde", or "pyfde_jade". Defaults to "scipy".
+        Parameters
+        ----------
+        parameterBounds : list of tuple
+            A list of (min, max) bounds for each parameter.
+        objectiveFunction : callable
+            The objective function to minimize. It should accept parameters, 
+            a fitting function, x-data, and y-data.
+        fitFunction : callable
+            The fitting function that models the impedance response.
+        x_values_data : numpy.ndarray
+            Array containing x-values of the data (frequency points).
+        y_values_data : numpy.ndarray
+            Array containing y-values of the data (impedance magnitudes).
+        maxiter : int, optional
+            Maximum number of iterations for the DE solver. Default is 2000.
+        popsize : int, optional
+            Population size for the DE algorithm. Default is 150.
+        mutation : tuple of float, optional
+            Range of mutation factors that control parameter variation. Default is (0.1, 0.5).
+        crossover_rate : float, optional
+            Probability of recombining individuals in the DE algorithm. Default is 0.8.
+        tol : float, optional
+            Convergence tolerance for stopping criteria. Default is 0.01.
+        solver : str, optional
+            The solver to use for differential evolution. Available options:
+            - `"scipy"`: Uses SciPy's built-in DE solver.
+            - `"pyfde"`: Uses `pyfde`, an alternative DE implementation.
+            - `"pyfde_jade"`: Uses JADE, a self-adaptive DE variant (automatically adjusts `mutation` and `crossover_rate`).
+            Default is `"scipy"`.
 
-        Returns:
-            A tuple containing:
-                - The estimated initial parameters found by the DE solver.
-                - A message indicating the solver's status.
+        Returns
+        -------
+        tuple
+            - **solution** : numpy.ndarray
+                Optimized parameter estimates found by the DE solver.
+            - **message** : str
+                Solver status message.
+
+        Notes
+        -----
+        - Calls the appropriate solver function based on the `solver` argument.
+        - If `solver='pyfde_jade'`, mutation and crossover rates are automatically adjusted.
+        - The result can be used as an initial guess for further optimization.
         """
 
         
@@ -252,10 +272,45 @@ class EvolutionaryAlgorithm:
                              mutation=(0.1, 0.5), 
                              crossover_rate=0.8, 
                              tol=0.01, 
-                             #workers=-1, 
-                             vectorized=False,
-                             solver='scipy',
-                             iteration_convergence=False, debug=False):
+                             solver='scipy',):
+        
+        """
+        Runs the differential evolution (DE) algorithm to estimate optimal resonance parameters.
+
+        This function applies a global optimization technique using a DE solver to determine
+        the best-fitting parameters for the given impedance data. The results can later be refined
+        using a local minimization algorithm.
+
+        Parameters
+        ----------
+        maxiter : int, optional
+            Maximum number of iterations for the DE solver. Default is 2000.
+        popsize : int, optional
+            Population size for the DE algorithm. Default is 15.
+        mutation : tuple of float, optional
+            Range of mutation factors controlling parameter variation. Default is (0.1, 0.5).
+        crossover_rate : float, optional
+            Probability of recombining individuals in the DE algorithm. Default is 0.8.
+        tol : float, optional
+            Convergence tolerance for stopping criteria. Default is 0.01.
+        solver : str, optional
+            Specifies the DE solver to use. Valid options are:
+            - `"scipy"`: Uses SciPy's built-in DE solver.
+            - `"pyfde"`: Uses `pyfde`, an alternative DE implementation.
+            - `"pyfde_jade"`: Uses JADE, a self-adaptive DE variant.
+            Default is `"scipy"`.
+
+        Notes
+        -----
+        - Uses `generate_Initial_Parameters()` to perform the differential evolution process.
+        - The optimized parameters are stored in `self.evolutionParameters`.
+        - Calls `self.display_resonator_parameters()` to present the estimated parameters.
+
+        Returns
+        -------
+        None
+            The optimized parameters are stored in `self.evolutionParameters`.
+        """
         evolutionParameters, warning = self.generate_Initial_Parameters(self.parameterBounds, 
                                                            self.objectiveFunction, 
                                                            self.fitFunction, 
@@ -267,9 +322,10 @@ class EvolutionaryAlgorithm:
                                                            crossover_rate=crossover_rate,
                                                            tol=tol,
                                                            solver=solver
-                                                           #workers=workers, vectorized=vectorized,
-                                                           #iteration_convergence=iteration_convergence
-                                                                )
+                                                           #workers=workers,
+                                                           #vectorized=vectorized,
+                                                           #iteration_convergence=iteration_convergence,
+                                                                        )
 
         self.evolutionParameters = evolutionParameters
         self.warning = warning
