@@ -11,6 +11,9 @@
         - `compute_neffint()`: alternative to compute FFT
         - `compute_ineffint()`: allows to go from impedance to Wake potential, alternative to iFFT
         - `compute_deconvolution()`: Allows to go from wake potential to impedance using FFT(wake)/FFT(charge_distribution). Assumes charge distribution is a gaussian with `sigmaz` specified by the user in [s].
+  
+* Framework:
+    * In `run_minimization_algorithm()`, the argument `margin` now supports a list independent values for [Rs, Q, and fres] margins, allowing finer control over parameter variations during optimization.
 
 ## 💗 Other Tag highlights
 * 🔁 Nightly tests with GitHub actions: 
