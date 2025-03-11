@@ -275,18 +275,54 @@ class EvolutionaryAlgorithm:
         self.warning = warning
         self.display_resonator_parameters(self.evolutionParameters)
             
-    def run_minimization_algorithm(self, margin=0.1, method='Nelder-Mead'):
+    def run_minimization_algorithm(self, margin=[0.1, 0.1, 0.1], method='Nelder-Mead'):
         """
-        Minimization algorithm is used to refine results obtained by the DE algorithm. 
-        They are used as initial guess for the algorithm and each parameter is allowed to be
-        increased or decreased by 100*margin [%].
+        Runs a minimization algorithm to refine resonance parameters.
+
+        This function refines the parameters obtained from the Differential Evolution (DE) 
+        algorithm by using a local optimization method. If the DE algorithm has not been run, 
+        it directly minimizes the objective function using initial parameter bounds.
+
+        Each parameter is allowed to vary within a specified margin, where:
+        - Rs values use `margin[0]`
+        - Q values use `margin[1]`
+        - fres values use `margin[2]`
+
+        Parameters
+        ----------
+        margin : float or list of float, optional
+            A list of three values specifying the relative margins for Rs, Q, and fres.
+            Each parameter is allowed to vary by ±(margin * value). Default is [0.1, 0.1, 0.1].
+        method : str, optional
+            Optimization method for `scipy.optimize.minimize`. Default is 'Nelder-Mead'.
+
+        Notes
+        -----
+        - The optimization is constrained within `minimizationBounds`, which are computed 
+        using `margin` and the current `evolutionParameters`.
+        - If the DE algorithm has not been run, the function initializes parameters using 
+        `self.parameterBounds` and minimizes the objective function.
+        - The minimization results are stored in `self.minimizationParameters`.
+        - Calls `self.display_resonator_parameters()` to display the refined parameters.
+
+        Returns
+        -------
+        None
+            The refined parameters are stored in `self.minimizationParameters`.
         """
+
         print('Method for minimization : '+method)
         objective_function = partial(self.objectiveFunction, fitFunction=self.fitFunction,
-                                x=self.x_data, y=self.y_data)
-        
+                                     x=self.x_data, y=self.y_data)
+        if type(margin) is float:
+            margin = [margin] * 3
+
         if self.evolutionParameters is not None:
-            minimizationBounds = [sorted(((1-margin)*p, (1+margin)*p)) for p in self.evolutionParameters]
+            # Apply different margins based on parameter type (Rs, Q, fres)
+            minimizationBounds = [
+                sorted(((1 - margin[i % 3]) * p, (1 + margin[i % 3]) * p))  
+                for i, p in enumerate(self.evolutionParameters)
+                ]
             minimizationParameters = minimize(objective_function, 
                                               x0=self.evolutionParameters,
                                               bounds=minimizationBounds,
