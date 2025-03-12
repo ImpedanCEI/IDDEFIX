@@ -136,8 +136,8 @@ class Wakes:
 
         Args:
             times (np.ndarray): Array of time values in seconds.
-            dict_params (dict or ndarray): Dictionary containing resonator parameters. 
-            If dict, Keys are unique identifiers for each resonator, and values are 
+            dict_params (dict or ndarray): Dictionary containing resonator parameters.
+            If dict, Keys are unique identifiers for each resonator, and values are
             lists containing the parameters in the following order:
                     - Rs (float): Shunt impedance of the resonator in Ohm.
                     - Q (float): Quality factor of the resonator.
@@ -263,7 +263,7 @@ class Wakes:
             except:
                 raise ImportError("mpmath is not installed. Please install it to use this function.")
                 mpmath_is_installed = False
-        
+
         if use_mpmath and mpmath_is_installed:
             from mpmath import erfc, exp, matrix, re, im
             cst = exp((alphar**2 - kr**2) * sigma**2 / 2)
@@ -276,7 +276,7 @@ class Wakes:
             expo2 = arg_expo2.apply(exp)
             im_expo_erfc = matrix([im(ex * er) for (ex, er) in zip(expo2, erfc_v)])
             re_expo_erfc = matrix([re(ex * er) for (ex, er) in zip(expo2, erfc_v)])
-            W = np.hstack([cst * ex1 * (cstsin * im_exr + cstcos * re_exr) 
+            W = np.hstack([cst * ex1 * (cstsin * im_exr + cstcos * re_exr)
                             for (ex1, im_exr, re_exr) in zip(expo1, im_expo_erfc, re_expo_erfc)])
         else:
             cst = np.exp((alphar**2 - kr**2) * sigma**2 / 2)
@@ -286,7 +286,7 @@ class Wakes:
             W = cst * expo1 * (cstsin * np.imag(expo2 * erfc_v) + cstcos * np.real(expo2 * erfc_v))
 
         return W
-    
+
     def n_Resonator_longitudinal_wake_potential(times, pars, sigma=1e-10):
 
         if type(pars) is dict:
@@ -296,7 +296,7 @@ class Wakes:
 
         Wpl = np.sum(Wakes.Resonator_longitudinal_wake_potential(times, *params, sigma=sigma) for params in dict_params.values())
         return Wpl
-    
+
     def Resonator_transverse_wake_potential(times, Rs, Q, resonant_frequency, sigma=1e-10, use_mpmath=False):
         """
         Single resonator wake potential (transverse) for a Gaussian bunch of line density.
@@ -362,7 +362,7 @@ class Wakes:
 
         Wpt = np.sum(Wakes.Resonator_transverse_wake_potential(times, *params, sigma=sigma) for params in dict_params.values())
         return Wpt
-    
+
 
 class Impedances:
 
