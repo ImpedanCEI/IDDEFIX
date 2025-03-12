@@ -9,6 +9,11 @@ import sys
 import numpy as np
 from tqdm import tqdm
 from scipy.optimize import differential_evolution
+from pymoo.algorithms.soo.nonconvex.cmaes import CMAES
+from pymoo.core.problem import ElementwiseProblem, Problem
+from pymoo.optimize import minimize
+from pymoo.termination.default import DefaultSingleObjectiveTermination
+from pymoo.termination import get_termination
 
 class ProgressBarCallback:
     def __init__(self, max_generations):
@@ -110,7 +115,6 @@ class Solvers:
 
         return solution, message
 
-
     def run_pyfde_solver(parameterBounds,
                         minimization_function,
                         maxiter=2000,
@@ -202,3 +206,65 @@ class Solvers:
         solution, message = best, "Convergence achieved" if i < maxiter else "Maximum iterations reached"
 
         return solution, message
+
+    def run_pymoo_cmaes_solver(parameterBounds,
+                            minimization_function,
+                            sigma=0.1,
+                            maxiter=1000,
+                            popsize=50,
+                            **kwargs):
+        """
+        Runs the pymoo CMAES solver to minimize a given function.
+
+        Args:
+            parameterBounds: A list of tuples representing the bounds for each parameter.
+            minimization_function: The function to be minimized.
+            maxiter: The maximum number of iterations to run the solver for.
+            popsize: The population size for the differential evolution algorithm.
+            tol: The tolerance for convergence.
+
+        Returns:
+            A tuple containing:
+                - The solution found by the solver.
+                - A message indicating the solver's status.
+        """
+
+        problem = OptimizationProblem(
+            objective_function=minimization_function,
+            n_var=len(parameterBounds),
+            n_obj=1,
+            xl=[bound[0] for bound in parameterBounds],
+            xu=[bound[1] for bound in parameterBounds],
+        )
+
+        print(len(parameterBounds))
+
+        # Calculate mean of parameter bounds as starting point
+        x0 = np.mean(parameterBounds, axis=1)
+
+        print(f"Starting point: {x0}")
+
+        solver = CMAES(
+            x0=x0,
+            sigma=sigma,
+            popsize=popsize,
+            seed=1,
+            **kwargs,
+        )
+        # use ftol and n_gen as stopping criteria
+        termination_criteria = get_termination("n_gen", maxiter)
+
+        res = minimize(problem, solver, termination_criteria, verbose=True)
+
+        solution = res.X
+        message = "Convergence achieved" #if res. < maxiter else "Maximum iterations reached"
+
+        return solution, message, res
+
+class OptimizationProblem(Problem):
+    def __init__(self, objective_function, n_var, n_obj, xl, xu):
+        super().__init__(n_var=n_var, n_obj=n_obj, xl=xl, xu=xu)
+        self.objective_function = objective_function
+
+    def _evaluate(self, x, out):
+        out["F"] = [self.objective_function(xi) for xi in x]

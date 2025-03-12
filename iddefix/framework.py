@@ -266,6 +266,33 @@ class EvolutionaryAlgorithm:
 
         return solution, message
 
+    def run_cmaes(self,
+                  maxiter=1000,
+                  popsize=50,
+                  sigma=0.1,
+                  **kwargs):
+
+        objective_function = partial(self.objectiveFunction,
+                                        fitFunction=self.fitFunction,
+                                        x=self.x_data,
+                                        y=self.y_data
+                                    )
+
+        solution, message, res = Solvers.run_pymoo_cmaes_solver(self.parameterBounds,
+                                            objective_function,
+                                            sigma=sigma,
+                                            maxiter=maxiter,
+                                            popsize=popsize,
+                                            **kwargs)
+
+        self.evolutionParameters = solution
+        self.warning = message
+        self.display_resonator_parameters(self.evolutionParameters)
+
+        return res
+
+
+
     def run_differential_evolution(self,
                              maxiter=2000,
                              popsize=15,
