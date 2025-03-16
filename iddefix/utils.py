@@ -5,9 +5,9 @@ def pars_to_dict(pars):
     """Converts a list of parameters into a dictionary of parameter groups.
 
     This function takes a list of parameters `pars` and groups them into
-    dictionaries of three parameters (e.g. Rs, Q, resonant_frequency) each. 
-    The keys of the resulting dictionary are integers starting from 0, 
-    and the values are lists containing three consecutive parameters from 
+    dictionaries of three parameters (e.g. Rs, Q, resonant_frequency) each.
+    The keys of the resulting dictionary are integers starting from 0,
+    and the values are lists containing three consecutive parameters from
     the input list.
 
     Args:
@@ -33,7 +33,7 @@ def pars_to_dict(pars):
 
 def compute_fft(data_time, data_wake, fmax=3e9, samples=1001):
     """
-    Compute the Fourier transform of a wake and return the frequencies 
+    Compute the Fourier transform of a wake and return the frequencies
     and impedance values within a specified frequency range.
 
     Parameters
@@ -57,9 +57,9 @@ def compute_fft(data_time, data_wake, fmax=3e9, samples=1001):
     Notes
     -----
     - The time array (`data_time`) is assumed to be evenly spaced.
-    - The spatial sampling interval `ds` is computed based on the time step and 
+    - The spatial sampling interval `ds` is computed based on the time step and
       the speed of light in vacuum.
-    - The Fourier transform is computed using the `numpy.fft` module, and the 
+    - The Fourier transform is computed using the `numpy.fft` module, and the
       results are normalized by the sampling interval (`ds`).
 
     Examples
@@ -67,12 +67,12 @@ def compute_fft(data_time, data_wake, fmax=3e9, samples=1001):
     >>> import numpy as np
     >>> from scipy.constants import c
     >>> time = np.linspace(0, 10, 100)  # Time in nanoseconds
-    >>> wake = np.sin(2 * np.pi * 1e9 * time * 1e-9)  # Example wake 
+    >>> wake = np.sin(2 * np.pi * 1e9 * time * 1e-9)  # Example wake
     >>> f, Z = compute_fft(time, wake, fmax=2e9, samples=500)
     >>> print(f.shape, Z.shape)
     (500, 500)
     """
-    
+
     ds = (data_time[1] - data_time[0])* c_light
     N = int((c_light/ds)//fmax*samples)
     Z = np.fft.fft(data_wake, n=N)
@@ -81,7 +81,7 @@ def compute_fft(data_time, data_wake, fmax=3e9, samples=1001):
     # Mask invalid frequencies
     mask  = np.logical_and(f >= 0 , f < fmax)
     Z = Z[mask]*ds
-    f = f[mask]                                  
+    f = f[mask]
 
     return f, Z
 
@@ -92,7 +92,7 @@ def compute_deconvolution(data_time, data_wake_potential, sigma, fmax=3e9, sampl
 
     # Analytical gaussian with given sigma
     lambdat = 1/(sigma*np.sqrt(2*np.pi))*np.exp(-(data_time**2)/(2*sigma**2))/c_light
-    
+
     Z = np.fft.fft(data_wake_potential, n=N)
     lambdaf = np.fft.fft(lambdat, n=N)
     f = np.fft.fftfreq(len(Z), ds/c_light)
@@ -100,8 +100,8 @@ def compute_deconvolution(data_time, data_wake_potential, sigma, fmax=3e9, sampl
     # Mask invalid frequencies
     mask  = np.logical_and(f >= 0 , f < fmax)
     Z = Z[mask] / lambdaf[mask]
-    f = f[mask]     
-    
+    f = f[mask]
+
     return f, Z
 
 def interpolation_error_abs(func_output, interpolant_output):
@@ -114,10 +114,10 @@ def interpolation_error_rms(func_output, interpolant_output):
     rms_error = np.sqrt(mean_squared_error)
     return rms_error
 
-def compute_ineffint(data_freq, data_impedance, 
+def compute_ineffint(data_freq, data_impedance,
                     times=np.linspace(1e-11, 50e-9, 1000),
                     adaptative=True,
-                    interpolation='linear', 
+                    interpolation='linear',
                     plane = 'longitudinal',
                     error='Abs'):
     try:
@@ -144,9 +144,9 @@ def compute_ineffint(data_freq, data_impedance,
         elif error.lower() == 'rms':
             interpolation_error_norm = interpolation_error_rms
 
-        func = interp1d(data_freq, data_impedance, 
+        func = interp1d(data_freq, data_impedance,
                         kind='linear', fill_value="extrapolate")
-        
+
         frequencies, impedance = neffint.improve_frequency_range(
             initial_frequencies=data_freq,
             func=func,
@@ -176,9 +176,9 @@ def compute_ineffint(data_freq, data_impedance,
 
     return times, wake.real
 
-def compute_neffint(data_time, data_wake, 
+def compute_neffint(data_time, data_wake,
                     frequencies=np.linspace(1, 5e9, 1000),
-                    adaptative=True, 
+                    adaptative=True,
                     interpolation='linear',
                     plane='longitudinal',
                     error='abs'):
@@ -206,9 +206,9 @@ def compute_neffint(data_time, data_wake,
         elif error.lower() == 'rms':
             interpolation_error_norm = interpolation_error_rms
 
-        func = interp1d(data_time, data_wake, 
+        func = interp1d(data_time, data_wake,
                         kind='linear', fill_value="extrapolate")
-        
+
         times, wake = neffint.improve_frequency_range(
             initial_frequencies=data_time,
             func=func,

@@ -57,7 +57,7 @@ class ObjectiveFunctions:
     def logsumOfSquaredError(parameters, fitFunction, x, y):
         """Calculates the sum of log squared errors for a given fit function.
 
-        This function computes the log squared errors between the predicted values from a fit function 
+        This function computes the log squared errors between the predicted values from a fit function
         and the actual data points. It works with both real and imaginary components of the data.
 
         Args:
@@ -78,8 +78,8 @@ class ObjectiveFunctions:
     def logsumOfSquaredErrorReal(parameters, fitFunction, x, y):
         """Calculates the real sum of log squared errors for a given fit function.
 
-        This function computes the real log squared errors between the predicted values 
-        from a fit function and the actual data points. 
+        This function computes the real log squared errors between the predicted values
+        from a fit function and the actual data points.
         It works only with the real component of the data.
 
         Args:
@@ -92,7 +92,7 @@ class ObjectiveFunctions:
         Returns:
             The real sum of log squared errors.
         """
-        
+
         grouped_parameters = pars_to_dict(parameters)
         predicted_y = fitFunction(x, grouped_parameters)
         log_squared_error = np.nansum(np.log((y.real - predicted_y.real)**2))
