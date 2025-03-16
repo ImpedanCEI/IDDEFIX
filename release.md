@@ -1,27 +1,37 @@
 # IDDEFIX v0.1.0 
-*Comming soon!*
+*Coming soon!*
 
 ## 🚀 New Features
 * Smart Bound Determination (SBD):
-    * Method `to_table()` to display the estimated parameter bounds
-    * Custom scale factors for Rs, Q and fres: `Rs_bounds`, `Q_bounds`, `fres_bounds` for init 
+    * Method `to_table()` to display the estimated parameter bounds.
+    * Custom scale factors for Rs, Q, and fres: `Rs_bounds`, `Q_bounds`, `fres_bounds` for init. 
 
 * Utils:
     * Integration of [`neffint`](https://github.com/ImpedanCEI/neffint) for non-equidistant Fourier transforms inside functions:
-        - `compute_neffint()`: alternative to compute FFT
-        - `compute_ineffint()`: allows to go from impedance to Wake potential, alternative to iFFT
-        - `compute_deconvolution()`: Allows to go from wake potential to impedance using FFT(wake)/FFT(charge_distribution). Assumes charge distribution is a gaussian with `sigmaz` specified by the user in [s].
+        - `compute_neffint()`: alternative to compute FFT.
+        - `compute_ineffint()`: allows going from impedance to Wake potential, alternative to iFFT.
+        - `compute_deconvolution()`: Allows going from wake potential to impedance using `FFT(wake)/FFT(charge_distribution)`. Assumes charge distribution is a Gaussian with `sigmaz` specified by the user in [s].
   
 * Framework:
-    * In `run_minimization_algorithm()`, the argument `margin` now supports a list independent values for [Rs, Q, and fres] margins, allowing finer control over parameter variations during optimization.
+    * In `run_minimization_algorithm()`, the argument `margin` now supports a list of independent values for `[Rs, Q, fres]`, allowing finer control over parameter variations during optimization.
+    * Updated docstrings for `EvolutionaryAlgorithm` methods for better documentation and clarity.
 
-## 💗 Other Tag highlights
-* 🔁 Nightly tests with GitHub actions: 
-    - 001 -> compare neffint, FFT, and analytical 
-* 📁 Examples: examples for longitudinal and transverse real-case impedances and wakes
+* Solvers:
+    * Implemented `pymoo`'s CMA-ES algorithm (`run_cmaes()`) as an alternative global optimization solver.
+    * Added `run_pymoo_cmaes_solver()` for CMA-ES optimization using `pymoo`, with support for custom population size, sigma, and stopping criteria.
+    * Included an example integrating CMA-ES with previous optimization workflows.
+
+## 💗 Other Tag Highlights
+* 🔁 Nightly tests with GitHub Actions: 
+    - 001 -> Compare `neffint`, FFT, and analytical methods.
+* 📁 Examples: 
+    - 004a: Fit directly the wake potential data with wake potential resonator formalism
+    - 004b: Fit impedance from wake potential data using `compute_deconvolution()`
+    - 005: Examples using `pymoo`'s CMA-ES algorithm
 
 ## 🐛 Bugfixes 
-* SBD: method `find()` now updates `parameterBounds` in `self`
+* SBD: Method `find()` now updates `parameterBounds` in `self`.
+* Trimmed trailing whitespaces for improved code readability.
 
 
 ## 👋👩‍💻New Contributors
@@ -29,6 +39,14 @@
 
 ## 📝Full changelog
 `git log v0.0.2... --date=short --pretty=format:"* %ad %d %s (%aN)" | copy`
+* 2025-03-16  Merge pull request #3 from babreufig/main (Elena de la Fuente García)
+* 2025-03-12  Implemented CMA-ES and added one mixed example of previous notebooks (Bernardo Abreu Figueiredo)
+* 2025-03-12  Trimmed trailing whitespaces (Bernardo Abreu Figueiredo)
+* 2025-03-11  docs: update docstrings inside EvolutionaryAlgorithm methods (elenafuengar)
+* 2025-03-11  docs: update release.md (elenafuengar)
+* 2025-03-11  feature: allow different margins for Rs, Q and fres when running the minimization algorithm (elenafuengar)
+* 2025-03-10  docs: prepare for 0.1.0 release (elenafuengar)
+* 2025-03-10  docs: include call to new method `SBD.to_table()` (elenafuengar)
 * 2025-03-10  docs: add docstring (elenafuengar)
 * 2025-03-10  feature: add custom scaling factors for Rs, Q, fres in init (elenafuengar)
 * 2025-03-10  fix: `find()` method was not updating paramBounds in self (elenafuengar)
