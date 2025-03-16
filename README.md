@@ -22,9 +22,10 @@ IDDEFIX is a physics-informed evolutionary optimization framework that fits a re
     * Longitudinal and transverse wake potentials
 
 * Differential Evolution algorithm for fitting resonsators to impedance
-    * **SciPy**
+    * **SciPy**'s [Differential Evolution](https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.differential_evolution.html)
     * pyfde ClassicDE
     * pyfde JADE
+    * **pyMOO**'s [CMA-ES](https://pymoo.org/algorithms/soo/cmaes.html) "Covariance Matrix Adaptation Evolution Strategy"
 
 * Smart Bound Determination for precise and easy boundary setting
 
@@ -52,13 +53,17 @@ Check :file_folder: `examples/` for different DE resonator fitting cases
 
 ## Contributors :woman_technologist: :man_technologist:
 * Author : Sébastien Joly (sebastien.joly@helmholtz-berlin.de)
-* Collaborator : Malthe Raschke (malthe@raschke.dk)
-  * Refactored code and PYPI deployment
-  * Smart Bound Determination
-  * Example notebooks for extrapolation of analytical and simulated devices
+* Collaborator : 
+  * Malthe Raschke (malthe@raschke.dk)
+    - Refactored code and PYPI deployment
+    - Smart Bound Determination
+    - Example notebooks for extrapolation of analytical and simulated devices
+  * Bernardo Abreu Figueiredo:
+    - CMA-ES kernel integration from `pymoo` 
 * Maintainer: Elena de la Fuente (elena.de.la.fuente.garcia@cern.ch)
 
 ## Publications about `iddefix`
 - S. Joly, *Resonator impedance extrapolation of a partially decayed wake* presentation @ CERN ABP-CEI section meeting [link](https://indico.cern.ch/event/1265710/contributions/5315305/attachments/2621462/4532440/Partially_decayed_wake.pdf)
 - S. Joly, PhD Thesis *Recent advances in the CERN PS impedance model and instability simulations following the LHC Injectors Upgrade project* Sapienza Universita di Roma [link](https://hdl.handle.net/11573/1718791)
 - M. Raschke, *Evolutionary Algorithms for Wakefields* @ CERN ABP-CEI section meeting [link](https://indico.cern.ch/event/1496532/contributions/6303923/attachments/2992287/5283277/Evolutionary%20algorithms%20for%20Wakefields%20-%20CERN.pdf)
+- B. Figueiredo, *Using Xsuite and (CMA-ES) genetic methods to optimize FCC GHS momentum acceptance* @ CERN ABP-CAP section meeting [link](https://indico.cern.ch/event/1510103/#2-using-xsuite-and-genetic-met)
