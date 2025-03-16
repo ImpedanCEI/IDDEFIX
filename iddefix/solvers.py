@@ -235,6 +235,14 @@ class Solvers:
                            >>> pip install pymoo
                         ''')
 
+        class OptimizationProblem(Problem):
+            def __init__(self, objective_function, n_var, n_obj, xl, xu):
+                super().__init__(n_var=n_var, n_obj=n_obj, xl=xl, xu=xu)
+                self.objective_function = objective_function
+
+            def _evaluate(self, x, out):
+                out["F"] = [self.objective_function(xi) for xi in x]
+                
         problem = OptimizationProblem(
             objective_function=minimization_function,
             n_var=len(parameterBounds),
@@ -266,11 +274,3 @@ class Solvers:
         message = "Convergence achieved" #if res. < maxiter else "Maximum iterations reached"
 
         return solution, message, res
-
-class OptimizationProblem(Problem):
-    def __init__(self, objective_function, n_var, n_obj, xl, xu):
-        super().__init__(n_var=n_var, n_obj=n_obj, xl=xl, xu=xu)
-        self.objective_function = objective_function
-
-    def _evaluate(self, x, out):
-        out["F"] = [self.objective_function(xi) for xi in x]
