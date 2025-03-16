@@ -4,16 +4,12 @@
 Created on Sat Dec  5 16:33:41 2020
 
 @author: sjoly
+@contributor: edelafue, babreufig
 """
 import sys
 import numpy as np
 from tqdm import tqdm
 from scipy.optimize import differential_evolution
-from pymoo.algorithms.soo.nonconvex.cmaes import CMAES
-from pymoo.core.problem import ElementwiseProblem, Problem
-from pymoo.optimize import minimize
-from pymoo.termination.default import DefaultSingleObjectiveTermination
-from pymoo.termination import get_termination
 
 class ProgressBarCallback:
     def __init__(self, max_generations):
@@ -228,6 +224,16 @@ class Solvers:
                 - The solution found by the solver.
                 - A message indicating the solver's status.
         """
+        try:
+            from pymoo.algorithms.soo.nonconvex.cmaes import CMAES
+            from pymoo.core.problem import ElementwiseProblem, Problem
+            from pymoo.optimize import minimize
+            from pymoo.termination.default import DefaultSingleObjectiveTermination
+            from pymoo.termination import get_termination
+        except:
+            ImportError('''Please install the pymoo package to use the CMA-ES solver:
+                           >>> pip install pymoo
+                        ''')
 
         problem = OptimizationProblem(
             objective_function=minimization_function,

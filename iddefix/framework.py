@@ -271,6 +271,36 @@ class EvolutionaryAlgorithm:
                   popsize=50,
                   sigma=0.1,
                   **kwargs):
+        """
+        Runs the CMA-ES (Covariance Matrix Adaptation Evolution Strategy) algorithm 
+        from `pymoo` to optimize resonance parameters.
+
+        This function applies the CMA-ES global optimization method to minimize the 
+        objective function based on the given impedance data and parameter bounds. 
+        The resulting optimized parameters are stored for further analysis or refinement.
+
+        Parameters
+        ----------
+        maxiter : int, optional
+            Maximum number of iterations for the CMA-ES solver. Default is 1000.
+        popsize : int, optional
+            Population size for the CMA-ES algorithm. Default is 50.
+        sigma : float, optional
+            Initial standard deviation for the sampling distribution. Default is 0.1.
+        **kwargs : dict, optional
+            Additional arguments passed to the `pymoo.CMAES` solver.
+
+        Returns
+        -------
+        res : pymoo.optimize.Result
+            The optimization result object containing the solution and metadata.
+
+        Notes
+        -----
+        - Uses `Solvers.run_pymoo_cmaes_solver()` to execute the optimization.
+        - The optimized parameters are stored in `self.evolutionParameters`.
+        - Calls `self.display_resonator_parameters()` to present the results.
+        """
 
         objective_function = partial(self.objectiveFunction,
                                         fitFunction=self.fitFunction,
