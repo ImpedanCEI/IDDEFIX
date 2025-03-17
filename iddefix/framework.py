@@ -522,7 +522,7 @@ class EvolutionaryAlgorithm:
 
         return wake_data
 
-    def get_wake_potential(self, time_data=None, sigma=1e-9, use_minimization=True):
+    def get_wake_potential(self, time_data=None, sigma=None, use_minimization=True):
 
         # Check for time data
         if time_data is None:
@@ -533,6 +533,13 @@ class EvolutionaryAlgorithm:
             if self.time_data is None:
                 self.time_data = time_data
 
+        # Check for sigma
+        if sigma is None:
+            if self.sigma is None:
+                self.sigma = 1e-10
+            sigma = self.sigma
+            print(f'[!] sigma not specified, using sigma = {sigma:.2e} s')
+            
         # Which pars to use
         if use_minimization and self.minimizationParameters is not None:
             pars = self.minimizationParameters
