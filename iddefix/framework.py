@@ -618,8 +618,11 @@ class EvolutionaryAlgorithm:
                            fmax=fmax,
                            samples=samples)
 
+        # Apply convention 
         if self.plane == 'transverse':
             Z *= -1j
+        elif self.plane == 'longitudinal':
+            Z *= -1.
 
         return f, Z
 
@@ -662,3 +665,149 @@ class EvolutionaryAlgorithm:
         ext_wake_data = self.get_wake(ext_time_data, use_minimization)
 
         return ext_time_data, ext_wake_data
+    
+    def save_txt(self, f_name, x_data=None, y_data=None, x_name='X [-]', y_name='Y [-]'):
+        """
+        Saves x and y data to a text file in a two-column format.
+
+        This function exports the provided `x_data` and `y_data` to a `.txt` file, 
+        formatting the output with a header that includes custom column names.
+
+        Parameters
+        ----------
+        f_name : str
+            Name of the output file (with or without the `.txt` extension).
+        x_data : numpy.ndarray, optional
+            Array containing x-axis data. If None, the file is not saved.
+        y_data : numpy.ndarray, optional
+            Array containing y-axis data. If None, the file is not saved.
+        x_name : str, optional
+            Label for the x-axis column in the output file. Default is `"X [-]"`.
+        y_name : str, optional
+            Label for the y-axis column in the output file. Default is `"Y [-]"`.
+
+        Notes
+        -----
+        - The data is saved in a two-column format where `x_data` and `y_data` 
+        are combined column-wise.
+        - If `x_data` or `y_data` is missing, the function prints a warning and does not save a file.
+
+        Examples
+        --------
+        Save two NumPy arrays to `data.txt`:
+        
+        >>> x = np.linspace(0, 10, 5)
+        >>> y = np.sin(x)
+        >>> save_txt("data", x, y, x_name="Time [s]", y_name="Amplitude [a.u.]")
+        
+        The saved file will look like:
+        
+            Time [s]               Amplitude
+            --------------------------------
+            0.00                   0.00
+            2.50                   0.59
+            5.00                   -0.99
+            7.50                   0.94
+            10.00                  -0.54
+        """
+        if not f_name.endswith('.txt'):
+            f_name += '.txt'
+            
+        if x_data is not None and y_data is not None:
+            np.savetxt(f_name+'.txt', np.c_[x_data, y_data], header='   '+x_name+' '*20+y_name+'\n'+'-'*48)
+        else:
+            print('txt not saved, please provide x_data and y_data')
+
+    def read_txt(self, txt, skiprows=2, delimiter=None, usecols=None, as_dict=False):
+        """
+        Reads data from an ASCII text file and returns it as a dictionary or tuple.
+
+        This function reads a structured text file containing numerical data, 
+        where the first line is expected to contain column headers. It attempts 
+        to parse the headers and assign them as dictionary keys. If headers are 
+        not properly formatted, integer indices are used instead.
+
+        Parameters
+        ----------
+        txt : str
+            Path to the text file to read.
+        skiprows : int, optional
+            Number of initial rows to skip before reading the data. Default is 2.
+        delimiter : str, optional
+            Character used to separate values in the file. If None, whitespace is used.
+        usecols : list of int, optional
+            Indices of columns to read from the file. If None, all columns are read.
+        as_dict : bool, optional
+            If True, returns a dictionary where keys are the column headers (if available) 
+            or integers (if headers are missing). If False, returns `x_data` and `y_data` 
+            as separate arrays. Default is False.
+
+        Returns
+        -------
+        dict or tuple
+            - If `as_dict=True`, returns a dictionary `{header: column_data}`.
+            - If `as_dict=False`, returns `(x_data, y_data)`, where:
+            - `x_data` is the first column of data.
+            - `y_data` is the second column of data.
+
+        Notes
+        -----
+        - If an error occurs while reading the file, the function attempts to reload 
+        the data assuming complex numbers (`dtype=np.complex_`).
+        - If column headers are missing or unreadable, integer indices `[0, 1, ...]` 
+        are assigned as dictionary keys.
+        - The first line of the file is expected to contain column headers.
+
+        Examples
+        --------
+        Read a file and return as a dictionary:
+        
+        >>> data = read_txt("data.txt", as_dict=True)
+        >>> print(data.keys())  # Example output: {'Time[s]': array([...]), 'Amplitude': array([...])}
+
+        Read a file and return x and y data separately:
+        
+        >>> x, y = read_txt("data.txt")
+        >>> print(x.shape, y.shape)
+
+        Example of an expected file format:
+        
+        ```
+        # Time[s]     Amplitude
+        ------------------------
+        0.00         0.00
+        2.50         0.59
+        5.00        -0.99
+        ```
+        """
+
+        try:
+            load = np.loadtxt(txt, skiprows=skiprows, delimiter=delimiter, usecols=usecols)
+        except:
+            load = np.loadtxt(txt, skiprows=skiprows, delimiter=delimiter, 
+                              usecols=usecols, dtype=np.complex_)
+            
+        try: # keys == header names
+            with open(txt) as f:
+                header = f.readline()
+
+            header = header.replace(' ', '')
+            header = header.replace('#', '')
+            header = header.replace('\n', '')
+            header = header.split(']')
+
+            d = {}
+            for i in range(len(load[0,:])):
+                d[header[i]+']'] = load[:, i]
+        
+        except: #keys == int 0, 1, ...
+            d = {}
+            for i in range(len(load[0,:])):
+                d[i] = load[:, i]
+        
+        if as_dict:
+            return d
+        else:
+            x_data = d.values()[0]
+            y_data = d.values()[1]
+            return x_data, y_data
