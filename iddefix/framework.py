@@ -104,7 +104,7 @@ class EvolutionaryAlgorithm:
 
         self.N_resonators = N_resonators
         self.parameterBounds = parameterBounds
-        self.objectiveFunction = objectiveFunction
+        self.objectiveFunction = objectiveFunction #TODO: check appropriateness depending on input (Re, complex)
         self.wake_length = wake_length
         self.plane = plane
         self.sigma = sigma
@@ -546,7 +546,7 @@ class EvolutionaryAlgorithm:
         else:
             pars = self.evolutionParameters
 
-        # Which plane and formula
+        # Which plane and formula - TODO check normalization
         if self.plane == "longitudinal" and self.N_resonators > 1:
             wake_potential_data = wak.n_Resonator_longitudinal_wake_potential(time_data, pars, sigma=sigma)
         elif self.plane == "transverse" and self.N_resonators > 1:
