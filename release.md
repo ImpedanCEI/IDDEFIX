@@ -11,10 +11,14 @@
         - `compute_neffint()`: alternative to compute FFT.
         - `compute_ineffint()`: allows going from impedance to Wake potential, alternative to iFFT.
         - `compute_deconvolution()`: Allows going from wake potential to impedance using `FFT(wake)/FFT(charge_distribution)`. Assumes charge distribution is a Gaussian with `sigmaz` specified by the user in [s].
-  
+  * File I/O:
+    * `read_txt()`: reads ASCII `.txt` files into arrays or dicts.
+    * `save_txt()`: exports x/y data to formatted `.txt` files.
+
 * Framework:
     * In `run_minimization_algorithm()`, the argument `margin` now supports a list of independent values for `[Rs, Q, fres]`, allowing finer control over parameter variations during optimization.
     * Updated docstrings for `EvolutionaryAlgorithm` methods for better documentation and clarity.
+    * Check if beam sigma parameter is not passed when using wake potential functions and print a warning
 
 * Solvers:
     * Implemented `pymoo`'s CMA-ES algorithm (`run_cmaes()`) as an alternative global optimization solver.
@@ -35,10 +39,19 @@
 
 
 ## 👋👩‍💻New Contributors
-
+* @babreufig - Implemented the CMA-ES algorithm using `pymoo`
 
 ## 📝Full changelog
 `git log v0.0.2... --date=short --pretty=format:"* %ad %d %s (%aN)" | copy`
+* 2025-03-26  Little timing comparison between CMAES and DE (Bernardo Abreu Figueiredo)
+* 2025-03-26  Added two more examples to notebook (Bernardo Abreu Figueiredo)
+* 2025-03-17  fix/feat: Check if sigma is not passed, and use the sigma value in self or default and print warning (elenafuengar)
+* 2025-03-17  feature: add functions to read and write to .txt files (elenafuengar)
+* 2025-03-16  build: include pymoo (optional) (elenafuengar)
+* 2025-03-16  docs: Update readme (elenafuengar)
+* 2025-03-16  fix: add `OptimizationProblem` class inside pymoo routine for import handling and clarity (elenafuengar)
+* 2025-03-16  docs: update release.md (elenafuengar)
+* 2025-03-16  docs: add docstring and error handling for pymoo imports (elenafuengar)
 * 2025-03-16  Merge pull request #3 from babreufig/main (Elena de la Fuente García)
 * 2025-03-12  Implemented CMA-ES and added one mixed example of previous notebooks (Bernardo Abreu Figueiredo)
 * 2025-03-12  Trimmed trailing whitespaces (Bernardo Abreu Figueiredo)
