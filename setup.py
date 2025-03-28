@@ -13,7 +13,7 @@ long_description = (Path(__file__).parent / "README.md").read_text()
 
 # read requirements.txt for extras_require
 with open('requirements.txt') as f:
-    notebook_required = f.read().splitlines()
+    extra_required = f.read().splitlines()
 
 setup(
     name='iddefix',
@@ -46,4 +46,8 @@ setup(
         'numpy<2.0',
         'scipy',
         ],
+    extras_require={
+        'all': extra_required,
+        },
+    tests_require=['pytest'],
     )
