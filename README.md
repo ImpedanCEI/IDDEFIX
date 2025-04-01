@@ -58,7 +58,7 @@ Check :file_folder: `examples/` for different DE resonator fitting cases
     - Refactored code and PYPI deployment
     - Smart Bound Determination
     - Example notebooks for extrapolation of analytical and simulated devices
-  * Bernardo Abreu Figueiredo:
+  * Bernardo Abreu Figueiredo (bernardo.abreu.figueiredo@cern.ch):
     - CMA-ES kernel integration from `pymoo` 
 * Maintainer: Elena de la Fuente (elena.de.la.fuente.garcia@cern.ch)
 
