@@ -85,8 +85,87 @@ def compute_fft(data_time, data_wake, fmax=3e9, samples=1001):
 
     return f, Z
 
-def compute_deconvolution(data_time, data_wake_potential, sigma, fmax=3e9, samples=1001):
+def compute_convolution(data_time, data_wake, sigma, kernel='numpy'):
+    """
+    Compute the convolution of a wake function with a Gaussian bunch profile.
 
+    Parameters
+    ----------
+    data_time : array_like
+        Time axis corresponding to the wake data, typically centered at zero in [s]
+    data_wake : array_like
+        Wake potential values as a function of time.
+    sigma : float
+        RMS width of the Gaussian bunch profile in [s]
+    kernel : {'numpy', 'scipy', 'scipy_fft'}, optional
+        Convolution method to use:
+        - 'numpy': Use `numpy.convolve`.
+        - 'scipy': Use `scipy.signal.convolve`.
+        - 'scipy_fft': Use `scipy.fft.convolve`.
+
+    Returns
+    -------
+    t_convolved : ndarray
+        Time axis of the convolved signal, stretched to account for convolution effects.
+    wake_convolved : ndarray
+        The wake potential after convolution with the Gaussian bunch.
+
+    Notes
+    -----
+    The Gaussian bunch profile is normalized before convolution. The output time array
+    is linearly spaced and scaled to match the domain after convolution.
+    """
+    
+    if kernel.lower() == 'numpy':
+        from numpy import convolve
+    elif kernel.lower() == 'scipy':
+        from scipy.signal import convolve
+    elif kernel.lower() == 'scipy_fft':
+        from scipy.fft import convolve
+    
+    # Generate the bunch profile
+    lambdat = 1/(sigma*np.sqrt(2*np.pi))*np.exp(-(data_time**2)/(2*sigma**2))
+    
+    # Perform the convolution
+    wake_convolved = convolve(data_wake, lambdat) / np.sum(lambdat)  
+    t_convolved = np.linspace(data_time[0], data_time[-1], len(data_wake))*2 
+
+    return t_convolved, wake_convolved
+
+def compute_deconvolution(data_time, data_wake_potential, sigma, fmax=3e9, samples=1001):
+    """
+    Deconvolve a wake potential with a Gaussian bunch profile to obtain the impedance spectrum.
+
+    Parameters
+    ----------
+    data_time : array_like
+        Time axis corresponding to the wake potential, typically centered around zero [s].
+    data_wake_potential : array_like
+        Wake potential values as a function of time [V/pC].
+    sigma : float
+        RMS width of the Gaussian bunch used to convolve the wake function [s].
+    fmax : float, optional
+        Maximum frequency of interest for the impedance spectrum [Hz]. Default is 3e9.
+    samples : int, optional
+        Number of points used to sample the frequency domain. Controls the frequency resolution.
+        Default is 1001.
+
+    Returns
+    -------
+    f : ndarray
+        Frequency axis for the impedance spectrum [Hz].
+    Z : ndarray
+        Complex beam-coupling impedance [Ohm].
+
+    Notes
+    -----
+    The impedance is computed by dividing the FFT of the wake potential by the FFT of an 
+    analytical Gaussian bunch profile of width `sigma`. Frequencies above `fmax` and negative
+    frequencies are discarded.
+
+    The normalization assumes time in seconds and spatial quantities scaled by the speed of light.
+    """
+    
     ds = (data_time[1] - data_time[0])*c_light
     N = int((c_light/ds)//fmax*samples)
 
