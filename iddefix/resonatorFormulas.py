@@ -236,7 +236,7 @@ class Wakes:
             Rs (float or list): Shunt impedance (Ohm).
             resonant_frequency (float or list): Resonant frequency (Hz).
             Q (float or list): Quality factor.
-            sigma (float): RMS bunch length (s).
+            sigma (float): STD bunch length (s) (RMS*4)
             times (array-like): Times (s) where wake is computed (times > 0 behind the source).
             use_mpmath (bool, optional): Use mpmath for calculations. Defaults to False.
 
@@ -249,6 +249,7 @@ class Wakes:
             Q must be different from 0.5!
             Rs, resonant_frequency, and Q must be scalar.
         """
+        sigma *= 4 # use STD like in CST
         omegar = 2 * np.pi * resonant_frequency
         kr = omegar * (1 - 1 / (4 * Q**2))**0.5
         alphar = omegar / (2 * Q)
@@ -305,7 +306,7 @@ class Wakes:
             Rs (float or list): Shunt impedance (Ohm).
             resonant_frequency (float or list): Resonant frequency (Hz).
             Q (float or list): Quality factor.
-            sigma (float): RMS bunch length (s).
+            sigma (float): STD bunch length (s) (RMS*4)
             times (array-like): Times (s) where wake is computed (times > 0 behind the source).
             use_mpmath (bool, optional): Use mpmath for calculations. Defaults to False.
 
@@ -319,6 +320,7 @@ class Wakes:
             Rs, resonant_frequency, and Q must be scalar.
         """
 
+        sigma *= 4 # use STD like in CST
         omegar = 2 * np.pi * resonant_frequency
         kr = omegar * (1 - 1 / (4 * Q**2))**0.5
         alphar = omegar / (2 * Q)
