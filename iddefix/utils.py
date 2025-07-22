@@ -96,7 +96,7 @@ def compute_convolution(data_time, data_wake, sigma, kernel='numpy'):
     data_wake : array_like
         Wake potential values as a function of time.
     sigma : float
-        RMS width of the Gaussian bunch profile in [s]
+        Beam sigma (RMS bunch length/4) of the Gaussian bunch profile in [s]
     kernel : {'numpy', 'scipy', 'scipy_fft'}, optional
         Convolution method to use:
         - 'numpy': Use `numpy.convolve`.
@@ -123,12 +123,12 @@ def compute_convolution(data_time, data_wake, sigma, kernel='numpy'):
     elif kernel.lower() == 'scipy_fft':
         from scipy.fft import convolve
     
-    # Generate the bunch profile
-    lambdat = 1/(sigma*np.sqrt(2*np.pi))*np.exp(-(data_time**2)/(2*sigma**2))
+    # Analytical gaussian with given sigma
+    lambdat = gaussian_bunch(data_time, sigma)
     
     # Perform the convolution
     wake_convolved = convolve(data_wake, lambdat) / np.sum(lambdat)  
-    t_convolved = np.linspace(data_time[0], data_time[-1], len(data_wake))*2 
+    t_convolved = np.linspace(data_time[0], data_time[-1], len(wake_convolved))*2 
 
     return t_convolved, wake_convolved
 
@@ -143,7 +143,8 @@ def compute_deconvolution(data_time, data_wake_potential, sigma, fmax=3e9, sampl
     data_wake_potential : array_like
         Wake potential values as a function of time [V/pC].
     sigma : float
-        RMS width of the Gaussian bunch used to convolve the wake function [s].
+        Beam sigma (RMS bunch length/4) of the Gaussian bunch profile in [s]
+        used to convolve the wake function.
     fmax : float, optional
         Maximum frequency of interest for the impedance spectrum [Hz]. Default is 3e9.
     samples : int, optional
@@ -170,7 +171,7 @@ def compute_deconvolution(data_time, data_wake_potential, sigma, fmax=3e9, sampl
     N = int((c_light/ds)//fmax*samples)
 
     # Analytical gaussian with given sigma
-    lambdat = 1/(sigma*np.sqrt(2*np.pi))*np.exp(-(data_time**2)/(2*sigma**2))/c_light
+    lambdat = gaussian_bunch(data_time, sigma)
 
     Z = np.fft.fft(data_wake_potential, n=N)
     lambdaf = np.fft.fft(lambdat, n=N)
@@ -182,6 +183,25 @@ def compute_deconvolution(data_time, data_wake_potential, sigma, fmax=3e9, sampl
     f = f[mask]
 
     return f, Z
+
+def gaussian_bunch(time, sigma):
+    """
+    Generate a Gaussian bunch profile.
+
+    Parameters
+    ----------
+    time : array_like
+        Time axis where the Gaussian bunch profile is evaluated.
+    sigma : float
+        Standard deviation of the Gaussian bunch profile (RMS length).
+
+    Returns
+    -------
+    ndarray
+        Gaussian bunch profile evaluated at the given time.
+    """
+    # Analytical gaussian with given sigma
+    return 1/(sigma*np.sqrt(2*np.pi))*np.exp(-(time**2)/(2*sigma**2))/c_light
 
 def interpolation_error_abs(func_output, interpolant_output):
     return np.abs(func_output - interpolant_output)
