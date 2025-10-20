@@ -24,7 +24,7 @@ class EvolutionaryAlgorithm:
                  parameterBounds,
                  plane="longitudinal",
                  fitFunction="impedance",
-                 objectiveFunction = obj.sumOfSquaredError,
+                 objectiveFunction = None,
                  wake_length=None,
                  sigma=None,
                 ):
@@ -104,7 +104,7 @@ class EvolutionaryAlgorithm:
 
         self.N_resonators = N_resonators
         self.parameterBounds = parameterBounds
-        self.objectiveFunction = objectiveFunction #TODO: check appropriateness depending on input (Re, complex)
+        self.objectiveFunction = objectiveFunction 
         self.wake_length = wake_length
         self.plane = plane
         self.sigma = sigma
@@ -116,6 +116,12 @@ class EvolutionaryAlgorithm:
         self.impedance_data = None
         self.evolutionParameters = None
         self.minimizationParameters = None
+
+        if self.objectiveFunction is None:
+            if np.iscomplex(y_data):
+                self.objectiveFunction = obj.sumOfSquaredError
+            else:
+                self.objectiveFunction = obj.sumOfSquaredErrorReal
 
         if fitFunction == "wake" or fitFunction == "wake function":
             if plane == "longitudinal" and N_resonators > 1:
