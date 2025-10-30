@@ -52,8 +52,9 @@ class EvolutionaryAlgorithm:
         plane : str, optional
             Type of impedance model, either `"longitudinal"` or `"transverse"`.
             Default is `"longitudinal"`.
-        objectiveFunction : callable, optional
-            The objective function to minimize. Default is `obj.sumOfSquaredError`.
+        objectiveFunction : callable or str, optional
+            The objective function to minimize. If str, it should be in ['Real', 'Complex', 'Abs']--no capital case distinction.
+            Default if `y_data` is complex: `obj.sumOfSquaredError`. Otherwise it will be `obj.sumOfSquaredErrorReal`.
         wake_length : float, optional
             Length of the wake function in meters. Required for wake computations.
         sigma : float, optional
@@ -122,7 +123,17 @@ class EvolutionaryAlgorithm:
                 self.objectiveFunction = obj.sumOfSquaredError
             else:
                 self.objectiveFunction = obj.sumOfSquaredErrorReal
-
+        elif self.objectiveFunction is str:
+            if self.objectiveFunction.lower() == 'complex':
+                self.objectiveFunction = obj.sumOfSquaredError
+            if self.objectiveFunction.lower() == 'real':
+                self.objectiveFunction = obj.sumOfSquaredErrorReal
+            elif self.objectiveFunction.lower() == 'abs':
+                self.objectiveFunction = obj.sumOfSquaredErrorAbs
+            else:
+                print('[!] Objective function set to default `iddefix.objectiveFunctions.sumOfSquaredError`')
+                self.objectiveFunction = obj.sumOfSquaredError
+                
         if fitFunction == "wake" or fitFunction == "wake function":
             if plane == "longitudinal" and N_resonators > 1:
                 self.fitFunction = wak.n_Resonator_longitudinal_wake
