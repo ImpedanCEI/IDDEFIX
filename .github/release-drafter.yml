@@ -1,0 +1,30 @@
+name-template: "IDDEFIX v$NEXT_PATCH_VERSION"
+tag-template: "v$NEXT_PATCH_VERSION"
+categories:
+  - title: "🚀 New Features"
+    labels: ["feature", "feat", "enhancement"]
+  - title: "🐛 Bugfixes"
+    labels: ["bug", "fix", "bugfix"]
+  - title: "💗 Other Tag Highlights"
+    labels: ["style", "test", "docs", "build"]
+  - title: "👋👩‍💻 New Contributors"
+    labels: ["contributor"]
+change-template: "- $TITLE (@$AUTHOR)"
+template: |
+  # IDDEFIX v$NEXT_PATCH_VERSION
+  *Coming soon!*
+
+  ## 🚀 New Features
+  $CHANGES
+
+  ## 💗 Other Tag Highlights
+  $CHANGES
+
+  ## 🐛 Bugfixes
+  $CHANGES
+
+  ## 👋👩‍💻 New Contributors
+  $CONTRIBUTORS
+
+  ## 📝Full changelog
+  [`git log $PREVIOUS_TAG...$CURRENT_TAG`](https://github.com/OWNER/REPO/compare/$PREVIOUS_TAG...$CURRENT_TAG)
