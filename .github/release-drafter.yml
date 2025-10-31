@@ -13,7 +13,7 @@ categories:
     commit-keywords: ["docs", "build", "style", "refactor"]
 
 change-template: "- {title} (@{author})"
-change-title-escapes: true
+change-title-escapes: "true"
 
 template: |
   # IDDEFIX v$NEXT_PATCH_VERSION

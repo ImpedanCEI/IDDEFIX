@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version tag for the release (e.g., v0.1.0)'
+        description: 'Optional version tag for the release (e.g., v0.1.2)'
         required: false
       publish:
-        description: 'Publish release (true) or just draft (false)?'
+        description: 'Publish release immediately? (true/false)'
         required: false
         default: 'false'
 
@@ -15,9 +15,13 @@ jobs:
   update_release_draft:
     runs-on: ubuntu-latest
     steps:
-      - uses: release-drafter/release-drafter@v6
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Release Drafter
+        uses: release-drafter/release-drafter@v6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          version: ${{ github.event.inputs.version }}
-          publish: ${{ github.event.inputs.publish }}
+          version: ${{ github.event.inputs.version || '' }}
+          publish: ${{ github.event.inputs.publish || 'false' }}
