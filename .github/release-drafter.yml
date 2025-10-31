@@ -1,15 +1,20 @@
 name-template: "IDDEFIX v$NEXT_PATCH_VERSION"
 tag-template: "v$NEXT_PATCH_VERSION"
+
 categories:
   - title: "🚀 New Features"
-    labels: ["feature", "feat", "enhancement"]
+    labels: ["feature", "enhancement"]
+    commit-keywords: ["feat", "feature"]
   - title: "🐛 Bugfixes"
-    labels: ["bug", "fix", "bugfix"]
+    labels: ["fix", "bug"]
+    commit-keywords: ["fix"]
   - title: "💗 Other Tag Highlights"
-    labels: ["style", "test", "docs", "build"]
-  - title: "👋👩‍💻 New Contributors"
-    labels: ["contributor"]
-change-template: "- $TITLE (@$AUTHOR)"
+    labels: ["example", "docs", "style", "test", "build"]
+    commit-keywords: ["docs", "build", "style", "refactor"]
+
+change-template: "- {title} (@{author})"
+change-title-escapes: true
+
 template: |
   # IDDEFIX v$NEXT_PATCH_VERSION
   *Coming soon!*
@@ -23,8 +28,13 @@ template: |
   ## 🐛 Bugfixes
   $CHANGES
 
-  ## 👋👩‍💻 New Contributors
+  ## 👋👩‍💻 Contributors
   $CONTRIBUTORS
 
   ## 📝Full changelog
   [`git log $PREVIOUS_TAG...$CURRENT_TAG`](https://github.com/OWNER/REPO/compare/$PREVIOUS_TAG...$CURRENT_TAG)
+
+include-commit-messages: true
+sort-by: "merged_at"
+sort-direction: descending
+
