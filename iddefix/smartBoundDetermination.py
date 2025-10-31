@@ -167,10 +167,6 @@ class SmartBoundDetermination:
                                          threshold=threshold, distance=distance,
                                          prominence=prominence)
 
-        # Store peaks and peaks_height as instance attributes
-        self.peaks = peaks
-        self.peaks_height = peaks_height
-
         Nres = len(peaks)
         initial_Qs = np.zeros(Nres)
         self.minus_3dB_points = np.zeros(Nres)
@@ -188,6 +184,13 @@ class SmartBoundDetermination:
 
         parameterBounds = []
 
+        # Clean inf values in Qs --> not a valid resonance
+        valid_indices = ~np.isinf(initial_Qs)
+        peaks = peaks[valid_indices]
+        peaks_height = {'peak_heights': peaks_height['peak_heights'][valid_indices]}
+        initial_Qs = initial_Qs[valid_indices]
+        Nres = len(peaks)
+
         for i in range(Nres):
             # Add the fixed bounds
             Rs_bounds = (peaks_height['peak_heights'][i]*self.Rs_bounds[0], peaks_height['peak_heights'][i]*self.Rs_bounds[1])
@@ -196,6 +199,9 @@ class SmartBoundDetermination:
 
             parameterBounds.extend([Rs_bounds, Q_bounds, freq_bounds])
 
+        # Store peaks and peaks_height as instance attributes
+        self.peaks = peaks
+        self.peaks_height = peaks_height
         self.N_resonators = len(parameterBounds)/3
         self.parameterBounds = parameterBounds
         return parameterBounds
