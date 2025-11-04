@@ -119,10 +119,12 @@ class EvolutionaryAlgorithm:
         self.minimizationParameters = None
 
         if self.objectiveFunction is None:
-            if np.iscomplex(y_data):
+            if np.iscomplex(y_data).any():
                 self.objectiveFunction = obj.sumOfSquaredError
+                print('[!] Objective function set to default `iddefix.objectiveFunctions.sumOfSquaredError`')
             else:
                 self.objectiveFunction = obj.sumOfSquaredErrorReal
+                print('[!] Objective function set to `iddefix.objectiveFunctions.sumOfSquaredErrorReal` for real-valued only data')
         elif self.objectiveFunction is str:
             if self.objectiveFunction.lower() == 'complex':
                 self.objectiveFunction = obj.sumOfSquaredError
