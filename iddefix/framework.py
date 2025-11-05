@@ -24,7 +24,7 @@ class EvolutionaryAlgorithm:
                  parameterBounds,
                  plane="longitudinal",
                  fitFunction="impedance",
-                 objectiveFunction = None,
+                 objectiveFunction=None,
                  wake_length=None,
                  sigma=None,
                 ):
@@ -125,7 +125,7 @@ class EvolutionaryAlgorithm:
             else:
                 self.objectiveFunction = obj.sumOfSquaredErrorReal
                 print('[!] Objective function set to `iddefix.objectiveFunctions.sumOfSquaredErrorReal` for real-valued only data')
-        elif self.objectiveFunction is str:
+        elif type(self.objectiveFunction) is str:
             if self.objectiveFunction.lower() == 'complex':
                 self.objectiveFunction = obj.sumOfSquaredError
             if self.objectiveFunction.lower() == 'real':
