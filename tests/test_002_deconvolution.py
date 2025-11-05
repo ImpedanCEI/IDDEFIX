@@ -18,23 +18,27 @@ def wake_data_time():
 
 @pytest.fixture(scope="module")
 def wake_data_from_wakis():
-    # to be written using wakis data from simulations
-    pass
+    """Load wake data from wakis simulations. Skip if wakis is not installed."""
+    pytest.importorskip("wakis")
+    from wakis import WakeSolver
+    wake=WakeSolver(save=False)
+    wake.load_results("tests/data/002_wakis_example/")
+    data_time=wake.s/c_light # convert from m to s
+    data_wake=wake.WP/1e12/c_light
+    return data_time, data_wake
 
 def compute_norm(f, Z):
     """Helper to compute a scalar 'size' measure of impedance spectrum."""
     return np.trapz(np.abs(Z), f) / (f[-1] - f[0])
 
-def test_stability_with_samples(wake_data_time, plot=False):
-    """The impedance should converge as the number of FFT samples increases."""
-    time, wake = wake_data_time
+def stability_with_samples(time_data, wake_data, plot=False):
     sigma = 1e-10
     samples_list = [501, 1001, 5001, 10001]
 
     norms = []
     spectra = {}
     for s in samples_list:
-        f, Z = iddefix.compute_deconvolution(time, wake, sigma, samples=s)
+        f, Z = iddefix.compute_deconvolution(time_data, wake_data, sigma, samples=s)
         norms.append(compute_norm(f, Z))
         spectra[s] = (f, Z)
 
@@ -63,16 +67,22 @@ def test_stability_with_samples(wake_data_time, plot=False):
 
     assert max_dev < 0.05, f"Impedance norm varies too much with samples: {ratios}"
 
-def test_stability_with_sigma(wake_data_time, plot=False):
-    """Changing sigma moderately should not cause large jumps in the impedance magnitude."""
-    time, wake = wake_data_time
+@pytest.mark.parametrize("wake_data", [
+    pytest.param("wake_data_time", id="sps-data"),
+    pytest.param("wake_data_from_wakis", id="wakis-data")])
+def test_stability_with_samples(wake_data, request):
+    """The impedance should converge as the number of FFT samples increases."""
+    time, wake = request.getfixturevalue(wake_data)
+    stability_with_samples(time, wake, plot=False)
+
+def stability_with_sigma(data_time, data_wake, plot=False):
     sigmas = [0.5e-10, 1e-10, 2e-10]
 
     norms = []
     spectra = {}
 
     for s in sigmas:
-        f, Z = iddefix.compute_deconvolution(time, wake, s)
+        f, Z = iddefix.compute_deconvolution(data_time, data_wake, s)
         norms.append(compute_norm(f, Z))
         spectra[s] = (f, Z)
 
@@ -100,6 +110,15 @@ def test_stability_with_sigma(wake_data_time, plot=False):
     
     assert max_dev < 20, f"Impedance varies too strongly with sigma: {ratios}"
 
+@pytest.mark.parametrize("wake_data", [
+    pytest.param("wake_data_time", id="sps-data"),
+    pytest.param("wake_data_from_wakis", id="wakis-data")])
+def test_stability_with_sigma(wake_data, request):
+    """Changing sigma moderately should not cause large jumps in the impedance magnitude."""
+    time, wake = request.getfixturevalue(wake_data)
+    stability_with_sigma(time, wake, plot=False)
+
+
 # ==============================================================
 # Optional diagnostic plotting when running directly
 # ==============================================================
@@ -112,9 +131,22 @@ if __name__ == "__main__":
     data_time = data[:, 0] * 1e-9  # convert ns → s
     data_wake = data[:, 2] # in V/C and time sampling
 
+    # Call test functions with plotting enabled
+    stability_with_samples(data_time, data_wake, plot=True)
+    stability_with_sigma(data_time, data_wake, plot=True)
+
+    print("\n✅ All stability diagnostics completed successfully.")
+
+    print("Running impedance stability diagnostics with Wakis data...\n")
+
+    from wakis import WakeSolver
+    wake=WakeSolver(save=False)
+    wake.load_results("data/002_wakis_example/")
+    data_time=wake.s/c_light # convert from m to s
+    data_wake=wake.WP/1e12/c_light
 
     # Call test functions with plotting enabled
-    test_stability_with_samples((data_time, data_wake), plot=True)
-    test_stability_with_sigma((data_time, data_wake), plot=True)
+    stability_with_samples(data_time, data_wake, plot=True)
+    stability_with_sigma(data_time, data_wake, plot=True)
 
     print("\n✅ All stability diagnostics completed successfully.")
