@@ -11,7 +11,7 @@ import iddefix
 def _load_data():
     """Load and prepare data once for all tests."""
     data_wake_potential = np.loadtxt(
-        '../examples/data/004_SPS_model_transitions_q26.txt',
+        'examples/data/004_SPS_model_transitions_q26.txt',
         comments='#', delimiter='\t')
     
     data_wake_time = data_wake_potential[:, 0] * 1e-9  # [s]
