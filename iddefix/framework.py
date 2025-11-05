@@ -24,7 +24,7 @@ class EvolutionaryAlgorithm:
                  parameterBounds,
                  plane="longitudinal",
                  fitFunction="impedance",
-                 objectiveFunction = None,
+                 objectiveFunction=None,
                  wake_length=None,
                  sigma=None,
                 ):
@@ -119,11 +119,13 @@ class EvolutionaryAlgorithm:
         self.minimizationParameters = None
 
         if self.objectiveFunction is None:
-            if np.iscomplex(y_data):
+            if np.iscomplex(y_data).any():
                 self.objectiveFunction = obj.sumOfSquaredError
+                print('[!] Objective function set to default `iddefix.objectiveFunctions.sumOfSquaredError`')
             else:
                 self.objectiveFunction = obj.sumOfSquaredErrorReal
-        elif self.objectiveFunction is str:
+                print('[!] Objective function set to `iddefix.objectiveFunctions.sumOfSquaredErrorReal` for real-valued only data')
+        elif type(self.objectiveFunction) is str:
             if self.objectiveFunction.lower() == 'complex':
                 self.objectiveFunction = obj.sumOfSquaredError
             if self.objectiveFunction.lower() == 'real':

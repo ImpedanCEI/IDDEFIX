@@ -141,7 +141,7 @@ def compute_deconvolution(data_time, data_wake_potential, sigma, fmax=3e9, sampl
     data_time : array_like
         Time axis corresponding to the wake potential, typically centered around zero [s].
     data_wake_potential : array_like
-        Wake potential values as a function of time [V/pC].
+        Wake potential values as a function of time WP(t) in [V/C] --> WP(t) = WP(s)*1e12/c
     sigma : float
         Beam sigma (RMS bunch length/4) of the Gaussian bunch profile in [s]
         used to convolve the wake function.
@@ -202,6 +202,35 @@ def gaussian_bunch(time, sigma):
     """
     # Analytical gaussian with given sigma
     return 1/(sigma*np.sqrt(2*np.pi))*np.exp(-(time**2)/(2*sigma**2))/c_light
+
+def gaussian_bunch_spectrum(time, sigma, fmax, samples=1001):
+    """
+    Generate a Gaussian bunch profile.
+
+    Parameters
+    ----------
+    time : array_like
+        Time axis where the Gaussian bunch profile is evaluated.
+    sigma : float
+        Standard deviation of the Gaussian bunch profile (RMS length).
+
+    Returns
+    -------
+    ndarray
+        Gaussian bunch profile evaluated at the given time.
+    """
+    # Analytical gaussian with given sigma
+    lambdat = gaussian_bunch(time, sigma)
+
+    # Perform FFT
+    ds = (time[1] - time[0])*c_light
+    N = int((c_light/ds)//fmax*samples)
+    lambdaf = np.fft.fft(lambdat, n=N)
+    f = np.fft.fftfreq(len(lambdaf), ds/c_light)
+
+    # Mask invalid frequencies
+    mask  = np.logical_and(f >= 0 , f < fmax)
+    return f[mask], lambdaf[mask]
 
 def interpolation_error_abs(func_output, interpolant_output):
     return np.abs(func_output - interpolant_output)

@@ -5,6 +5,7 @@
 
 # Tests png
 ###########
+examples/data/*.png
 tests/*.png
 
 # Compiled source #
