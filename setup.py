@@ -45,6 +45,7 @@ setup(
     install_requires=[
         'numpy<2.0',
         'scipy',
+        'pymoo',
         ],
     extras_require={
         'all': extra_required,
