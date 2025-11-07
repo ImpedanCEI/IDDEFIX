@@ -5,7 +5,6 @@ from scipy.constants import c as c_light
 
 import iddefix
 
-
 @pytest.fixture(scope="module")
 def wake_data_time():
     """Load the real SPS wake potential data for testing."""
@@ -15,16 +14,15 @@ def wake_data_time():
     wake = data[:, 2] # in V/C and time sampling
     return time, wake
 
-
 @pytest.fixture(scope="module")
 def wake_data_from_wakis():
     """Load wake data from wakis simulations. Skip if wakis is not installed."""
     pytest.importorskip("wakis")
     from wakis import WakeSolver
-    wake=WakeSolver(save=False)
+    wake = WakeSolver(save=False)
     wake.load_results("tests/data/002_wakis_example/")
-    data_time=wake.s/c_light # convert from m to s
-    data_wake=wake.WP/1e12/c_light
+    data_time = wake.s/c_light # convert from m to s
+    data_wake = wake.WP/1e12/c_light
     return data_time, data_wake
 
 def compute_norm(f, Z):
