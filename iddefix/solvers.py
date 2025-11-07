@@ -226,9 +226,8 @@ class Solvers:
         """
         try:
             from pymoo.algorithms.soo.nonconvex.cmaes import CMAES
-            from pymoo.core.problem import ElementwiseProblem, Problem
+            from pymoo.core.problem import Problem
             from pymoo.optimize import minimize
-            from pymoo.termination.default import DefaultSingleObjectiveTermination
             from pymoo.termination import get_termination
         except:
             ImportError('''Please install the pymoo package to use the CMA-ES solver:
@@ -262,13 +261,13 @@ class Solvers:
             x0=x0,
             sigma=sigma,
             popsize=popsize,
-            seed=1,
+            seed=42,
             **kwargs,
         )
         # use ftol and n_gen as stopping criteria
         termination_criteria = get_termination("n_gen", maxiter)
 
-        res = minimize(problem, solver, termination_criteria, verbose=True)
+        res = minimize(problem, solver, termination_criteria, seed=42, verbose=True)
 
         solution = res.X
         message = "Convergence achieved" #if res. < maxiter else "Maximum iterations reached"

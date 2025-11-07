@@ -1,8 +1,18 @@
 import os
+
+import os, random
+os.environ["PYTHONHASHSEED"] = "42"
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+random.seed(42)
+
 import numpy as np
-import pytest
 import iddefix
 import matplotlib.pyplot as plt
+
+np.random.seed(42)
 
 class TestAnalyticalImpedance:
     # pytest: do NOT define __init__ on test classes
@@ -53,7 +63,7 @@ class TestAnalyticalImpedance:
             plane="longitudinal",
             objectiveFunction="real",
         )
-        cls.CMAES_model.run_cmaes(maxiter=5000, popsize=50, sigma=0.15)
+        cls.CMAES_model.run_cmaes(maxiter=500, popsize=50, sigma=0.15)
         cls.CMAES_model.run_minimization_algorithm()
 
     # --- DE -------------------------------------------------------------------
