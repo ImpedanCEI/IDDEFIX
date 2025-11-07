@@ -53,7 +53,7 @@ class TestAnalyticalImpedance:
             plane="longitudinal",
             objectiveFunction="real",
         )
-        cls.CMAES_model.run_cmaes(maxiter=500, popsize=50, sigma=0.15)
+        cls.CMAES_model.run_cmaes(maxiter=5000, popsize=50, sigma=0.15, tolfun=1e-9)
         cls.CMAES_model.run_minimization_algorithm()
 
     # --- DE -------------------------------------------------------------------
