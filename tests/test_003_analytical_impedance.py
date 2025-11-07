@@ -1,5 +1,3 @@
-import os
-
 import os, random
 os.environ["PYTHONHASHSEED"] = "42"
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -15,8 +13,6 @@ import matplotlib.pyplot as plt
 np.random.seed(42)
 
 class TestAnalyticalImpedance:
-    # pytest: do NOT define __init__ on test classes
-
     @classmethod
     def setup_class(cls):
         # Common synthetic case
@@ -40,20 +36,6 @@ class TestAnalyticalImpedance:
         cls.rtol = 1e-2
         cls.atol = 1e-6
 
-        # Build + fit DE once for the class
-        cls.DE_model = iddefix.EvolutionaryAlgorithm(
-            cls.frequency,
-            cls.impedance.real,  # could be complex; keeping your note
-            N_resonators=cls.N_resonators,
-            parameterBounds=cls.parameterBounds,
-            plane="longitudinal",
-            objectiveFunction="real",  # or iddefix.ObjectiveFunctions.sumOfSquaredError
-        )
-        cls.DE_model.run_differential_evolution(
-            maxiter=1000, popsize=45, tol=0.01, mutation=(0.4, 1.0), crossover_rate=0.7
-        )
-        cls.DE_model.run_minimization_algorithm()
-
         # Build + fit CMA-ES once for the class
         cls.CMAES_model = iddefix.EvolutionaryAlgorithm(
             cls.frequency,
@@ -65,6 +47,24 @@ class TestAnalyticalImpedance:
         )
         cls.CMAES_model.run_cmaes(maxiter=500, popsize=50, sigma=0.15)
         cls.CMAES_model.run_minimization_algorithm()
+        print(cls.CMAES_model.warning)
+
+
+        # Build + fit DE once for the class
+        cls.DE_model = iddefix.EvolutionaryAlgorithm(
+            cls.frequency,
+            cls.impedance.real,  # could be complex
+            N_resonators=cls.N_resonators,
+            parameterBounds=cls.parameterBounds,
+            plane="longitudinal",
+            objectiveFunction="real",  # or iddefix.ObjectiveFunctions.sumOfSquaredErrorReal
+        )
+        cls.DE_model.run_differential_evolution(
+            maxiter=2000, popsize=45, tol=0.01, mutation=(0.4, 1.0), crossover_rate=0.7
+        )
+        cls.DE_model.run_minimization_algorithm()
+        print(cls.DE_model.warning)
+
 
     # --- DE -------------------------------------------------------------------
 
