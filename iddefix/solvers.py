@@ -240,10 +240,10 @@ class Solvers:
             from pymoo.core.problem import Problem
             from pymoo.optimize import minimize
             from pymoo.termination import get_termination
-        except:
-            ImportError('''Please install the pymoo package to use the CMA-ES solver:
-                           >>> pip install pymoo
-                        ''')
+        except ImportError:
+            raise ImportError('''Please install the pymoo package to use the CMA-ES solver:
+                            >>> pip install pymoo
+                            ''')
 
         class OptimizationProblem(Problem):
             def __init__(self, objective_function, n_var, n_obj, xl, xu):
