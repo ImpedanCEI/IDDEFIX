@@ -16,7 +16,6 @@ class ProgressBarCallback:
         self.max_generations = max_generations
         self.current_generation = 0
         self.pbar = tqdm(total=max_generations, desc=desc, unit="gen")
-        self.prev_best = 0.
 
     def __call__(self, *args):
 
@@ -29,7 +28,7 @@ class ProgressBarCallback:
                 "conv": f"{(100*(convergence)):6.1f} %"
             })
             # optional early stopping
-            if convergence > 1.0:
+            if convergence >= 1.0:
                 self.pbar.close()
                 return True
         
@@ -45,12 +44,11 @@ class ProgressBarCallback:
             self._gap0 = getattr(self, "_gap0", gap if gap > 0 else 1.0)
             convergence = float(np.clip(1.0 - gap / (self._gap0 + 1e-12), 0.0, 1.0))
 
-
             self.pbar.set_postfix({
                 "conv": f"{(100*(convergence)):6.1f} %"
             })
             # optional early stopping
-            if convergence > 1.0:
+            if convergence >= 1.0 and self.current_generation > 1:
                 self.pbar.close()
                 return True
 
