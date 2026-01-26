@@ -6,7 +6,6 @@ Created on Sat Dec  5 16:33:41 2020
 @author: sjoly
 @contributor: edelafue, babreufig
 """
-import sys
 import numpy as np
 from tqdm import tqdm
 from scipy.optimize import differential_evolution
@@ -49,7 +48,6 @@ class ProgressBarCallback:
             })
             # optional early stopping
             if convergence >= 1.0 and self.current_generation > 1:
-                self.pbar.close()
                 return True
 
     def close(self):
@@ -240,7 +238,7 @@ class Solvers:
             from pymoo.core.problem import Problem
             from pymoo.optimize import minimize
             from pymoo.termination import get_termination
-        except ImportError:
+        except Exception:
             raise ImportError('''Please install the pymoo package to use the CMA-ES solver:
                             >>> pip install pymoo
                             ''')
@@ -261,35 +259,33 @@ class Solvers:
             xu=[bound[1] for bound in parameterBounds],
         )
 
-        print(len(parameterBounds))
-
         # Calculate mean of parameter bounds as starting point
         x0 = np.mean(parameterBounds, axis=1)
-
-        print(f"Starting point: {x0}")
 
         solver = CMAES(
             x0=x0,
             sigma=sigma,
             popsize=popsize,
+            maxfevals=maxiter,
             seed=42,
             restarts=3,
             restart_from_best=True,
+            verb_time=verbose,
             **kwargs,
         )
-        # use ftol and n_gen as stopping criteria
-        termination_criteria = get_termination("n_gen", maxiter)
 
         if not verbose:
             cb = ProgressBarCallback(maxiter, desc="CMA-ES evolution")  
-        else: cb = None
+        else: 
+            cb = None
 
-        res = minimize(problem, solver, termination_criteria, 
+        res = minimize(problem, solver, 
                        seed=42, 
                        callback=cb,
-                       verbose=verbose)
+                       save_history=True,)
 
-        if not verbose: cb.close()
+        if not verbose: 
+            cb.close()
 
         solution = res.X
         message = "Convergence achieved" if res.algorithm.n_gen < maxiter else "Maximum iterations reached"
