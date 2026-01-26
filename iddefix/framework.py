@@ -289,6 +289,7 @@ class EvolutionaryAlgorithm:
                   maxiter=1000,
                   popsize=50,
                   sigma=0.1,
+                  verbose=False,
                   **kwargs):
         """
         Runs the CMA-ES (Covariance Matrix Adaptation Evolution Strategy) algorithm 
@@ -332,6 +333,7 @@ class EvolutionaryAlgorithm:
                                             sigma=sigma,
                                             maxiter=maxiter,
                                             popsize=popsize,
+                                            verbose=verbose,
                                             **kwargs)
 
         self.evolutionParameters = solution
@@ -654,16 +656,16 @@ class EvolutionaryAlgorithm:
 
     def compute_fft(self, data_time=None, data_wake=None, fmax=3e9, samples=1001):
         # Check for time data - not override self
-        if time_data is None:
-            if self.time_data is None:
+        if data_time is None:
+            if self.data_time is None:
                 raise AttributeError("Provide time data array")
-            time_data = self.time_data
+            data_time = self.data_time
 
         # Check for wake data - not override self
-        if wake_data is None:
-            if self.wake_data is None:
+        if data_wake is None:
+            if self.data_wake is None:
                 raise AttributeError("Provide wake data array")
-            wake_data = self.wake_data
+            data_wake = self.wake_data
 
         compute_fft(data_time, data_wake, fmax, samples)
 
