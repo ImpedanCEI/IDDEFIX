@@ -288,7 +288,7 @@ class EvolutionaryAlgorithm:
     def run_cmaes(self,
                   maxiter=1000,
                   popsize=50,
-                  sigma=0.1,
+                  sigma=0.6,
                   verbose=False,
                   **kwargs):
         """
