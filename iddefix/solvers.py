@@ -46,9 +46,6 @@ class ProgressBarCallback:
             self.pbar.set_postfix({
                 "conv": f"{(100*(convergence)):6.1f} %"
             })
-            # optional early stopping
-            if convergence >= 1.0 and self.current_generation > 1:
-                return True
 
     def close(self):
         self.pbar.close()
@@ -224,6 +221,7 @@ class Solvers:
         Args:
             parameterBounds: A list of tuples representing the bounds for each parameter.
             minimization_function: The function to be minimized.
+            sigma: The initial standard deviation for the CMA-ES algorithm.
             maxiter: The maximum number of iterations to run the solver for.
             popsize: The population size for the differential evolution algorithm.
             tol: The tolerance for convergence.
@@ -237,7 +235,6 @@ class Solvers:
             from pymoo.algorithms.soo.nonconvex.cmaes import CMAES
             from pymoo.core.problem import Problem
             from pymoo.optimize import minimize
-            from pymoo.termination import get_termination
         except Exception:
             raise ImportError('''Please install the pymoo package to use the CMA-ES solver:
                             >>> pip install pymoo
@@ -266,23 +263,22 @@ class Solvers:
             x0=x0,
             sigma=sigma,
             popsize=popsize,
-            maxfevals=maxiter,
+            maxiter=maxiter,
             seed=42,
             restarts=3,
             restart_from_best=True,
-            verb_time=verbose,
             **kwargs,
         )
 
         if not verbose:
-            cb = ProgressBarCallback(maxiter, desc="CMA-ES evolution")  
+            cb = ProgressBarCallback(maxiter, desc="CMA-ES evolution") 
+            res = minimize(problem, solver, 
+                seed=42, 
+                callback=cb,
+                save_history=True,)
         else: 
-            cb = None
-
-        res = minimize(problem, solver, 
-                       seed=42, 
-                       callback=cb,
-                       save_history=True,)
+            res = minimize(problem, solver, 
+                seed=42, verbose=True, save_history=True,)
 
         if not verbose: 
             cb.close()
