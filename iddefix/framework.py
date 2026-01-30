@@ -137,14 +137,10 @@ class EvolutionaryAlgorithm:
                 self.objectiveFunction = obj.sumOfSquaredError
                 
         if fitFunction == "wake" or fitFunction == "wake function":
-            if plane == "longitudinal" and N_resonators > 1:
+            if plane == "longitudinal":
                 self.fitFunction = wak.n_Resonator_longitudinal_wake
-            elif plane == "transverse" and N_resonators > 1:
+            elif plane == "transverse":
                 self.fitFunction = wak.n_Resonator_transverse_wake
-            elif plane == "longitudinal" and N_resonators == 1:
-                self.fitFunction = wak.Resonator_longitudinal_wake
-            elif plane == "transverse" and N_resonators == 1:
-                self.fitFunction = wak.Resonator_transverse_wake
             else:
                 raise Exception('Algorithm needs N_resonartors >= 1')
             self.time_data = x_data
@@ -155,14 +151,10 @@ class EvolutionaryAlgorithm:
                 print('[!] sigma not specified, using the default sigma=1e-10 s')
                 self.sigma = 1e-10
 
-            if plane == "longitudinal" and N_resonators > 1:
+            if plane == "longitudinal":
                 self.fitFunction = partial(wak.n_Resonator_longitudinal_wake_potential, sigma=self.sigma)
-            elif plane == "transverse" and N_resonators > 1:
+            elif plane == "transverse":
                 self.fitFunction = partial(wak.n_Resonator_transverse_wake_potential, sigma=self.sigma)
-            elif plane == "longitudinal" and N_resonators == 1:
-                self.fitFunction = partial(wak.Resonator_longitudinal_wake_potential, sigma=self.sigma)
-            elif plane == "transverse" and N_resonators == 1:
-                self.fitFunction = partial(wak.Resonator_transverse_wake_potential, sigma=self.sigma)
             else:
                 raise Exception('Algorithm needs N_resonartors >= 1')
             self.time_data = x_data
@@ -174,14 +166,10 @@ class EvolutionaryAlgorithm:
             else:
                 print('[!] Using the fully decayed resonator formalism for impedance')
 
-            if plane == "longitudinal" and N_resonators > 1:
+            if plane == "longitudinal":
                 self.fitFunction = partial(imp.n_Resonator_longitudinal_imp, wake_length=wake_length)
-            elif plane == "transverse" and N_resonators > 1:
+            elif plane == "transverse":
                 self.fitFunction = partial(imp.n_Resonator_transverse_imp, wake_length=wake_length)
-            elif plane == "longitudinal" and N_resonators == 1:
-                self.fitFunction = partial(imp.Resonator_longitudinal_imp, wake_length=wake_length)
-            elif plane == "transverse" and N_resonators == 1:
-                self.fitFunction = partial(imp.Resonator_transverse_imp, wake_length=wake_length)
             else:
                 raise Exception('Algorithm needs N_resonartors >= 1')
             self.frequency_data = x_data
