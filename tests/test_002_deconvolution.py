@@ -1,16 +1,24 @@
+import matplotlib.pyplot as plt
 import numpy as np
 import pytest
-import matplotlib.pyplot as plt
+from packaging.version import Version
 from scipy.constants import c as c_light
 
 import iddefix
+
+if Version(np.__version__) >= Version("2.0.0"):
+    _trapezoid = np.trapezoid
+else:
+    _trapezoid = np.trapz
 
 
 @pytest.fixture(scope="module")
 def wake_data_time():
     """Load the real SPS wake potential data for testing."""
     data = np.loadtxt(
-        "examples/data/004_SPS_model_transitions_q26.txt", comments="#", delimiter="\t"
+        "examples/data/004_SPS_model_transitions_q26.txt",
+        comments="#",
+        delimiter="\t",
     )
     time = data[:, 0] * 1e-9  # convert ns → s
     wake = data[:, 2]  # in V/C and time sampling
@@ -20,10 +28,10 @@ def wake_data_time():
 @pytest.fixture(scope="module")
 def wake_data_from_wakis():
     """Load wake data from wakis simulations. Skip if wakis is not installed."""
-    pytest.importorskip("wakis")
-    from wakis import WakeSolver
-
-    wake = WakeSolver(save=False)
+    wakis = pytest.importorskip(
+        "wakis", reason="wakis not installed; skipping wake tests"
+    )
+    wake = wakis.WakeSolver(save=False)
     wake.load_results("tests/data/002_wakis_example/")
     data_time = wake.s / c_light  # convert from m to s
     data_wake = wake.WP / 1e12 / c_light
@@ -32,7 +40,7 @@ def wake_data_from_wakis():
 
 def compute_norm(f, Z):
     """Helper to compute a scalar 'size' measure of impedance spectrum."""
-    return np.trapz(np.abs(Z), f) / (f[-1] - f[0])
+    return _trapezoid(np.abs(Z), f) / (f[-1] - f[0])
 
 
 def stability_with_samples(time_data, wake_data, plot=False):
@@ -42,7 +50,9 @@ def stability_with_samples(time_data, wake_data, plot=False):
     norms = []
     spectra = {}
     for s in samples_list:
-        f, Z = iddefix.compute_deconvolution(time_data, wake_data, sigma, samples=s)
+        f, Z = iddefix.compute_deconvolution(
+            time_data, wake_data, sigma, samples=s
+        )
         norms.append(compute_norm(f, Z))
         spectra[s] = (f, Z)
 
@@ -69,7 +79,9 @@ def stability_with_samples(time_data, wake_data, plot=False):
         plt.tight_layout()
         plt.show()
 
-    assert max_dev < 0.05, f"Impedance norm varies too much with samples: {ratios}"
+    assert max_dev < 0.05, (
+        f"Impedance norm varies too much with samples: {ratios}"
+    )
 
 
 @pytest.mark.parametrize(

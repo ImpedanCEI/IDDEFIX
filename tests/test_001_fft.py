@@ -1,7 +1,8 @@
-import numpy as np
-import matplotlib.pyplot as plt
 import sys
 from io import StringIO
+
+import matplotlib.pyplot as plt
+import numpy as np
 import pytest
 from scipy.constants import c as c_light
 
@@ -12,7 +13,9 @@ import iddefix
 def _load_data():
     """Load and prepare data once for all tests."""
     data_wake_potential = np.loadtxt(
-        "examples/data/004_SPS_model_transitions_q26.txt", comments="#", delimiter="\t"
+        "examples/data/004_SPS_model_transitions_q26.txt",
+        comments="#",
+        delimiter="\t",
     )
 
     data_wake_time = data_wake_potential[:, 0] * 1e-9  # [s]
@@ -114,8 +117,12 @@ def test_compare_impedances(load_data, plot=False, adaptative=False):
     Z_nft *= 1j  # transverse
 
     # Test that |Z| distributions are roughly consistent
-    rel_error = np.mean(np.abs(np.abs(Z_nft) - np.abs(Z_de))) / np.mean(np.abs(Z_de))
-    assert rel_error < 0.1, f"Relative impedance error too high: {rel_error:.2%}"
+    rel_error = np.mean(np.abs(np.abs(Z_nft) - np.abs(Z_de))) / np.mean(
+        np.abs(Z_de)
+    )
+    assert rel_error < 0.1, (
+        f"Relative impedance error too high: {rel_error:.2%}"
+    )
 
     if plot:
         fig = plt.figure(figsize=(12, 7))
@@ -212,7 +219,7 @@ def test_compare_impedances(load_data, plot=False, adaptative=False):
 
         plt.legend()
         plt.xlabel("f [Hz]")
-        plt.ylabel("$Z_{Transverse}$ [$\Omega$]")
+        plt.ylabel(r"$Z_{Transverse}$ [$\Omega$]")
         plt.show()
         fig.savefig("001_compare_imp_adaptative.png")
 
@@ -222,4 +229,6 @@ if __name__ == "__main__":
     print("Running wake and impedance comparison plots...")
     adaptative = False  # Set to True to use adaptative neffint
     test_compare_wakes(_load_data(), plot=True, adaptative=adaptative)
+    test_compare_impedances(_load_data(), plot=True, adaptative=adaptative)
+    test_compare_impedances(_load_data(), plot=True, adaptative=adaptative)
     test_compare_impedances(_load_data(), plot=True, adaptative=adaptative)
