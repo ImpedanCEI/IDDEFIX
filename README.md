@@ -8,6 +8,7 @@
 ![PyPI - Version](https://img.shields.io/pypi/v/IDDEFIX?style=flat-square&color=green)
 ![PyPI - License](https://img.shields.io/pypi/l/IDDEFIX?style=flat-square&color=pink)
 [![Documentation Status](https://readthedocs.org/projects/iddefix/badge/?version=latest)](https://iddefix.readthedocs.io/en/latest/?badge=latest)
+[![nightly_tests_CPU_python11](https://github.com/ImpedanCEI/IDDEFIX/actions/workflows/nightly_tests.yml/badge.svg)](https://github.com/ImpedanCEI/IDDEFIX/actions/workflows/nightly_tests.yml)
 
 IDDEFIX is a physics-informed evolutionary optimization framework that fits a resonator-based model (parameterized by R, f, Q) to wakefield simulation data. It leverages Differential Evolution to optimize these parameters, enabling efficient classification and extrapolation of electromagnetic wakefield behavior. This allows for reduced simulation time while maintaining long-term accuracy, akin to time-series forecasting in machine learning
 

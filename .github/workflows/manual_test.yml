@@ -27,7 +27,7 @@ jobs:
     - name: pip install
       run:  |
         pip install wakis['notebook']
-        pip install iddefix
+        pip install pymoo
 
     - name: Print versions
       run: conda list

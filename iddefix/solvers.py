@@ -13,21 +13,39 @@ from tqdm import tqdm
 
 
 class ProgressBarCallback:
-    def __init__(self, max_generations):
+    def __init__(self, max_generations, desc="Optimization"):
         self.max_generations = max_generations
         self.current_generation = 0
-        self.previous_convergence = 0
-        self.pbar = tqdm(total=100, desc="Optimization Progress %")
+        self.pbar = tqdm(total=max_generations, desc=desc, unit="gen")
 
-    def __call__(self, xk, convergence):
-        self.current_generation += 1
-        self.pbar.update(
-            (convergence - self.previous_convergence) * 100
-        )  # Update the progress bar
-        self.previous_convergence = convergence
-        if convergence > 1.0:  # Convergence threshold
-            self.pbar.close()
-            return True  # Stop optimization early
+    def __call__(self, *args):
+
+        # --- scipy differential_evolution: (xk, convergence) ---
+        if len(args) == 2 and not hasattr(args[0], "evaluator"):
+            xk, convergence = args
+            self.current_generation += 1
+            self.pbar.update(1)
+            self.pbar.set_postfix({"conv": f"{(100 * (convergence)):6.1f} %"})
+            # optional early stopping
+            if convergence >= 1.0:
+                self.pbar.close()
+                return True
+
+        # --- pymoo minimize: (algorithm) ---
+        elif len(args) == 1:
+            algorithm = args[0]
+            self.current_generation += 1
+            self.pbar.update(1)
+
+            # compute convergence metric
+            F = np.atleast_1d(algorithm.pop.get("F"))
+            gap = float(np.mean(F) - np.min(F))
+            self._gap0 = getattr(self, "_gap0", gap if gap > 0 else 1.0)
+            convergence = float(
+                np.clip(1.0 - gap / (self._gap0 + 1e-12), 0.0, 1.0)
+            )
+
+            self.pbar.set_postfix({"conv": f"{(100 * (convergence)):6.1f} %"})
 
     def close(self):
         self.pbar.close()
@@ -88,7 +106,7 @@ class Solvers:
             Tuple ``(solution, message)`` with the best solution and a
             status message.
         """
-        pbar = ProgressBarCallback(maxiter)
+        pbar = ProgressBarCallback(maxiter, desc="Differential Evolution")
         result = differential_evolution(
             minimization_function,
             parameterBounds,
@@ -106,22 +124,6 @@ class Solvers:
             **kwargs,
         )
         pbar.close()
-
-        # Need to be reworked to use the last population as the new initial population to speed up convergence
-        """while ((result.message == 'Maximum number of iterations has been exceeded.') and (iteration_convergence)):
-            warning = 'Increased number of iterations by 10% to reach convergence. \n'
-            maxiter = int(1.1*maxiter)
-            result = differential_evolution(minimization_function,parameterBounds,
-                                            popsize=popsize, tol=tol, maxiter=maxiter,
-                                            mutation=mutation, recombination=crossover_rate, polish=False,
-                                            init='latinhypercube',
-                                            callback=show_progress_bar,
-                                            updating='deferred', workers=-1, #vectorized=vectorized
-                                        )
-
-        else:
-            warning = ''
-        """
 
         solution, message = result.x, result.message
 
@@ -241,8 +243,9 @@ class Solvers:
         parameterBounds,
         minimization_function,
         sigma=0.1,
-        maxiter=1000,
-        popsize=50,
+        maxiter=None,  # default: 100 + 150 * (N+3)**2 // popsize**0.5
+        popsize=None,  # defaul: 4 + int(3 * np.log(len(parameterBounds)))
+        verbose=False,
         **kwargs,
     ):
         """
@@ -251,6 +254,7 @@ class Solvers:
         Args:
             parameterBounds: A list of tuples representing the bounds for each parameter.
             minimization_function: The function to be minimized.
+            sigma: The initial standard deviation for the CMA-ES algorithm.
             maxiter: The maximum number of iterations to run the solver for.
             popsize: The population size for the differential evolution algorithm.
             tol: The tolerance for convergence.
@@ -264,7 +268,6 @@ class Solvers:
             from pymoo.algorithms.soo.nonconvex.cmaes import CMAES
             from pymoo.core.problem import Problem
             from pymoo.optimize import minimize
-            from pymoo.termination import get_termination
         except ImportError:
             ImportError("""Please install the pymoo package to use the CMA-ES solver:
                            >>> pip install pymoo
@@ -286,26 +289,46 @@ class Solvers:
             xu=[bound[1] for bound in parameterBounds],
         )
 
-        print(len(parameterBounds))
-
         # Calculate mean of parameter bounds as starting point
         x0 = np.mean(parameterBounds, axis=1)
-
-        print(f"Starting point: {x0}")
 
         solver = CMAES(
             x0=x0,
             sigma=sigma,
             popsize=popsize,
-            seed=1,
+            maxiter=maxiter,
+            seed=42,
+            restarts=3,
+            restart_from_best=True,
             **kwargs,
         )
-        # use ftol and n_gen as stopping criteria
-        termination_criteria = get_termination("n_gen", maxiter)
 
-        res = minimize(problem, solver, termination_criteria, verbose=True)
+        if not verbose:
+            cb = ProgressBarCallback(maxiter, desc="CMA-ES evolution")
+            res = minimize(
+                problem,
+                solver,
+                seed=42,
+                callback=cb,
+                save_history=True,
+            )
+        else:
+            res = minimize(
+                problem,
+                solver,
+                seed=42,
+                verbose=True,
+                save_history=True,
+            )
+
+        if not verbose:
+            cb.close()
 
         solution = res.X
-        message = "Convergence achieved"  # if res. < maxiter else "Maximum iterations reached"
+        message = (
+            "Convergence achieved"
+            if res.algorithm.n_gen < maxiter
+            else "Maximum iterations reached"
+        )
 
         return solution, message, res

@@ -17,6 +17,9 @@ class SmartBoundDetermination:
         frequency_data,
         impedance_data,
         minimum_peak_height=1.0,
+        threshold=None,
+        distance=None,
+        prominence=None,
         Rs_bounds=[0.8, 10],
         Q_bounds=[0.5, 5],
         fres_bounds=[-0.01e9, +0.01e9],
@@ -37,6 +40,16 @@ class SmartBoundDetermination:
             Impedance magnitude data in Ohms.
         minimum_peak_height : float, optional
             Minimum height for a peak to be considered a resonance. Default is 1.0.
+        threshold : float, optional
+            Required vertical distance between a peak and its neighboring values
+            to be considered a peak. Passed to `scipy.signal.find_peaks`. Default is None.
+        distance : float, optional
+            Required minimum horizontal distance (in indices) between peaks.
+            Passed to `scipy.signal.find_peaks`. Default is None.
+        prominence : float, optional
+            Required prominence of peaks. The prominence measures how much a peak
+            stands out compared to its surrounding values. Passed to `scipy.signal.find_peaks`.
+            Default is None.
         Rs_bounds : list, optional
             Scaling factors [min, max] for Rs bounds. Default is [0.8, 10].
         Q_bounds : list, optional
@@ -81,11 +94,34 @@ class SmartBoundDetermination:
         - Computed parameter bounds are stored in `self.parameterBounds`.
         - The `inspect()` method visualizes peak detection results.
         - The `to_table()` method prints a structured table of parameter ranges.
+
+        Returns
+        -------
+        parameterBounds : list of tuples
+            A list of parameter bounds for fitting. Each resonance contributes
+            three sets of bounds:
+            - `(Rs_min, Rs_max)`: Bounds for resistance Rs.
+            - `(Q_min, Q_max)`: Bounds for quality factor Q.
+            - `(freq_min, freq_max)`: Bounds for the resonant frequency.
+
+        Notes
+        -----
+        - The peak-finding algorithm is implemented using `scipy.signal.find_peaks`.
+        See the official documentation for more details:
+        https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.find_peaks.html
+        - The 3dB bandwidth method is used to estimate initial Q factors and
+        define frequency bounds.
+        - The detected peaks and their heights are stored in instance attributes
+        `self.peaks` and `self.peaks_height`, respectively.
+        - The number of detected resonances is stored in `self.Nres`.
         """
 
         self.frequency_data = frequency_data
         self.impedance_data = impedance_data
         self.minimum_peak_height = minimum_peak_height
+        self.threshold = threshold
+        self.distance = distance
+        self.prominence = prominence
         self.Rs_bounds = Rs_bounds
         self.Q_bounds = Q_bounds
         self.fres_bounds = fres_bounds
@@ -168,6 +204,12 @@ class SmartBoundDetermination:
             impedance_data = self.impedance_data
         if minimum_peak_height is None:
             minimum_peak_height = self.minimum_peak_height
+        if threshold is None:
+            threshold = self.threshold
+        if distance is None:
+            distance = self.distance
+        if prominence is None:
+            prominence = self.prominence
 
         # Find the peaks of the impedance data
         peaks, peaks_height = find_peaks(
@@ -225,6 +267,11 @@ class SmartBoundDetermination:
                 frequency_data[peaks[i]] + self.fres_bounds[1],
             )
 
+            if peaks_height["peak_heights"][i] < 0:
+                Rs_bounds = (
+                    Rs_bounds[1],
+                    Rs_bounds[0],
+                )  # Swap for negative peaks
             parameterBounds.extend([Rs_bounds, Q_bounds, freq_bounds])
 
         # Store peaks and peaks_height as instance attributes
@@ -275,7 +322,7 @@ class SmartBoundDetermination:
 
         return None
 
-    def to_table(self, to_markdown=False):
+    def to_table(self, parameterBounds=None, to_markdown=False):
         """
         Displays resonance parameters in a formatted ASCII table.
 
@@ -292,7 +339,11 @@ class SmartBoundDetermination:
         2      |  85.61 to 864.12       |  120.55 to 200.23|  5.30e+08 to 7.23e+08
         ------------------------------------------------------------
         """
-        params = self.parameterBounds
+        params = (
+            self.parameterBounds
+            if parameterBounds is None
+            else parameterBounds
+        )
         N_resonators = len(params) // 3  # Compute number of resonators
 
         # Define formatting
