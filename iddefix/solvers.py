@@ -156,7 +156,7 @@ class Solvers:
         """
         try:
             from pyfde import ClassicDE
-        except:
+        except ImportError:
             raise ImportError(
                 "Please install the pyfde package to use the pyfde solvers."
             )
@@ -210,7 +210,7 @@ class Solvers:
 
         try:
             from pyfde import JADE
-        except:
+        except ImportError:
             raise ImportError(
                 "Please install the pyfde package to use the pyfde solvers."
             )
@@ -265,7 +265,7 @@ class Solvers:
             from pymoo.core.problem import Problem
             from pymoo.optimize import minimize
             from pymoo.termination import get_termination
-        except:
+        except ImportError:
             ImportError("""Please install the pymoo package to use the CMA-ES solver:
                            >>> pip install pymoo
                         """)

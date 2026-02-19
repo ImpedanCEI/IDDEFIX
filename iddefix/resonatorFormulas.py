@@ -196,7 +196,7 @@ class Wakes:
         else:
             dict_params = pars_to_dict(pars)  # takes list or ndarray
 
-        Wl = np.sum(
+        Wl = sum(
             Wakes.Resonator_longitudinal_wake(times, *params)
             for params in dict_params.values()
         )
@@ -249,7 +249,7 @@ class Wakes:
         else:
             dict_params = pars_to_dict(pars)  # takes list or ndarray
 
-        Wt = np.sum(
+        Wt = sum(
             Wakes.Resonator_transverse_wake(times, *params)
             for params in dict_params.values()
         )
@@ -348,7 +348,7 @@ class Wakes:
         else:
             dict_params = pars_to_dict(pars)  # takes list or ndarray
 
-        Wpl = np.sum(
+        Wpl = sum(
             Wakes.Resonator_longitudinal_wake_potential(
                 times, *params, sigma=sigma
             )
@@ -445,7 +445,7 @@ class Wakes:
         else:
             dict_params = pars_to_dict(pars)  # takes list or ndarray
 
-        Wpt = np.sum(
+        Wpt = sum(
             Wakes.Resonator_transverse_wake_potential(
                 times, *params, sigma=sigma
             )
@@ -764,13 +764,13 @@ class Impedances:
 
         if wake_length is None:
             # Fully decayed wake
-            Zl = np.sum(
+            Zl = sum(
                 Impedances.Resonator_longitudinal_imp(frequencies, *params)
                 for params in dict_params.values()
             )
         else:
             # Partially decayed wake
-            Zl = np.sum(
+            Zl = sum(
                 Impedances.Resonator_longitudinal_imp(
                     frequencies, *params, wake_length=wake_length
                 )
@@ -831,13 +831,13 @@ class Impedances:
 
         if wake_length is None:
             # Fully decayed wake
-            Zt = np.sum(
+            Zt = sum(
                 Impedances.Resonator_transverse_imp(frequencies, *params)
                 for params in dict_params.values()
             )
         else:
             # Partially decayed wake
-            Zt = np.sum(
+            Zt = sum(
                 Impedances.Resonator_transverse_imp(
                     frequencies, *params, wake_length=wake_length
                 )

@@ -129,12 +129,15 @@ class EvolutionaryAlgorithm:
             if np.iscomplex(y_data).any():
                 self.objectiveFunction = obj.sumOfSquaredError
                 print(
-                    "[!] Objective function set to default `iddefix.objectiveFunctions.sumOfSquaredError`"
+                    "[!] Objective function set to default \
+                    `iddefix.objectiveFunctions.sumOfSquaredError`"
                 )
             else:
                 self.objectiveFunction = obj.sumOfSquaredErrorReal
                 print(
-                    "[!] Objective function set to `iddefix.objectiveFunctions.sumOfSquaredErrorReal` for real-valued only data"
+                    "[!] Objective function set to \
+                    `iddefix.objectiveFunctions.sumOfSquaredErrorReal` \
+                    for real-valued only data"
                 )
         elif type(self.objectiveFunction) is str:
             if self.objectiveFunction.lower() == "complex":
@@ -145,7 +148,8 @@ class EvolutionaryAlgorithm:
                 self.objectiveFunction = obj.sumOfSquaredErrorAbs
             else:
                 print(
-                    "[!] Objective function set to default `iddefix.objectiveFunctions.sumOfSquaredError`"
+                    "[!] Objective function set to default \
+                    `iddefix.objectiveFunctions.sumOfSquaredError`"
                 )
                 self.objectiveFunction = obj.sumOfSquaredError
 
@@ -225,7 +229,8 @@ class EvolutionaryAlgorithm:
 
     def check_y_data(self):
         """
-        Small function to avoid 0 frequency leading to zero division when using resonators.
+        Small function to avoid 0 frequency leading to zero division when
+        using resonators.
         """
         mask = np.where(self.x_data > 0.0)[0]
         self.x_data = self.x_data[mask]
@@ -246,10 +251,12 @@ class EvolutionaryAlgorithm:
         solver="scipy",
     ):
         """
-        Generates initial parameter estimates using a Differential Evolution (DE) solver.
+        Generates initial parameter estimates using a
+        Differential Evolution (DE) solver.
 
-        This function applies a DE optimization method to identify suitable initial parameters
-        for resonance fitting. These parameters can be further refined using local minimization.
+        This function applies a DE optimization method to identify
+        suitable initial parameters for resonance fitting.
+        These parameters can be further refined using local minimization.
 
         Parameters
         ----------
@@ -269,16 +276,19 @@ class EvolutionaryAlgorithm:
         popsize : int, optional
             Population size for the DE algorithm. Default is 150.
         mutation : tuple of float, optional
-            Range of mutation factors that control parameter variation. Default is (0.1, 0.5).
+            Range of mutation factors that control parameter variation.
+            Default is (0.1, 0.5).
         crossover_rate : float, optional
-            Probability of recombining individuals in the DE algorithm. Default is 0.8.
+            Probability of recombining individuals in the DE algorithm.
+            Default is 0.8.
         tol : float, optional
             Convergence tolerance for stopping criteria. Default is 0.01.
         solver : str, optional
             The solver to use for differential evolution. Available options:
             - `"scipy"`: Uses SciPy's built-in DE solver.
             - `"pyfde"`: Uses `pyfde`, an alternative DE implementation.
-            - `"pyfde_jade"`: Uses JADE, a self-adaptive DE variant (automatically adjusts `mutation` and `crossover_rate`).
+            - `"pyfde_jade"`: Uses JADE, a self-adaptive DE variant
+            (automatically adjusts `mutation` and `crossover_rate`).
             Default is `"scipy"`.
 
         Returns
