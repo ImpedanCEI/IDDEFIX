@@ -8,8 +8,8 @@ Created on Sat Dec  5 16:33:41 2020
 """
 
 import numpy as np
-from tqdm import tqdm
 from scipy.optimize import differential_evolution
+from tqdm import tqdm
 
 
 class ProgressBarCallback:
@@ -34,15 +34,19 @@ class ProgressBarCallback:
 
 
 def stop_criterion(solver):
-    """
-    Based on the criterion used in scipy.optimize.differential_evolution
-    (https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.differential_evolution.html)
-    Check that the ratio of the spread of the population fitness compared to its average.
-    In other words, if most of the population individuals converge to the same solution indicating
-    an optimal solution has been found.
+    """Stopping criterion used in SciPy's differential evolution.
+
+    Based on the criterion used in
+    ``scipy.optimize.differential_evolution``: it checks the ratio of the
+    spread of the population fitness compared to its average. If most
+    individuals converge to the same solution, an optimal solution is
+    considered found.
     """
     population_cost = np.vstack(solver)[:, 1]
-    population_mean, population_std = np.mean(population_cost), np.std(population_cost)
+    population_mean, population_std = (
+        np.mean(population_cost),
+        np.std(population_cost),
+    )
     criterion = population_std / np.abs(population_mean)
     return criterion
 
@@ -58,27 +62,31 @@ class Solvers:
         tol=0.01,
         **kwargs,
     ):
-        """
-        Runs the SciPy differential_evolution solver to minimize a given function.
+        """Run SciPy's ``differential_evolution`` to minimize a function.
 
-        All the arguments are detailed on this page :
-        (https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.differential_evolution.html)
-        Setting workers= -1 means all CPUs available will be used for the computation.
-        Default parameters used for the DE algorithm taken from https://www.mdpi.com/2227-7390/9/4/427
+        All arguments are detailed in the SciPy documentation:
+        https://docs.scipy.org/doc/scipy/reference/generated/
+        scipy.optimize.differential_evolution.html. Setting
+        ``workers=-1`` uses all available CPUs. Default parameters for
+        the DE algorithm are taken from
+        https://www.mdpi.com/2227-7390/9/4/427.
 
         Args:
-            parameterBounds: A list of tuples representing the upper and lower bounds for each parameter.
-            minimization_function: The function to be minimized.
-            maxiter: The maximum number of iterations to run the solver for.
-            popsize: The population size for the differential evolution algorithm.
-            mutation: A tuple of two floats representing the mutation factors.
-            crossover_rate: The crossover rate for the differential evolution algorithm.
-            tol: The tolerance for convergence.
+            parameterBounds: List of ``(min, max)`` bounds for each
+                parameter.
+            minimization_function: Function to be minimized.
+            maxiter: Maximum number of iterations to run the solver.
+            popsize: Population size for the differential evolution
+                algorithm.
+            mutation: Tuple of two floats representing mutation
+                factors.
+            crossover_rate: Crossover rate for the differential
+                evolution algorithm.
+            tol: Tolerance for convergence.
 
         Returns:
-            A tuple containing:
-                - The solution found by the solver.
-                - A message indicating the solver's status.
+            Tuple ``(solution, message)`` with the best solution and a
+            status message.
         """
         pbar = ProgressBarCallback(maxiter)
         result = differential_evolution(
@@ -169,7 +177,9 @@ class Solvers:
 
         solution, message = (
             best,
-            "Convergence achieved" if i < maxiter else "Maximum iterations reached",
+            "Convergence achieved"
+            if i < maxiter
+            else "Maximum iterations reached",
         )
 
         return solution, message
@@ -220,7 +230,9 @@ class Solvers:
 
         solution, message = (
             best,
-            "Convergence achieved" if i < maxiter else "Maximum iterations reached",
+            "Convergence achieved"
+            if i < maxiter
+            else "Maximum iterations reached",
         )
 
         return solution, message

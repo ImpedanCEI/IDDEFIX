@@ -57,8 +57,10 @@ class EvolutionaryAlgorithm:
             Type of impedance model, either `"longitudinal"` or `"transverse"`.
             Default is `"longitudinal"`.
         objectiveFunction : callable or str, optional
-            The objective function to minimize. If str, it should be in ['Real', 'Complex', 'Abs']--no capital case distinction.
-            Default if `y_data` is complex: `obj.sumOfSquaredError`. Otherwise it will be `obj.sumOfSquaredErrorReal`.
+            The objective function to minimize. If str, it should be in
+            ['Real', 'Complex', 'Abs'] (no case distinction). Default if
+            `y_data` is complex: ``obj.sumOfSquaredError``; otherwise it is
+            ``obj.sumOfSquaredErrorReal``.
         wake_length : float, optional
             Length of the wake function in meters. Required for wake computations.
         sigma : float, optional
@@ -85,9 +87,10 @@ class EvolutionaryAlgorithm:
 
         Notes
         -----
-        - The `fitFunction` is assigned based on the `plane` type, the `fitFunction` mode, and the number of resonators.
-        - The impedance and wake model is based on resonators and can be used for both
-        single-resonator and multi-resonator systems.
+                - The ``fitFunction`` is assigned based on the ``plane`` type, the
+                    fit mode, and the number of resonators.
+                - The impedance and wake model is based on resonators and can be
+                    used for both single-resonator and multi-resonator systems.
         - The optimization is performed using an evolutionary algorithm, with results
         stored in `minimizationParameters`.
 
@@ -390,11 +393,12 @@ class EvolutionaryAlgorithm:
         solver="scipy",
     ):
         """
-        Runs the differential evolution (DE) algorithm to estimate optimal resonance parameters.
+        Runs the differential evolution (DE) algorithm to estimate optimal
+        resonance parameters.
 
-        This function applies a global optimization technique using a DE solver to determine
-        the best-fitting parameters for the given impedance data. The results can later be refined
-        using a local minimization algorithm.
+        This function applies a global optimization technique using a DE solver
+        to determine the best-fitting parameters for the given impedance data.
+        The results can later be refined using a local minimization algorithm.
 
         Parameters
         ----------
@@ -403,9 +407,11 @@ class EvolutionaryAlgorithm:
         popsize : int, optional
             Population size for the DE algorithm. Default is 15.
         mutation : tuple of float, optional
-            Range of mutation factors controlling parameter variation. Default is (0.1, 0.5).
+            Range of mutation factors controlling parameter variation.
+            Default is (0.1, 0.5).
         crossover_rate : float, optional
-            Probability of recombining individuals in the DE algorithm. Default is 0.8.
+            Probability of recombining individuals in the DE algorithm.
+            Default is 0.8.
         tol : float, optional
             Convergence tolerance for stopping criteria. Default is 0.01.
         solver : str, optional
@@ -417,9 +423,11 @@ class EvolutionaryAlgorithm:
 
         Notes
         -----
-        - Uses `generate_Initial_Parameters()` to perform the differential evolution process.
+        - Uses `generate_Initial_Parameters()` to perform the differential
+          evolution process.
         - The optimized parameters are stored in `self.evolutionParameters`.
-        - Calls `self.display_resonator_parameters()` to present the estimated parameters.
+        - Calls `self.display_resonator_parameters()` to present the estimated
+          parameters.
 
         Returns
         -------
@@ -453,9 +461,10 @@ class EvolutionaryAlgorithm:
         """
         Runs a minimization algorithm to refine resonance parameters.
 
-        This function refines the parameters obtained from the Differential Evolution (DE)
-        algorithm by using a local optimization method. If the DE algorithm has not been run,
-        it directly minimizes the objective function using initial parameter bounds.
+        This function refines the parameters obtained from the Differential
+        Evolution (DE) algorithm by using a local optimization method.
+        If the DE algorithm has not been run, it directly minimizes the
+        objective function using initial parameter bounds.
 
         Each parameter is allowed to vary within a specified margin, where:
         - Rs values use `margin[0]`
@@ -466,16 +475,17 @@ class EvolutionaryAlgorithm:
         ----------
         margin : float or list of float, optional
             A list of three values specifying the relative margins for Rs, Q, and fres.
-            Each parameter is allowed to vary by ±(margin * value). Default is [0.1, 0.1, 0.1].
+            Each parameter is allowed to vary by ±(margin * value).
+            Default is [0.1, 0.1, 0.1].
         method : str, optional
             Optimization method for `scipy.optimize.minimize`. Default is 'Nelder-Mead'.
 
         Notes
         -----
-        - The optimization is constrained within `minimizationBounds`, which are computed
-        using `margin` and the current `evolutionParameters`.
-        - If the DE algorithm has not been run, the function initializes parameters using
-        `self.parameterBounds` and minimizes the objective function.
+        - The optimization is constrained within `minimizationBounds`, which
+        are computed using `margin` and the current `evolutionParameters`.
+        - If the DE algorithm has not been run, the function initializes parameters
+        using `self.parameterBounds` and minimizes the objective function.
         - The minimization results are stored in `self.minimizationParameters`.
         - Calls `self.display_resonator_parameters()` to display the refined parameters.
 
@@ -539,7 +549,8 @@ class EvolutionaryAlgorithm:
         Displays resonance parameters in a formatted table using ASCII characters.
 
         Args:
-            solution: A NumPy array of resonator parameters, typically shaped (n_resonators, 3).
+            solution: A NumPy array of resonator parameters, typically shaped
+            (n_resonators, 3).
         """
         header_format = "{:^10}|{:^24}|{:^18}|{:^18}"
         data_format = "{:^10d}|{:^24.2e}|{:^18.2f}|{:^18.3e}"
@@ -803,7 +814,8 @@ class EvolutionaryAlgorithm:
         -----
         - The data is saved in a two-column format where `x_data` and `y_data`
         are combined column-wise.
-        - If `x_data` or `y_data` is missing, the function prints a warning and does not save a file.
+        - If `x_data` or `y_data` is missing, the function prints a warning and
+        does not save a file.
 
         Examples
         --------
@@ -857,9 +869,9 @@ class EvolutionaryAlgorithm:
         usecols : list of int, optional
             Indices of columns to read from the file. If None, all columns are read.
         as_dict : bool, optional
-            If True, returns a dictionary where keys are the column headers (if available)
-            or integers (if headers are missing). If False, returns `x_data` and `y_data`
-            as separate arrays. Default is False.
+            If True, returns a dictionary where keys are the column headers
+            (if available) or integers (if headers are missing).
+            If False, returns `x_data` and `y_data`as separate arrays. Default is False.
 
         Returns
         -------
@@ -872,7 +884,7 @@ class EvolutionaryAlgorithm:
         Notes
         -----
         - If an error occurs while reading the file, the function attempts to reload
-        the data assuming complex numbers (`dtype=np.complex_`).
+        the data assuming complex numbers (`dtype=complex`).
         - If column headers are missing or unreadable, integer indices `[0, 1, ...]`
         are assigned as dictionary keys.
         - The first line of the file is expected to contain column headers.
@@ -882,7 +894,8 @@ class EvolutionaryAlgorithm:
         Read a file and return as a dictionary:
 
         >>> data = read_txt("data.txt", as_dict=True)
-        >>> print(data.keys())  # Example output: {'Time[s]': array([...]), 'Amplitude': array([...])}
+        >>> print(data.keys())
+        # Example output: {'Time[s]': array([...]), 'Amplitude': array([...])}
 
         Read a file and return x and y data separately:
 
@@ -904,13 +917,13 @@ class EvolutionaryAlgorithm:
             load = np.loadtxt(
                 txt, skiprows=skiprows, delimiter=delimiter, usecols=usecols
             )
-        except:
+        except Exception:
             load = np.loadtxt(
                 txt,
                 skiprows=skiprows,
                 delimiter=delimiter,
                 usecols=usecols,
-                dtype=np.complex_,
+                dtype=complex,
             )
 
         try:  # keys == header names
@@ -926,7 +939,7 @@ class EvolutionaryAlgorithm:
             for i in range(len(load[0, :])):
                 d[header[i] + "]"] = load[:, i]
 
-        except:  # keys == int 0, 1, ...
+        except Exception:  # keys == int 0, 1, ...
             d = {}
             for i in range(len(load[0, :])):
                 d[i] = load[:, i]
@@ -934,8 +947,6 @@ class EvolutionaryAlgorithm:
         if as_dict:
             return d
         else:
-            x_data = d.values()[0]
-            y_data = d.values()[1]
-            return x_data, y_data
-            return x_data, y_data
+            x_data = list(d.values())[0]
+            y_data = list(d.values())[1]
             return x_data, y_data

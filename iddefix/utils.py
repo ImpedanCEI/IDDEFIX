@@ -7,16 +7,15 @@ def pars_to_dict(pars):
 
     This function takes a list of parameters `pars` and groups them into
     dictionaries of three parameters (e.g. Rs, Q, resonant_frequency) each.
-    The keys of the resulting dictionary are integers starting from 0,
-    and the values are lists containing three consecutive parameters from
-    the input list.
+    The keys of the resulting dictionary are integers starting from 0, and the
+    values are lists containing three consecutive parameters from the input list.
 
     Args:
         pars: A list or array of parameters to be grouped.
 
     Returns:
-        dict: A dictionary where keys are integers and values are
-             lists of three parameters.
+        dict: A dictionary where keys are integers and values are lists of three
+        parameters.
 
     Raises:
         ValueError: If the length of `pars` is not a multiple of 3.
@@ -130,7 +129,9 @@ def compute_convolution(data_time, data_wake, sigma, kernel="numpy"):
 
     # Perform the convolution
     wake_convolved = convolve(data_wake, lambdat) / np.sum(lambdat)
-    t_convolved = np.linspace(data_time[0], data_time[-1], len(wake_convolved)) * 2
+    t_convolved = (
+        np.linspace(data_time[0], data_time[-1], len(wake_convolved)) * 2
+    )
 
     return t_convolved, wake_convolved
 
@@ -139,14 +140,17 @@ def compute_deconvolution(
     data_time, data_wake_potential, sigma, fmax=3e9, samples=1001
 ):
     """
-    Deconvolve a wake potential with a Gaussian bunch profile to obtain the impedance spectrum.
+    Deconvolve a wake potential with a Gaussian bunch profile to obtain the
+    impedance spectrum.
 
     Parameters
     ----------
     data_time : array_like
-        Time axis corresponding to the wake potential, typically centered around zero [s].
+        Time axis corresponding to the wake potential, typically centered
+        around zero [s].
     data_wake_potential : array_like
-        Wake potential values as a function of time WP(t) in [V/C] --> WP(t) = WP(s)*1e12/c
+        Wake potential values as a function of time WP(t) in [V/C]
+        (WP(t) = WP(s)*1e12/c).
     sigma : float
         Beam sigma (RMS bunch length/4) of the Gaussian bunch profile in [s]
         used to convolve the wake function.
@@ -165,11 +169,12 @@ def compute_deconvolution(
 
     Notes
     -----
-    The impedance is computed by dividing the FFT of the wake potential by the FFT of an
-    analytical Gaussian bunch profile of width `sigma`. Frequencies above `fmax` and negative
-    frequencies are discarded.
+    The impedance is computed by dividing the FFT of the wake potential by
+    the FFT of an analytical Gaussian bunch profile of width ``sigma``.
+    Frequencies above ``fmax`` and negative frequencies are discarded.
 
-    The normalization assumes time in seconds and spatial quantities scaled by the speed of light.
+    The normalization assumes time in seconds and spatial quantities scaled
+    by the speed of light.
     """
 
     ds = (data_time[1] - data_time[0]) * c_light
@@ -208,7 +213,10 @@ def gaussian_bunch(time, sigma):
     """
     # Analytical gaussian with given sigma
     return (
-        1 / (sigma * np.sqrt(2 * np.pi)) * np.exp(-(time**2) / (2 * sigma**2)) / c_light
+        1
+        / (sigma * np.sqrt(2 * np.pi))
+        * np.exp(-(time**2) / (2 * sigma**2))
+        / c_light
     )
 
 
@@ -267,7 +275,7 @@ def compute_ineffint(
 ):
     try:
         import neffint
-    except:
+    except Exception:
         raise ImportError(
             "This function uses the python package `neffint` \n \
                            > pip install neffint"
@@ -336,7 +344,7 @@ def compute_neffint(
 ):
     try:
         import neffint
-    except:
+    except Exception:
         raise ImportError(
             "This function uses the python package `neffint` \n \
                            > pip install neffint"
@@ -360,7 +368,9 @@ def compute_neffint(
         elif error.lower() == "rms":
             interpolation_error_norm = interpolation_error_rms
 
-        func = interp1d(data_time, data_wake, kind="linear", fill_value="extrapolate")
+        func = interp1d(
+            data_time, data_wake, kind="linear", fill_value="extrapolate"
+        )
 
         times, wake = neffint.improve_frequency_range(
             initial_frequencies=data_time,

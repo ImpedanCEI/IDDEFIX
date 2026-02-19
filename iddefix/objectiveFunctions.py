@@ -16,8 +16,9 @@ class ObjectiveFunctions:
     def sumOfSquaredError(parameters, fitFunction, x, y):
         """Calculates the sum of squared errors (SSE) for a given fit function.
 
-        This function computes the SSE between the predicted values from a fit function and
-        the actual data points. It works with both real and imaginary components of the data.
+        This function computes the SSE between the predicted values from a fit
+        function and the actual data points. It works with both real and imaginary
+        components of the data.
 
         Args:
             parameters: Array of parameters used by the fit_function.
@@ -40,8 +41,9 @@ class ObjectiveFunctions:
     def sumOfSquaredErrorReal(parameters, fitFunction, x, y):
         """Calculates the real sum of squared errors (SSE) for a given fit function.
 
-        This function computes the SSE between the predicted values from a fit function and
-        the actual data points. It works only with the real component of the data.
+        This function computes the SSE between the predicted values from a fit
+        function and the actual data points. It works only with the real component
+        of the data.
 
         Args:
             parameters: Array of parameters used by the fit_function.
@@ -60,10 +62,10 @@ class ObjectiveFunctions:
         return squared_error
 
     def sumOfSquaredErrorAbs(parameters, fitFunction, x, y):
-        """Calculates the magnitude-based sum of squared errors (SSE) for a given fit function.
+        """Calculates the magnitude-based sum of squared errors (SSE).
 
-        This function computes the SSE between the magnitudes of the predicted values
-        from a fit function and the magnitudes of the actual data points.
+        This function computes the SSE between the magnitudes of the predicted
+        values from a fit function and the magnitudes of the actual data points.
 
         Args:
             parameters: Array of parameters used by the fitFunction.
@@ -82,10 +84,11 @@ class ObjectiveFunctions:
         return squared_error
 
     def logsumOfSquaredError(parameters, fitFunction, x, y):
-        """Calculates the sum of log squared errors for a given fit function.
+        """Calculates the sum of log squared errors for a fit function.
 
-        This function computes the log squared errors between the predicted values from a fit function
-        and the actual data points. It works with both real and imaginary components of the data.
+        This function computes the log squared errors between the predicted
+        values from a fit function and the actual data points. It works with
+        both real and imaginary components of the data.
 
         Args:
             parameters: Array of parameters used by the fit_function.
@@ -100,7 +103,10 @@ class ObjectiveFunctions:
         grouped_parameters = pars_to_dict(parameters)
         predicted_y = fitFunction(x, grouped_parameters)
         log_squared_error = np.nansum(
-            np.log((y.real - predicted_y.real) ** 2 + (y.imag - predicted_y.imag) ** 2)
+            np.log(
+                (y.real - predicted_y.real) ** 2
+                + (y.imag - predicted_y.imag) ** 2
+            )
         )
         return log_squared_error
 
@@ -128,11 +134,12 @@ class ObjectiveFunctions:
         return log_squared_error
 
     def logsumOfSquaredErrorAbs(parameters, fitFunction, x, y, eps=1e-12):
-        """Calculates the magnitude-based sum of log squared errors for a given fit function.
+        """Calculates the magnitude-based sum of log squared errors.
 
-        This function computes the log of squared errors between the magnitudes of the predicted values
-        from a fit function and the magnitudes of the actual data points.
-        A small epsilon is added inside the log to avoid issues with log(0).
+        This function computes the log of squared errors between the magnitudes
+        of the predicted values from a fit function and the magnitudes of the
+        actual data points. A small epsilon is added inside the log to avoid
+        issues with ``log(0)``.
 
         Args:
             parameters: Array of parameters used by the fitFunction.
