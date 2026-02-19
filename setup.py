@@ -1,5 +1,6 @@
-from setuptools import setup, find_packages
 from pathlib import Path
+
+from setuptools import find_packages, setup
 
 # read version
 version_file = Path(__file__).parent / "iddefix/_version.py"
@@ -43,12 +44,12 @@ setup(
         "Topic :: Scientific/Engineering :: Physics",
     ],
     install_requires=[
-        "numpy<2.0",
+        "numpy",
         "scipy",
         "pymoo",
     ],
     extras_require={
         "all": extra_required,
     },
-    tests_require=["pytest"],
+    tests_require=["pytest", "pytest-cov"],
 )
