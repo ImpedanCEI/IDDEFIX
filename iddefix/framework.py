@@ -6,28 +6,32 @@ Created on Mon Mar 23 13:20:11 2020
 @author: sjoly
 @modified by: MaltheRaschke
 """
-import numpy as np
+
 from functools import partial
+
+import numpy as np
 from scipy.optimize import minimize
 
-from .solvers import Solvers
 from .objectiveFunctions import ObjectiveFunctions as obj
 from .resonatorFormulas import Impedances as imp
 from .resonatorFormulas import Wakes as wak
+from .solvers import Solvers
 from .utils import compute_fft
 
+
 class EvolutionaryAlgorithm:
-    def __init__(self,
-                 x_data,
-                 y_data,
-                 N_resonators,
-                 parameterBounds,
-                 plane="longitudinal",
-                 fitFunction="impedance",
-                 objectiveFunction=None,
-                 wake_length=None,
-                 sigma=None,
-                ):
+    def __init__(
+        self,
+        x_data,
+        y_data,
+        N_resonators,
+        parameterBounds,
+        plane="longitudinal",
+        fitFunction="impedance",
+        objectiveFunction=None,
+        wake_length=None,
+        sigma=None,
+    ):
         """
         Implements an evolutionary algorithm for fitting impedance models to data.
 
@@ -105,7 +109,7 @@ class EvolutionaryAlgorithm:
 
         self.N_resonators = N_resonators
         self.parameterBounds = parameterBounds
-        self.objectiveFunction = objectiveFunction 
+        self.objectiveFunction = objectiveFunction
         self.wake_length = wake_length
         self.plane = plane
         self.sigma = sigma
@@ -121,21 +125,27 @@ class EvolutionaryAlgorithm:
         if self.objectiveFunction is None:
             if np.iscomplex(y_data).any():
                 self.objectiveFunction = obj.sumOfSquaredError
-                print('[!] Objective function set to default `iddefix.objectiveFunctions.sumOfSquaredError`')
+                print(
+                    "[!] Objective function set to default `iddefix.objectiveFunctions.sumOfSquaredError`"
+                )
             else:
                 self.objectiveFunction = obj.sumOfSquaredErrorReal
-                print('[!] Objective function set to `iddefix.objectiveFunctions.sumOfSquaredErrorReal` for real-valued only data')
+                print(
+                    "[!] Objective function set to `iddefix.objectiveFunctions.sumOfSquaredErrorReal` for real-valued only data"
+                )
         elif type(self.objectiveFunction) is str:
-            if self.objectiveFunction.lower() == 'complex':
+            if self.objectiveFunction.lower() == "complex":
                 self.objectiveFunction = obj.sumOfSquaredError
-            if self.objectiveFunction.lower() == 'real':
+            if self.objectiveFunction.lower() == "real":
                 self.objectiveFunction = obj.sumOfSquaredErrorReal
-            elif self.objectiveFunction.lower() == 'abs':
+            elif self.objectiveFunction.lower() == "abs":
                 self.objectiveFunction = obj.sumOfSquaredErrorAbs
             else:
-                print('[!] Objective function set to default `iddefix.objectiveFunctions.sumOfSquaredError`')
+                print(
+                    "[!] Objective function set to default `iddefix.objectiveFunctions.sumOfSquaredError`"
+                )
                 self.objectiveFunction = obj.sumOfSquaredError
-                
+
         if fitFunction == "wake" or fitFunction == "wake function":
             if plane == "longitudinal" and N_resonators > 1:
                 self.fitFunction = wak.n_Resonator_longitudinal_wake
@@ -146,44 +156,67 @@ class EvolutionaryAlgorithm:
             elif plane == "transverse" and N_resonators == 1:
                 self.fitFunction = wak.Resonator_transverse_wake
             else:
-                raise Exception('Algorithm needs N_resonartors >= 1')
+                raise Exception("Algorithm needs N_resonartors >= 1")
             self.time_data = x_data
             self.wake_data = y_data
 
         elif fitFunction == "wake potential":
             if self.sigma is None:
-                print('[!] sigma not specified, using the default sigma=1e-10 s')
+                print(
+                    "[!] sigma not specified, using the default sigma=1e-10 s"
+                )
                 self.sigma = 1e-10
 
             if plane == "longitudinal" and N_resonators > 1:
-                self.fitFunction = partial(wak.n_Resonator_longitudinal_wake_potential, sigma=self.sigma)
+                self.fitFunction = partial(
+                    wak.n_Resonator_longitudinal_wake_potential,
+                    sigma=self.sigma,
+                )
             elif plane == "transverse" and N_resonators > 1:
-                self.fitFunction = partial(wak.n_Resonator_transverse_wake_potential, sigma=self.sigma)
+                self.fitFunction = partial(
+                    wak.n_Resonator_transverse_wake_potential, sigma=self.sigma
+                )
             elif plane == "longitudinal" and N_resonators == 1:
-                self.fitFunction = partial(wak.Resonator_longitudinal_wake_potential, sigma=self.sigma)
+                self.fitFunction = partial(
+                    wak.Resonator_longitudinal_wake_potential, sigma=self.sigma
+                )
             elif plane == "transverse" and N_resonators == 1:
-                self.fitFunction = partial(wak.Resonator_transverse_wake_potential, sigma=self.sigma)
+                self.fitFunction = partial(
+                    wak.Resonator_transverse_wake_potential, sigma=self.sigma
+                )
             else:
-                raise Exception('Algorithm needs N_resonartors >= 1')
+                raise Exception("Algorithm needs N_resonartors >= 1")
             self.time_data = x_data
             self.wake_potential_data = y_data
 
-        else: #Default to "impedance"
+        else:  # Default to "impedance"
             if wake_length is not None:
-                print('[!] Using the partially decayed resonator formalism for impedance')
+                print(
+                    "[!] Using the partially decayed resonator formalism for impedance"
+                )
             else:
-                print('[!] Using the fully decayed resonator formalism for impedance')
+                print(
+                    "[!] Using the fully decayed resonator formalism for impedance"
+                )
 
             if plane == "longitudinal" and N_resonators > 1:
-                self.fitFunction = partial(imp.n_Resonator_longitudinal_imp, wake_length=wake_length)
+                self.fitFunction = partial(
+                    imp.n_Resonator_longitudinal_imp, wake_length=wake_length
+                )
             elif plane == "transverse" and N_resonators > 1:
-                self.fitFunction = partial(imp.n_Resonator_transverse_imp, wake_length=wake_length)
+                self.fitFunction = partial(
+                    imp.n_Resonator_transverse_imp, wake_length=wake_length
+                )
             elif plane == "longitudinal" and N_resonators == 1:
-                self.fitFunction = partial(imp.Resonator_longitudinal_imp, wake_length=wake_length)
+                self.fitFunction = partial(
+                    imp.Resonator_longitudinal_imp, wake_length=wake_length
+                )
             elif plane == "transverse" and N_resonators == 1:
-                self.fitFunction = partial(imp.Resonator_transverse_imp, wake_length=wake_length)
+                self.fitFunction = partial(
+                    imp.Resonator_transverse_imp, wake_length=wake_length
+                )
             else:
-                raise Exception('Algorithm needs N_resonartors >= 1')
+                raise Exception("Algorithm needs N_resonartors >= 1")
             self.frequency_data = x_data
             self.impedance_data = y_data
 
@@ -191,18 +224,24 @@ class EvolutionaryAlgorithm:
         """
         Small function to avoid 0 frequency leading to zero division when using resonators.
         """
-        mask = np.where(self.x_data > 0.)[0]
+        mask = np.where(self.x_data > 0.0)[0]
         self.x_data = self.x_data[mask]
         self.y_data = self.y_data[mask]
 
-
-    def generate_Initial_Parameters(self, parameterBounds, objectiveFunction, fitFunction,
-                                x_values_data, y_values_data,
-                                maxiter=2000, popsize=150,
-                                mutation=(0.1, 0.5), crossover_rate=0.8,
-                                tol=0.01,
-                                solver='scipy',
-                               ):
+    def generate_Initial_Parameters(
+        self,
+        parameterBounds,
+        objectiveFunction,
+        fitFunction,
+        x_values_data,
+        y_values_data,
+        maxiter=2000,
+        popsize=150,
+        mutation=(0.1, 0.5),
+        crossover_rate=0.8,
+        tol=0.01,
+        solver="scipy",
+    ):
         """
         Generates initial parameter estimates using a Differential Evolution (DE) solver.
 
@@ -254,12 +293,12 @@ class EvolutionaryAlgorithm:
         - The result can be used as an initial guess for further optimization.
         """
 
-
-        objective_function = partial(objectiveFunction,
-                                        fitFunction=fitFunction,
-                                        x=x_values_data,
-                                        y=y_values_data
-                                    )
+        objective_function = partial(
+            objectiveFunction,
+            fitFunction=fitFunction,
+            x=x_values_data,
+            y=y_values_data,
+        )
 
         # Map solver names to functions
         solver_functions = {
@@ -275,27 +314,25 @@ class EvolutionaryAlgorithm:
         if not solver_function:
             raise ValueError(f"Invalid solver name: {solver}")
 
-        solution, message = solver_function(parameterBounds,
-                                            objective_function,
-                                            maxiter=maxiter,
-                                            popsize=popsize,
-                                            mutation=mutation,
-                                            crossover_rate=crossover_rate,
-                                            tol=tol)
+        solution, message = solver_function(
+            parameterBounds,
+            objective_function,
+            maxiter=maxiter,
+            popsize=popsize,
+            mutation=mutation,
+            crossover_rate=crossover_rate,
+            tol=tol,
+        )
 
         return solution, message
 
-    def run_cmaes(self,
-                  maxiter=1000,
-                  popsize=50,
-                  sigma=0.1,
-                  **kwargs):
+    def run_cmaes(self, maxiter=1000, popsize=50, sigma=0.1, **kwargs):
         """
-        Runs the CMA-ES (Covariance Matrix Adaptation Evolution Strategy) algorithm 
+        Runs the CMA-ES (Covariance Matrix Adaptation Evolution Strategy) algorithm
         from `pymoo` to optimize resonance parameters.
 
-        This function applies the CMA-ES global optimization method to minimize the 
-        objective function based on the given impedance data and parameter bounds. 
+        This function applies the CMA-ES global optimization method to minimize the
+        objective function based on the given impedance data and parameter bounds.
         The resulting optimized parameters are stored for further analysis or refinement.
 
         Parameters
@@ -321,18 +358,21 @@ class EvolutionaryAlgorithm:
         - Calls `self.display_resonator_parameters()` to present the results.
         """
 
-        objective_function = partial(self.objectiveFunction,
-                                        fitFunction=self.fitFunction,
-                                        x=self.x_data,
-                                        y=self.y_data
-                                    )
+        objective_function = partial(
+            self.objectiveFunction,
+            fitFunction=self.fitFunction,
+            x=self.x_data,
+            y=self.y_data,
+        )
 
-        solution, message, res = Solvers.run_pymoo_cmaes_solver(self.parameterBounds,
-                                            objective_function,
-                                            sigma=sigma,
-                                            maxiter=maxiter,
-                                            popsize=popsize,
-                                            **kwargs)
+        solution, message, res = Solvers.run_pymoo_cmaes_solver(
+            self.parameterBounds,
+            objective_function,
+            sigma=sigma,
+            maxiter=maxiter,
+            popsize=popsize,
+            **kwargs,
+        )
 
         self.evolutionParameters = solution
         self.warning = message
@@ -340,16 +380,15 @@ class EvolutionaryAlgorithm:
 
         return res
 
-
-
-    def run_differential_evolution(self,
-                             maxiter=2000,
-                             popsize=15,
-                             mutation=(0.1, 0.5),
-                             crossover_rate=0.8,
-                             tol=0.01,
-                             solver='scipy',):
-
+    def run_differential_evolution(
+        self,
+        maxiter=2000,
+        popsize=15,
+        mutation=(0.1, 0.5),
+        crossover_rate=0.8,
+        tol=0.01,
+        solver="scipy",
+    ):
         """
         Runs the differential evolution (DE) algorithm to estimate optimal resonance parameters.
 
@@ -387,27 +426,30 @@ class EvolutionaryAlgorithm:
         None
             The optimized parameters are stored in `self.evolutionParameters`.
         """
-        evolutionParameters, warning = self.generate_Initial_Parameters(self.parameterBounds,
-                                                           self.objectiveFunction,
-                                                           self.fitFunction,
-                                                           self.x_data,
-                                                           self.y_data,
-                                                           maxiter=maxiter,
-                                                           popsize=popsize,
-                                                           mutation=mutation,
-                                                           crossover_rate=crossover_rate,
-                                                           tol=tol,
-                                                           solver=solver
-                                                           #workers=workers,
-                                                           #vectorized=vectorized,
-                                                           #iteration_convergence=iteration_convergence,
-                                                                        )
+        evolutionParameters, warning = self.generate_Initial_Parameters(
+            self.parameterBounds,
+            self.objectiveFunction,
+            self.fitFunction,
+            self.x_data,
+            self.y_data,
+            maxiter=maxiter,
+            popsize=popsize,
+            mutation=mutation,
+            crossover_rate=crossover_rate,
+            tol=tol,
+            solver=solver,
+            # workers=workers,
+            # vectorized=vectorized,
+            # iteration_convergence=iteration_convergence,
+        )
 
         self.evolutionParameters = evolutionParameters
         self.warning = warning
         self.display_resonator_parameters(self.evolutionParameters)
 
-    def run_minimization_algorithm(self, margin=[0.1, 0.1, 0.1], method='Nelder-Mead'):
+    def run_minimization_algorithm(
+        self, margin=[0.1, 0.1, 0.1], method="Nelder-Mead"
+    ):
         """
         Runs a minimization algorithm to refine resonance parameters.
 
@@ -443,9 +485,13 @@ class EvolutionaryAlgorithm:
             The refined parameters are stored in `self.minimizationParameters`.
         """
 
-        print('Method for minimization : '+method)
-        objective_function = partial(self.objectiveFunction, fitFunction=self.fitFunction,
-                                     x=self.x_data, y=self.y_data)
+        print("Method for minimization : " + method)
+        objective_function = partial(
+            self.objectiveFunction,
+            fitFunction=self.fitFunction,
+            x=self.x_data,
+            y=self.y_data,
+        )
         if type(margin) is float:
             margin = [margin] * 3
 
@@ -454,29 +500,37 @@ class EvolutionaryAlgorithm:
             minimizationBounds = [
                 sorted(((1 - margin[i % 3]) * p, (1 + margin[i % 3]) * p))
                 for i, p in enumerate(self.evolutionParameters)
-                ]
-            minimizationParameters = minimize(objective_function,
-                                              x0=self.evolutionParameters,
-                                              bounds=minimizationBounds,
-                                              tol=1, #empiric value, documentation is cryptic
-                                              method=method,
-                                              options={'maxiter': self.N_resonators * 1000,
-                                                       'maxfev': self.N_resonators * 1000,
-                                                       'disp': False,
-                                                       'adaptive': True}
-                                             )
+            ]
+            minimizationParameters = minimize(
+                objective_function,
+                x0=self.evolutionParameters,
+                bounds=minimizationBounds,
+                tol=1,  # empiric value, documentation is cryptic
+                method=method,
+                options={
+                    "maxiter": self.N_resonators * 1000,
+                    "maxfev": self.N_resonators * 1000,
+                    "disp": False,
+                    "adaptive": True,
+                },
+            )
         else:
-            print('Differential Evolution algorithm not run, minimization only')
-            minimizationParameters = minimize(objective_function,
-                                              x0=np.mean(self.parameterBounds, axis=1),
-                                              bounds=self.parameterBounds,
-                                              method=method,
-                                              tol=1,
-                                              options={'maxiter': self.N_resonators * 5000,
-                                                       'maxfev': self.N_resonators * 5000,
-                                                       'disp': False,
-                                                       'adaptive': True}
-                                             )
+            print(
+                "Differential Evolution algorithm not run, minimization only"
+            )
+            minimizationParameters = minimize(
+                objective_function,
+                x0=np.mean(self.parameterBounds, axis=1),
+                bounds=self.parameterBounds,
+                method=method,
+                tol=1,
+                options={
+                    "maxiter": self.N_resonators * 5000,
+                    "maxfev": self.N_resonators * 5000,
+                    "disp": False,
+                    "adaptive": True,
+                },
+            )
         self.minimizationParameters = minimizationParameters.x
         self.display_resonator_parameters(self.minimizationParameters)
 
@@ -494,23 +548,28 @@ class EvolutionaryAlgorithm:
             print("| Resonator | Rs [Ohm/m or Ohm] | Q | fres [Hz] |")
             print("|-----------|------------------|---|-----------|")
             for i, parameters in enumerate(params.reshape(-1, 3)):
-                print(f"| {i + 1} | {parameters[0]:.6g} | {parameters[1]:.6g} | {parameters[2]:.6g} |")
+                print(
+                    f"| {i + 1} | {parameters[0]:.6g} | {parameters[1]:.6g} | {parameters[2]:.6g} |"
+                )
         else:
             print("\n")
             print("-" * 70)
 
             # Print header
-            print(header_format.format("Resonator", "Rs [Ohm/m or Ohm]", "Q", "fres [Hz]"))
+            print(
+                header_format.format(
+                    "Resonator", "Rs [Ohm/m or Ohm]", "Q", "fres [Hz]"
+                )
+            )
             print("-" * 70)
 
             # Print data
-            for i, parameters in enumerate(params.reshape(-1,3)):
+            for i, parameters in enumerate(params.reshape(-1, 3)):
                 print(data_format.format(i + 1, *parameters))
 
             print("-" * 70)
 
     def get_wake(self, time_data=None, use_minimization=True):
-
         # Check for time data
         if time_data is None:
             if self.time_data is None:
@@ -541,8 +600,9 @@ class EvolutionaryAlgorithm:
 
         return wake_data
 
-    def get_wake_potential(self, time_data=None, sigma=None, use_minimization=True):
-
+    def get_wake_potential(
+        self, time_data=None, sigma=None, use_minimization=True
+    ):
         # Check for time data
         if time_data is None:
             if self.time_data is None:
@@ -557,8 +617,8 @@ class EvolutionaryAlgorithm:
             if self.sigma is None:
                 self.sigma = 1e-10
             sigma = self.sigma
-            print(f'[!] sigma not specified, using sigma = {sigma:.2e} s')
-            
+            print(f"[!] sigma not specified, using sigma = {sigma:.2e} s")
+
         # Which pars to use
         if use_minimization and self.minimizationParameters is not None:
             pars = self.minimizationParameters
@@ -567,17 +627,27 @@ class EvolutionaryAlgorithm:
 
         # Which plane and formula - TODO check normalization
         if self.plane == "longitudinal" and self.N_resonators > 1:
-            wake_potential_data = wak.n_Resonator_longitudinal_wake_potential(time_data, pars, sigma=sigma)
+            wake_potential_data = wak.n_Resonator_longitudinal_wake_potential(
+                time_data, pars, sigma=sigma
+            )
         elif self.plane == "transverse" and self.N_resonators > 1:
-            wake_potential_data = wak.n_Resonator_transverse_wake_potential(time_data, pars, sigma=sigma)
+            wake_potential_data = wak.n_Resonator_transverse_wake_potential(
+                time_data, pars, sigma=sigma
+            )
         elif self.plane == "longitudinal" and self.N_resonators == 1:
-            wake_potential_data = wak.Resonator_longitudinal_wake_potential(time_data, pars, sigma=sigma)
+            wake_potential_data = wak.Resonator_longitudinal_wake_potential(
+                time_data, pars, sigma=sigma
+            )
         elif self.plane == "transverse" and self.N_resonators == 1:
-            wake_potential_data = wak.Resonator_transverse_wake_potential(time_data, pars, sigma=sigma)
+            wake_potential_data = wak.Resonator_transverse_wake_potential(
+                time_data, pars, sigma=sigma
+            )
 
         return wake_potential_data
 
-    def get_impedance_from_fitFunction(self, frequency_data=None, use_minimization=True):
+    def get_impedance_from_fitFunction(
+        self, frequency_data=None, use_minimization=True
+    ):
         # Check for frequency data
         if frequency_data is None:
             if self.frequency_data is None:
@@ -597,8 +667,9 @@ class EvolutionaryAlgorithm:
 
         return impedance_data
 
-    def get_impedance(self, frequency_data=None,
-                      use_minimization=True, wakelength=None):
+    def get_impedance(
+        self, frequency_data=None, use_minimization=True, wakelength=None
+    ):
         # Check for frequency data
         if frequency_data is None:
             if self.frequency_data is None:
@@ -616,18 +687,27 @@ class EvolutionaryAlgorithm:
 
         # Which plane and formula
         if self.plane == "longitudinal" and self.N_resonators > 1:
-            impedance_data = imp.n_Resonator_longitudinal_imp(frequency_data, pars, wakelength)
+            impedance_data = imp.n_Resonator_longitudinal_imp(
+                frequency_data, pars, wakelength
+            )
         elif self.plane == "transverse" and self.N_resonators > 1:
-            impedance_data = imp.n_Resonator_transverse_imp(frequency_data, pars, wakelength)
+            impedance_data = imp.n_Resonator_transverse_imp(
+                frequency_data, pars, wakelength
+            )
         elif self.plane == "longitudinal" and self.N_resonators == 1:
-            impedance_data = imp.Resonator_longitudinal_imp(frequency_data, pars, wakelength)
+            impedance_data = imp.Resonator_longitudinal_imp(
+                frequency_data, pars, wakelength
+            )
         elif self.plane == "transverse" and self.N_resonators == 1:
-            impedance_data = imp.Resonator_transverse_imp(frequency_data, pars, wakelength)
+            impedance_data = imp.Resonator_transverse_imp(
+                frequency_data, pars, wakelength
+            )
 
         return impedance_data
 
-    def get_impedance_from_fft(self, time_data=None, wake_data=None,
-                               fmax=3e9, samples=1001):
+    def get_impedance_from_fft(
+        self, time_data=None, wake_data=None, fmax=3e9, samples=1001
+    ):
         # Check for time data
         if time_data is None:
             if self.time_data is None:
@@ -639,20 +719,24 @@ class EvolutionaryAlgorithm:
 
         wake_data = self.get_wake(self.time_data)
 
-        f, Z = compute_fft(data_time=time_data,
-                           data_wake=wake_data,
-                           fmax=fmax,
-                           samples=samples)
+        f, Z = compute_fft(
+            data_time=time_data,
+            data_wake=wake_data,
+            fmax=fmax,
+            samples=samples,
+        )
 
-        # Apply convention 
-        if self.plane == 'transverse':
+        # Apply convention
+        if self.plane == "transverse":
             Z *= -1j
-        elif self.plane == 'longitudinal':
-            Z *= -1.
+        elif self.plane == "longitudinal":
+            Z *= -1.0
 
         return f, Z
 
-    def compute_fft(self, data_time=None, data_wake=None, fmax=3e9, samples=1001):
+    def compute_fft(
+        self, time_data=None, wake_data=None, fmax=3e9, samples=1001
+    ):
         # Check for time data - not override self
         if time_data is None:
             if self.time_data is None:
@@ -665,11 +749,11 @@ class EvolutionaryAlgorithm:
                 raise AttributeError("Provide wake data array")
             wake_data = self.wake_data
 
-        compute_fft(data_time, data_wake, fmax, samples)
+        compute_fft(time_data, wake_data, fmax, samples)
 
-    def get_extrapolated_wake(self, new_end_time=None, dt=None,
-                              time_data=None, use_minimization=True):
-
+    def get_extrapolated_wake(
+        self, new_end_time=None, dt=None, time_data=None, use_minimization=True
+    ):
         # Check for time data
         if time_data is None:
             if self.time_data is None:
@@ -680,23 +764,26 @@ class EvolutionaryAlgorithm:
                 self.time_data = time_data
 
         if new_end_time is None:
-            raise Exception('Provide `new_end_time` to extrapolate')
+            raise Exception("Provide `new_end_time` to extrapolate")
 
         if dt is None:
-            dt = np.min(time_data[1:]-time_data[:-1])
+            dt = np.min(time_data[1:] - time_data[:-1])
 
-        ext_time_data = np.concatenate((time_data[:-1],
-                                       np.arange(time_data[-1], new_end_time, dt)))
+        ext_time_data = np.concatenate(
+            (time_data[:-1], np.arange(time_data[-1], new_end_time, dt))
+        )
 
         ext_wake_data = self.get_wake(ext_time_data, use_minimization)
 
         return ext_time_data, ext_wake_data
-    
-    def save_txt(self, f_name, x_data=None, y_data=None, x_name='X [-]', y_name='Y [-]'):
+
+    def save_txt(
+        self, f_name, x_data=None, y_data=None, x_name="X [-]", y_name="Y [-]"
+    ):
         """
         Saves x and y data to a text file in a two-column format.
 
-        This function exports the provided `x_data` and `y_data` to a `.txt` file, 
+        This function exports the provided `x_data` and `y_data` to a `.txt` file,
         formatting the output with a header that includes custom column names.
 
         Parameters
@@ -714,20 +801,20 @@ class EvolutionaryAlgorithm:
 
         Notes
         -----
-        - The data is saved in a two-column format where `x_data` and `y_data` 
+        - The data is saved in a two-column format where `x_data` and `y_data`
         are combined column-wise.
         - If `x_data` or `y_data` is missing, the function prints a warning and does not save a file.
 
         Examples
         --------
         Save two NumPy arrays to `data.txt`:
-        
+
         >>> x = np.linspace(0, 10, 5)
         >>> y = np.sin(x)
         >>> save_txt("data", x, y, x_name="Time [s]", y_name="Amplitude [a.u.]")
-        
+
         The saved file will look like:
-        
+
             Time [s]               Amplitude
             --------------------------------
             0.00                   0.00
@@ -736,21 +823,27 @@ class EvolutionaryAlgorithm:
             7.50                   0.94
             10.00                  -0.54
         """
-        if not f_name.endswith('.txt'):
-            f_name += '.txt'
-            
-        if x_data is not None and y_data is not None:
-            np.savetxt(f_name+'.txt', np.c_[x_data, y_data], header='   '+x_name+' '*20+y_name+'\n'+'-'*48)
-        else:
-            print('txt not saved, please provide x_data and y_data')
+        if not f_name.endswith(".txt"):
+            f_name += ".txt"
 
-    def read_txt(self, txt, skiprows=2, delimiter=None, usecols=None, as_dict=False):
+        if x_data is not None and y_data is not None:
+            np.savetxt(
+                f_name + ".txt",
+                np.c_[x_data, y_data],
+                header="   " + x_name + " " * 20 + y_name + "\n" + "-" * 48,
+            )
+        else:
+            print("txt not saved, please provide x_data and y_data")
+
+    def read_txt(
+        self, txt, skiprows=2, delimiter=None, usecols=None, as_dict=False
+    ):
         """
         Reads data from an ASCII text file and returns it as a dictionary or tuple.
 
-        This function reads a structured text file containing numerical data, 
-        where the first line is expected to contain column headers. It attempts 
-        to parse the headers and assign them as dictionary keys. If headers are 
+        This function reads a structured text file containing numerical data,
+        where the first line is expected to contain column headers. It attempts
+        to parse the headers and assign them as dictionary keys. If headers are
         not properly formatted, integer indices are used instead.
 
         Parameters
@@ -764,8 +857,8 @@ class EvolutionaryAlgorithm:
         usecols : list of int, optional
             Indices of columns to read from the file. If None, all columns are read.
         as_dict : bool, optional
-            If True, returns a dictionary where keys are the column headers (if available) 
-            or integers (if headers are missing). If False, returns `x_data` and `y_data` 
+            If True, returns a dictionary where keys are the column headers (if available)
+            or integers (if headers are missing). If False, returns `x_data` and `y_data`
             as separate arrays. Default is False.
 
         Returns
@@ -778,26 +871,26 @@ class EvolutionaryAlgorithm:
 
         Notes
         -----
-        - If an error occurs while reading the file, the function attempts to reload 
+        - If an error occurs while reading the file, the function attempts to reload
         the data assuming complex numbers (`dtype=np.complex_`).
-        - If column headers are missing or unreadable, integer indices `[0, 1, ...]` 
+        - If column headers are missing or unreadable, integer indices `[0, 1, ...]`
         are assigned as dictionary keys.
         - The first line of the file is expected to contain column headers.
 
         Examples
         --------
         Read a file and return as a dictionary:
-        
+
         >>> data = read_txt("data.txt", as_dict=True)
         >>> print(data.keys())  # Example output: {'Time[s]': array([...]), 'Amplitude': array([...])}
 
         Read a file and return x and y data separately:
-        
+
         >>> x, y = read_txt("data.txt")
         >>> print(x.shape, y.shape)
 
         Example of an expected file format:
-        
+
         ```
         # Time[s]     Amplitude
         ------------------------
@@ -808,32 +901,41 @@ class EvolutionaryAlgorithm:
         """
 
         try:
-            load = np.loadtxt(txt, skiprows=skiprows, delimiter=delimiter, usecols=usecols)
+            load = np.loadtxt(
+                txt, skiprows=skiprows, delimiter=delimiter, usecols=usecols
+            )
         except:
-            load = np.loadtxt(txt, skiprows=skiprows, delimiter=delimiter, 
-                              usecols=usecols, dtype=np.complex_)
-            
-        try: # keys == header names
+            load = np.loadtxt(
+                txt,
+                skiprows=skiprows,
+                delimiter=delimiter,
+                usecols=usecols,
+                dtype=np.complex_,
+            )
+
+        try:  # keys == header names
             with open(txt) as f:
                 header = f.readline()
 
-            header = header.replace(' ', '')
-            header = header.replace('#', '')
-            header = header.replace('\n', '')
-            header = header.split(']')
+            header = header.replace(" ", "")
+            header = header.replace("#", "")
+            header = header.replace("\n", "")
+            header = header.split("]")
 
             d = {}
-            for i in range(len(load[0,:])):
-                d[header[i]+']'] = load[:, i]
-        
-        except: #keys == int 0, 1, ...
+            for i in range(len(load[0, :])):
+                d[header[i] + "]"] = load[:, i]
+
+        except:  # keys == int 0, 1, ...
             d = {}
-            for i in range(len(load[0,:])):
+            for i in range(len(load[0, :])):
                 d[i] = load[:, i]
-        
+
         if as_dict:
             return d
         else:
             x_data = d.values()[0]
             y_data = d.values()[1]
+            return x_data, y_data
+            return x_data, y_data
             return x_data, y_data

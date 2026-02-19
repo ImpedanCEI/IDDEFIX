@@ -6,9 +6,11 @@ Modified Tue 23 Sep @edelafue
 
 @author: sjoly
 """
+
 import numpy as np
 
 from .utils import pars_to_dict
+
 
 class ObjectiveFunctions:
     def sumOfSquaredError(parameters, fitFunction, x, y):
@@ -30,7 +32,9 @@ class ObjectiveFunctions:
 
         grouped_parameters = pars_to_dict(parameters)
         predicted_y = fitFunction(x, grouped_parameters)
-        squared_error = np.nansum((y.real - predicted_y.real)**2 + (y.imag - predicted_y.imag)**2)
+        squared_error = np.nansum(
+            (y.real - predicted_y.real) ** 2 + (y.imag - predicted_y.imag) ** 2
+        )
         return squared_error
 
     def sumOfSquaredErrorReal(parameters, fitFunction, x, y):
@@ -52,13 +56,13 @@ class ObjectiveFunctions:
 
         grouped_parameters = pars_to_dict(parameters)
         predicted_y = fitFunction(x, grouped_parameters)
-        squared_error = np.nansum((y.real - predicted_y.real)**2)
+        squared_error = np.nansum((y.real - predicted_y.real) ** 2)
         return squared_error
 
     def sumOfSquaredErrorAbs(parameters, fitFunction, x, y):
         """Calculates the magnitude-based sum of squared errors (SSE) for a given fit function.
 
-        This function computes the SSE between the magnitudes of the predicted values 
+        This function computes the SSE between the magnitudes of the predicted values
         from a fit function and the magnitudes of the actual data points.
 
         Args:
@@ -74,9 +78,8 @@ class ObjectiveFunctions:
 
         grouped_parameters = pars_to_dict(parameters)
         predicted_y = fitFunction(x, grouped_parameters)
-        squared_error = np.nansum((np.abs(y) - np.abs(predicted_y))**2)
+        squared_error = np.nansum((np.abs(y) - np.abs(predicted_y)) ** 2)
         return squared_error
-
 
     def logsumOfSquaredError(parameters, fitFunction, x, y):
         """Calculates the sum of log squared errors for a given fit function.
@@ -96,7 +99,9 @@ class ObjectiveFunctions:
         """
         grouped_parameters = pars_to_dict(parameters)
         predicted_y = fitFunction(x, grouped_parameters)
-        log_squared_error = np.nansum(np.log((y.real - predicted_y.real)**2 + (y.imag - predicted_y.imag)**2))
+        log_squared_error = np.nansum(
+            np.log((y.real - predicted_y.real) ** 2 + (y.imag - predicted_y.imag) ** 2)
+        )
         return log_squared_error
 
     def logsumOfSquaredErrorReal(parameters, fitFunction, x, y):
@@ -119,9 +124,9 @@ class ObjectiveFunctions:
 
         grouped_parameters = pars_to_dict(parameters)
         predicted_y = fitFunction(x, grouped_parameters)
-        log_squared_error = np.nansum(np.log((y.real - predicted_y.real)**2))
+        log_squared_error = np.nansum(np.log((y.real - predicted_y.real) ** 2))
         return log_squared_error
-    
+
     def logsumOfSquaredErrorAbs(parameters, fitFunction, x, y, eps=1e-12):
         """Calculates the magnitude-based sum of log squared errors for a given fit function.
 
@@ -143,5 +148,7 @@ class ObjectiveFunctions:
 
         grouped_parameters = pars_to_dict(parameters)
         predicted_y = fitFunction(x, grouped_parameters)
-        log_squared_error = np.nansum(np.log((np.abs(y) - np.abs(predicted_y))**2 + eps))
+        log_squared_error = np.nansum(
+            np.log((np.abs(y) - np.abs(predicted_y)) ** 2 + eps)
+        )
         return log_squared_error
