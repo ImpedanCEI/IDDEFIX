@@ -26,8 +26,9 @@ jobs:
         python-version: "3.11"
     - name: pip install
       run:  |
-        pip install wakis['notebook']
-        pip install pymoo
+        pip install wakis
+        pip install iddefix
+        pip install pytest pytest-cov
 
     - name: Print versions
       run: conda list
@@ -38,4 +39,4 @@ jobs:
     - name: Run pytest
       run:  |
         cd iddefix
-        python -m pytest --color=yes -v -s tests
+        python -m pytest --cov=iddefix -vs tests
