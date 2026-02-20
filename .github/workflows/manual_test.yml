@@ -30,7 +30,6 @@ jobs:
         pip install pytest pytest-cov
         cd iddefix
         pip install .
-
     - name: Print versions
       run: conda list
     - name: Checkout iddefix

@@ -25,6 +25,10 @@ jobs:
       with:
         miniforge-version: latest
         python-version: "3.12"
+    - name: Checkout iddefix
+      uses: actions/checkout@v4
+      with:
+        path: iddefix
     - name: pip install
       run:  |
         cd iddefix
@@ -34,10 +38,6 @@ jobs:
 
     - name: Print versions
       run: conda list
-    - name: Checkout iddefix
-      uses: actions/checkout@v4
-      with:
-        path: iddefix
     - name: Run pytest
       run:  |
         cd iddefix
