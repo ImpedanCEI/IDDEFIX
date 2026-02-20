@@ -24,6 +24,10 @@ jobs:
       with:
         miniforge-version: latest
         python-version: "3.11"
+    - name: Checkout iddefix
+      uses: actions/checkout@v4
+      with:
+        path: iddefix
     - name: pip install
       run:  |
         pip install wakis
@@ -32,10 +36,6 @@ jobs:
         pip install .
     - name: Print versions
       run: conda list
-    - name: Checkout iddefix
-      uses: actions/checkout@v4
-      with:
-        path: iddefix
     - name: Run pytest
       run:  |
         cd iddefix
