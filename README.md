@@ -7,8 +7,8 @@
 
 ![PyPI - Version](https://img.shields.io/pypi/v/IDDEFIX?style=flat-square&color=green)
 ![PyPI - License](https://img.shields.io/pypi/l/IDDEFIX?style=flat-square&color=pink)
-[![Documentation Status](https://readthedocs.org/projects/iddefix/badge/?version=latest)](https://iddefix.readthedocs.io/en/latest/?badge=latest)
-[![nightly_tests_CPU_python11](https://github.com/ImpedanCEI/IDDEFIX/actions/workflows/nightly_tests.yml/badge.svg)](https://github.com/ImpedanCEI/IDDEFIX/actions/workflows/nightly_tests.yml)
+[![Documentation Status](https://readthedocs.org/projects/iddefix/badge/?version=latest)](https://iddefix.readthedocs.io/en/latest/?badge=latest) 
+[![nightly_tests_CPU_python3.13](https://github.com/ImpedanCEI/IDDEFIX/actions/workflows/nightly_tests_p3.13.yml/badge.svg)](https://github.com/ImpedanCEI/IDDEFIX/actions/workflows/nightly_tests_p3.13.yml) 
 
 IDDEFIX is a physics-informed evolutionary optimization framework that fits a resonator-based model (parameterized by R, f, Q) to wakefield simulation data. It leverages Differential Evolution to optimize these parameters, enabling efficient classification and extrapolation of electromagnetic wakefield behavior. This allows for reduced simulation time while maintaining long-term accuracy, akin to time-series forecasting in machine learning
 
@@ -68,3 +68,8 @@ Check :file_folder: `examples/` for different DE resonator fitting cases
 - S. Joly, PhD Thesis *Recent advances in the CERN PS impedance model and instability simulations following the LHC Injectors Upgrade project* Sapienza Universita di Roma [link](https://hdl.handle.net/11573/1718791)
 - M. Raschke, *Evolutionary Algorithms for Wakefields* @ CERN ABP-CEI section meeting [link](https://indico.cern.ch/event/1496532/contributions/6303923/attachments/2992287/5283277/Evolutionary%20algorithms%20for%20Wakefields%20-%20CERN.pdf)
 - B. Figueiredo, *Using Xsuite and (CMA-ES) genetic methods to optimize FCC GHS momentum acceptance* @ CERN ABP-CAP section meeting [link](https://indico.cern.ch/event/1510103/#2-using-xsuite-and-genetic-met)
+
+--- 
+###  Nightly Test badges
+[![manual_tests_CPU_python11](https://github.com/ImpedanCEI/IDDEFIX/actions/workflows/manual_test.yml/badge.svg)](https://github.com/ImpedanCEI/IDDEFIX/actions/workflows/manual_test.yml)
+[![nightly_tests_CPU_python3.11](https://github.com/ImpedanCEI/IDDEFIX/actions/workflows/nightly_tests_p3.11.yml/badge.svg)](https://github.com/ImpedanCEI/IDDEFIX/actions/workflows/nightly_tests_p3.11.yml) [![nightly_tests_CPU_python3.12](https://github.com/ImpedanCEI/IDDEFIX/actions/workflows/nightly_tests_p3.12.yml/badge.svg)](https://github.com/ImpedanCEI/IDDEFIX/actions/workflows/nightly_tests_p3.12.yml) [![nightly_tests_CPU_python3.13](https://github.com/ImpedanCEI/IDDEFIX/actions/workflows/nightly_tests_p3.13.yml/badge.svg)](https://github.com/ImpedanCEI/IDDEFIX/actions/workflows/nightly_tests_p3.13.yml) 
