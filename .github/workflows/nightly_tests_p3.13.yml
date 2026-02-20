@@ -1,6 +1,6 @@
 # This is a basic workflow that is nighly triggered
 
-name: nightly_tests_CPU_python3.12
+name: nightly_tests_CPU_python3.13
 
 # Controls when the action will run. CRON schedule runs at mm hh dd mm yy UTC TIME
 on:
@@ -29,6 +29,7 @@ jobs:
       run:  |
         pip install wakis
         pip install iddefix
+        pip install pytest pytest-cov
 
     - name: Print versions
       run: conda list
@@ -39,4 +40,4 @@ jobs:
     - name: Run pytest
       run:  |
         cd iddefix
-        python -m pytest --color=yes -v tests
+        python -m pytest --cov=iddefix -v tests
