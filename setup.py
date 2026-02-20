@@ -47,6 +47,7 @@ setup(
         "numpy",
         "scipy",
         "pymoo",
+        "neffint",
     ],
     extras_require={
         "all": extra_required,
