@@ -27,8 +27,9 @@ jobs:
         python-version: "3.11"
     - name: pip install
       run:  |
+        cd iddefix
+        pip install .
         pip install wakis
-        pip install iddefix
         pip install pytest pytest-cov
 
     - name: Print versions

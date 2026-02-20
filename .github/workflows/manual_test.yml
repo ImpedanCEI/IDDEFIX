@@ -27,8 +27,9 @@ jobs:
     - name: pip install
       run:  |
         pip install wakis
-        pip install iddefix
         pip install pytest pytest-cov
+        cd iddefix
+        pip install .
 
     - name: Print versions
       run: conda list
