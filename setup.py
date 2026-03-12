@@ -47,6 +47,7 @@ setup(
         "numpy",
         "scipy",
         "pymoo",
+        "tqdm",
     ],
     extras_require={
         "all": extra_required,
