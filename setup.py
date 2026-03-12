@@ -48,6 +48,7 @@ setup(
         "scipy",
         "pymoo",
         "neffint",
+        "tqdm",
     ],
     extras_require={
         "all": extra_required,
