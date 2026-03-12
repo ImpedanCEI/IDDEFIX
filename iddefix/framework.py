@@ -16,7 +16,7 @@ from .objectiveFunctions import ObjectiveFunctions as obj
 from .resonatorFormulas import Impedances as imp
 from .resonatorFormulas import Wakes as wak
 from .solvers import Solvers
-from .utils import compute_fft
+from .utils import compute_fft, get_minimization_pcov
 
 
 class EvolutionaryAlgorithm:
@@ -534,6 +534,7 @@ class EvolutionaryAlgorithm:
                     "adaptive": True,
                 },
             )
+        self.minimizationParameters = minimizationParameters.x
         self.minimizationParameters = minimizationParameters.x
         self.display_resonator_parameters(self.minimizationParameters)
 

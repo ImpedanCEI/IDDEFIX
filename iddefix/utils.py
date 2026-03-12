@@ -1,6 +1,9 @@
 import numpy as np
 from scipy.constants import c as c_light
 
+def get_minimization_pcov(result: optimize.OptimizeResult): 
+    return np.linalg.inv(np.dot(result.jac.T, result.jac)) * (result.fun**2).sum() / (len(result.fun) - len(result.x))
+
 
 def pars_to_dict(pars):
     """Converts a list of parameters into a dictionary of parameter groups.
