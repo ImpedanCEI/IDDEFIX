@@ -17,6 +17,7 @@ from .resonatorFormulas import Impedances as imp
 from .resonatorFormulas import Wakes as wak
 from .solvers import Solvers
 from .utils import compute_fft
+from .uncertainties import get_uncertainties
 
 
 class EvolutionaryAlgorithm:
@@ -445,6 +446,8 @@ class EvolutionaryAlgorithm:
         )
 
         self.evolutionParameters = evolutionParameters
+        self.evolutionParametersUncertainties = get_uncertainties(self.evolutionParameters, self.fitFunction, self.x_data, self.y_data)
+
         self.warning = warning
         self.display_resonator_parameters(self.evolutionParameters)
 
@@ -535,6 +538,7 @@ class EvolutionaryAlgorithm:
                 },
             )
         self.minimizationParameters = minimizationParameters.x
+        self.minimizationParametersUncertainties = get_uncertainties(self.minimizationParameters, self.fitFunction, self.x_data, self.y_data)
         self.display_resonator_parameters(self.minimizationParameters)
 
     def display_resonator_parameters(self, params=None, to_markdown=False):

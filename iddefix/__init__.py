@@ -4,6 +4,7 @@ from . import resonatorFormulas
 from . import solvers
 from . import smartBoundDetermination
 from . import utils
+from . import uncertainties
 
 from .framework import EvolutionaryAlgorithm
 from .objectiveFunctions import ObjectiveFunctions
