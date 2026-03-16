@@ -138,6 +138,7 @@ class EvolutionaryAlgorithm:
         # Threshold on relative uncertainty (sigma/|value|) above which a
         # warning is printed after evolution/minimization
         self.uncertainty_warning = uncertainty_warning
+        self.flagged_params = None
 
         if self.objectiveFunction is None:
             if np.iscomplex(y_data).any():
@@ -392,14 +393,14 @@ class EvolutionaryAlgorithm:
             self.y_data,
         )
         self.warning = message
-        self.display_resonator_parameters(
-            param=self.evolutionParameters,
-            to_markdown=False,
-            uncertainties=self.evolutionParametersUncertainties,
-        )
         self._warn_large_uncertainties(
             self.evolutionParameters,
             self.evolutionParametersUncertainties,
+        )
+        self.display_resonator_parameters(
+            params=self.evolutionParameters,
+            to_markdown=False,
+            uncertainties=self.evolutionParametersUncertainties,
         )
 
         return res
@@ -481,14 +482,14 @@ class EvolutionaryAlgorithm:
         )
 
         self.warning = warning
+        self._warn_large_uncertainties(
+            self.evolutionParameters,
+            self.evolutionParametersUncertainties,
+        )
         self.display_resonator_parameters(
             params=self.evolutionParameters,
             to_markdown=False,
             uncertainties=self.evolutionParametersUncertainties,
-        )
-        self._warn_large_uncertainties(
-            self.evolutionParameters,
-            self.evolutionParametersUncertainties,
         )
 
     def run_minimization_algorithm(
@@ -584,14 +585,14 @@ class EvolutionaryAlgorithm:
             self.x_data,
             self.y_data,
         )
+        self._warn_large_uncertainties(
+            self.minimizationParameters,
+            self.minimizationParametersUncertainties,
+        )
         self.display_resonator_parameters(
             params=self.minimizationParameters,
             to_markdown=False,
             uncertainties=self.minimizationParametersUncertainties,
-        )
-        self._warn_large_uncertainties(
-            self.minimizationParameters,
-            self.minimizationParametersUncertainties,
         )
 
     def display_resonator_parameters(
@@ -664,6 +665,14 @@ class EvolutionaryAlgorithm:
             params_reshaped = params.reshape(-1, 3)
             if uncertainties is not None:
                 uncert_reshaped = uncertainties.reshape(-1, 3)
+                flagged_mask = self.flagged_params
+                if flagged_mask is not None:
+                    flagged_reshaped = flagged_mask.reshape(-1, 3)
+                else:
+                    flagged_reshaped = np.zeros_like(
+                        params_reshaped, dtype=bool
+                    )
+
                 for i, (p_row, u_row) in enumerate(
                     zip(params_reshaped, uncert_reshaped)
                 ):
@@ -672,9 +681,19 @@ class EvolutionaryAlgorithm:
                     rs_str = f"{rs:.2e} ± {urs:.1e}"
                     q_str = f"{q:.2f} ± {uq:.2f}"
                     fres_str = f"{fres:.2e} ± {ufres:.1e}"
-                    print(
-                        f"{i + 1:^10d}|{rs_str:^24}|{q_str:^18}|{fres_str:^24}"
-                    )
+                    rs_cell = f"{rs_str:^24}"
+                    q_cell = f"{q_str:^18}"
+                    fres_cell = f"{fres_str:^24}"
+
+                    # Highlight cells whose relative uncertainty exceeds threshold.
+                    if flagged_reshaped[i, 0]:
+                        rs_cell = f"\033[31m{rs_cell}\033[0m"
+                    if flagged_reshaped[i, 1]:
+                        q_cell = f"\033[31m{q_cell}\033[0m"
+                    if flagged_reshaped[i, 2]:
+                        fres_cell = f"\033[31m{fres_cell}\033[0m"
+
+                    print(f"{i + 1:^10d}|{rs_cell}|{q_cell}|{fres_cell}")
             else:
                 for i, parameters in enumerate(params_reshaped):
                     print(
@@ -692,21 +711,25 @@ class EvolutionaryAlgorithm:
         """
 
         if params is None or uncertainties is None:
+            self.flagged_params = None
             return
 
         threshold = getattr(self, "uncertainty_warning", None)
         if threshold is None:
+            self.flagged_params = None
             return
 
         params = np.asarray(params, dtype=float)
         uncertainties = np.asarray(uncertainties, dtype=float)
         if params.shape != uncertainties.shape:
+            self.flagged_params = None
             return
 
         with np.errstate(divide="ignore", invalid="ignore"):
             rel_unc = np.abs(uncertainties / params)
 
         mask = np.isfinite(rel_unc) & (rel_unc >= threshold)
+        self.flagged_params = mask
         n_flagged = int(mask.sum())
         if n_flagged == 0:
             return
