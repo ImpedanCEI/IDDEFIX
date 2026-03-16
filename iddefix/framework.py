@@ -372,6 +372,7 @@ class EvolutionaryAlgorithm:
         )
 
         self.evolutionParameters = solution
+        self.evolutionParametersUncertainties = get_uncertainties(self.evolutionParameters, self.fitFunction, self.x_data, self.y_data)
         self.warning = message
         self.display_resonator_parameters(self.evolutionParameters)
 
