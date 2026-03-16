@@ -611,18 +611,17 @@ class EvolutionaryAlgorithm:
         """
 
         # use self parameters if not provided as argument
+        flagged_mask = self.flagged_params
         if params is None:
             if self.minimizationParameters is not None:
                 params = self.minimizationParameters
                 print("[*] Displaying parameters after minimization")
                 if uncertainties is None:
                     uncertainties = self.minimizationParametersUncertainties
-                    flagged_mask = self.flagged_params
             elif self.evolutionParameters is not None:
                 params = self.evolutionParameters
                 if uncertainties is None:
                     uncertainties = self.evolutionParametersUncertainties
-                    flagged_mask = self.flagged_params
             else:
                 print("[!] No parameters to display.")
                 return
