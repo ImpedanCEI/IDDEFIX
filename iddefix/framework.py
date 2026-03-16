@@ -617,16 +617,19 @@ class EvolutionaryAlgorithm:
                 print("[*] Displaying parameters after minimization")
                 if uncertainties is None:
                     uncertainties = self.minimizationParametersUncertainties
+                    flagged_mask = self.flagged_params
             elif self.evolutionParameters is not None:
                 params = self.evolutionParameters
                 if uncertainties is None:
                     uncertainties = self.evolutionParametersUncertainties
+                    flagged_mask = self.flagged_params
             else:
                 print("[!] No parameters to display.")
                 return
 
         if not display_uncertainties:
             uncertainties = None
+            flagged_mask = None
 
         header_format = "{:^10}|{:^24}|{:^18}|{:^18}"
         if to_markdown:
@@ -665,7 +668,6 @@ class EvolutionaryAlgorithm:
             params_reshaped = params.reshape(-1, 3)
             if uncertainties is not None:
                 uncert_reshaped = uncertainties.reshape(-1, 3)
-                flagged_mask = self.flagged_params
                 if flagged_mask is not None:
                     flagged_reshaped = flagged_mask.reshape(-1, 3)
                 else:
@@ -678,9 +680,11 @@ class EvolutionaryAlgorithm:
                 ):
                     rs, q, fres = p_row
                     urs, uq, ufres = u_row
+
                     rs_str = f"{rs:.2e} ± {urs:.1e}"
                     q_str = f"{q:.2f} ± {uq:.2f}"
                     fres_str = f"{fres:.2e} ± {ufres:.1e}"
+
                     rs_cell = f"{rs_str:^24}"
                     q_cell = f"{q_str:^18}"
                     fres_cell = f"{fres_str:^24}"
