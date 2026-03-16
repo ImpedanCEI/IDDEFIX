@@ -71,7 +71,7 @@ class EvolutionaryAlgorithm:
         uncertainty_warning : float, optional
             Threshold for relative uncertainty warning. Default is 0.2 -->20%
             If any parameter has a relative uncertainty (sigma/value) above this
-            threshold, a warning is printed after
+            threshold, a warning is printed after optimization.
 
         Attributes
         ----------
