@@ -4,7 +4,7 @@
 Created on Mon Mar 23 13:20:11 2020
 
 @author: sjoly
-@modified by: MaltheRaschke
+@modified by: MaltheRaschke, edelafue
 """
 
 from functools import partial
@@ -65,9 +65,10 @@ class EvolutionaryAlgorithm:
             ``obj.sumOfSquaredErrorReal``.
         wake_length : float, optional
             Length of the wake function in meters. Required for wake computations.
-        sigma : float, optional,
+        sigma : float, optional
             Standard deviation for the bunch's Gaussian distribution used in
-            wake potential getters. Default is 1e-10 s.
+            wake potential getters. Default is ``None``. When ``None`` and
+            wake-potential getter is used, a default value of 1e-10 s is applied internally.
         uncertainty_warning : float, optional
             Threshold for relative uncertainty warning. Default is 0.2 -->20%
             If any parameter has a relative uncertainty (sigma/value) above this
@@ -105,13 +106,16 @@ class EvolutionaryAlgorithm:
         Examples
         --------
         >>> import numpy as np
-        >>> from evolutionary_algorithm import EvolutionaryAlgorithm
+        >>> import iddefix
         >>> freq = np.linspace(1e9, 5e9, 100)  # Frequency range from 1 GHz to 5 GHz
-        >>> Z = np.random.rand(100)  # Example impedance data
+        >>> Z = iddefix.Impedances.Resonator_longitudinal_imp(freq, 400, 30, 0.2e9) # Rs, Q, fr
         >>> bounds = [(10, 1000), (1, 100), (1e9, 5e9)]  # Example bounds for Rs, Q, fr
-        >>> model = EvolutionaryAlgorithm(x_data=freq, y_data=Z,
-        ...                              N_resonators=1,
-                                         parameterBounds=bounds)
+        >>> model = iddefix.EvolutionaryAlgorithm(
+        ...     x_data=freq,
+        ...     y_data=Z,
+        ...     N_resonators=1,
+        ...     parameterBounds=bounds,
+        ... )
         >>> print(model.plane)
         'longitudinal'
         >>> model.run_differential_evolution(maxiter=100, popsize=10)
@@ -133,12 +137,14 @@ class EvolutionaryAlgorithm:
         self.frequency_data = None
         self.impedance_data = None
         self.evolutionParameters = None
+        self.evolutionParametersUncertainties = None
         self.minimizationParameters = None
+        self.minimizationParametersUncertainties = None
+        self.flagged_params = None
 
         # Threshold on relative uncertainty (sigma/|value|) above which a
         # warning is printed after evolution/minimization
         self.uncertainty_warning = uncertainty_warning
-        self.flagged_params = None
 
         if self.objectiveFunction is None:
             if np.iscomplex(y_data).any():
@@ -610,8 +616,7 @@ class EvolutionaryAlgorithm:
             (n_resonators, 3).
         """
 
-        # use self parameters if not provided as argument
-        flagged_mask = self.flagged_params
+        # Use self parameters if not provided as argument.
         if params is None:
             if self.minimizationParameters is not None:
                 params = self.minimizationParameters
@@ -626,11 +631,12 @@ class EvolutionaryAlgorithm:
                 print("[!] No parameters to display.")
                 return
 
+        flagged_mask = self._compute_flagged_params_mask(params, uncertainties)
+
         if not display_uncertainties:
             uncertainties = None
             flagged_mask = None
 
-        header_format = "{:^10}|{:^24}|{:^18}|{:^18}"
         if to_markdown:
             print("\n")
             print("| Resonator | Rs [Ohm/m or Ohm] | Q | fres [Hz] |")
@@ -656,6 +662,7 @@ class EvolutionaryAlgorithm:
             print("-" * 76)
 
             # Print header
+            header_format = "{:^10}|{:^24}|{:^18}|{:^24}"
             print(
                 header_format.format(
                     "Resonator", "Rs [Ohm/m or Ohm]", "Q", "fres [Hz]"
@@ -705,6 +712,26 @@ class EvolutionaryAlgorithm:
 
             print("-" * 76)
 
+    def _compute_flagged_params_mask(self, params, uncertainties):
+        """Compute boolean mask for parameters above relative uncertainty threshold."""
+
+        if params is None or uncertainties is None:
+            return None
+
+        threshold = getattr(self, "uncertainty_warning", None)
+        if threshold is None:
+            return None
+
+        params = np.asarray(params, dtype=float)
+        uncertainties = np.asarray(uncertainties, dtype=float)
+        if params.shape != uncertainties.shape:
+            return None
+
+        with np.errstate(divide="ignore", invalid="ignore"):
+            rel_unc = np.abs(uncertainties / params)
+
+        return np.isfinite(rel_unc) & (rel_unc >= threshold)
+
     def _warn_large_uncertainties(self, params, uncertainties):
         """Print a warning if any parameter has a large relative uncertainty.
 
@@ -713,31 +740,22 @@ class EvolutionaryAlgorithm:
         parameter, a concise warning is printed.
         """
 
-        if params is None or uncertainties is None:
-            self.flagged_params = None
+        mask = self._compute_flagged_params_mask(params, uncertainties)
+        self.flagged_params = mask
+
+        if mask is None:
             return
 
         threshold = getattr(self, "uncertainty_warning", None)
-        if threshold is None:
-            self.flagged_params = None
-            return
-
-        params = np.asarray(params, dtype=float)
-        uncertainties = np.asarray(uncertainties, dtype=float)
-        if params.shape != uncertainties.shape:
-            self.flagged_params = None
-            return
-
-        with np.errstate(divide="ignore", invalid="ignore"):
-            rel_unc = np.abs(uncertainties / params)
-
-        mask = np.isfinite(rel_unc) & (rel_unc >= threshold)
-        self.flagged_params = mask
         n_flagged = int(mask.sum())
         if n_flagged == 0:
             return
 
-        max_rel = float(np.nanmax(rel_unc[mask])) if n_flagged > 0 else 0.0
+        params = np.asarray(params, dtype=float)
+        uncertainties = np.asarray(uncertainties, dtype=float)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            rel_unc = np.abs(uncertainties / params)
+        max_rel = float(np.nanmax(rel_unc[mask]))
         print(
             f"[!] Warning: {n_flagged} parameter(s) have relative uncertainty >= {threshold:.2f} (max {max_rel:.2f})."
         )
