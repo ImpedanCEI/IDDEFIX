@@ -4,7 +4,7 @@
 Created on Mon Mar 23 13:20:11 2020
 
 @author: sjoly
-@modified by: MaltheRaschke
+@modified by: MaltheRaschke, edelafue
 """
 
 from functools import partial
@@ -16,8 +16,8 @@ from .objectiveFunctions import ObjectiveFunctions as obj
 from .resonatorFormulas import Impedances as imp
 from .resonatorFormulas import Wakes as wak
 from .solvers import Solvers
-from .utils import compute_fft
 from .uncertainties import get_uncertainties
+from .utils import compute_fft
 
 
 class EvolutionaryAlgorithm:
@@ -32,6 +32,7 @@ class EvolutionaryAlgorithm:
         objectiveFunction=None,
         wake_length=None,
         sigma=None,
+        uncertainty_warning=0.2,
     ):
         """
         Implements an evolutionary algorithm for fitting impedance models to data.
@@ -65,6 +66,13 @@ class EvolutionaryAlgorithm:
         wake_length : float, optional
             Length of the wake function in meters. Required for wake computations.
         sigma : float, optional
+            Standard deviation for the bunch's Gaussian distribution used in
+            wake potential getters. Default is ``None``. When ``None`` and
+            wake-potential getter is used, a default value of 1e-10 s is applied internally.
+        uncertainty_warning : float, optional
+            Threshold for relative uncertainty warning. Default is 0.2 -->20%
+            If any parameter has a relative uncertainty (sigma/value) above this
+            threshold, a warning is printed after optimization.
 
         Attributes
         ----------
@@ -88,24 +96,29 @@ class EvolutionaryAlgorithm:
 
         Notes
         -----
-                - The ``fitFunction`` is assigned based on the ``plane`` type, the
+            - The ``fitFunction`` is assigned based on the ``plane`` type, the
                     fit mode, and the number of resonators.
-                - The impedance and wake model is based on resonators and can be
+            - The impedance and wake model is based on resonators and can be
                     used for both single-resonator and multi-resonator systems.
-        - The optimization is performed using an evolutionary algorithm, with results
-        stored in `minimizationParameters`.
+            - The optimization is performed using an evolutionary algorithm, with results
+                    stored in `minimizationParameters`.
 
         Examples
         --------
         >>> import numpy as np
-        >>> from evolutionary_algorithm import EvolutionaryAlgorithm
+        >>> import iddefix
         >>> freq = np.linspace(1e9, 5e9, 100)  # Frequency range from 1 GHz to 5 GHz
-        >>> Z = np.random.rand(100)  # Example impedance data
+        >>> Z = iddefix.Impedances.Resonator_longitudinal_imp(freq, 400, 30, 0.2e9) # Rs, Q, fr
         >>> bounds = [(10, 1000), (1, 100), (1e9, 5e9)]  # Example bounds for Rs, Q, fr
-        >>> algo = EvolutionaryAlgorithm(x_data=freq, y_data=Z,
-        ...                              N_resonators=1, parameterBounds=bounds)
-        >>> print(algo.plane)
+        >>> model = iddefix.EvolutionaryAlgorithm(
+        ...     x_data=freq,
+        ...     y_data=Z,
+        ...     N_resonators=1,
+        ...     parameterBounds=bounds,
+        ... )
+        >>> print(model.plane)
         'longitudinal'
+        >>> model.run_differential_evolution(maxiter=100, popsize=10)
         """
 
         self.x_data = x_data
@@ -124,7 +137,14 @@ class EvolutionaryAlgorithm:
         self.frequency_data = None
         self.impedance_data = None
         self.evolutionParameters = None
+        self.evolutionParametersUncertainties = None
         self.minimizationParameters = None
+        self.minimizationParametersUncertainties = None
+        self.flagged_params = None
+
+        # Threshold on relative uncertainty (sigma/|value|) above which a
+        # warning is printed after evolution/minimization
+        self.uncertainty_warning = uncertainty_warning
 
         if self.objectiveFunction is None:
             if np.iscomplex(y_data).any():
@@ -372,9 +392,22 @@ class EvolutionaryAlgorithm:
         )
 
         self.evolutionParameters = solution
-        self.evolutionParametersUncertainties = get_uncertainties(self.evolutionParameters, self.fitFunction, self.x_data, self.y_data)
+        self.evolutionParametersUncertainties = get_uncertainties(
+            self.evolutionParameters,
+            self.fitFunction,
+            self.x_data,
+            self.y_data,
+        )
         self.warning = message
-        self.display_resonator_parameters(self.evolutionParameters)
+        self._warn_large_uncertainties(
+            self.evolutionParameters,
+            self.evolutionParametersUncertainties,
+        )
+        self.display_resonator_parameters(
+            params=self.evolutionParameters,
+            to_markdown=False,
+            uncertainties=self.evolutionParametersUncertainties,
+        )
 
         return res
 
@@ -447,10 +480,23 @@ class EvolutionaryAlgorithm:
         )
 
         self.evolutionParameters = evolutionParameters
-        self.evolutionParametersUncertainties = get_uncertainties(self.evolutionParameters, self.fitFunction, self.x_data, self.y_data)
+        self.evolutionParametersUncertainties = get_uncertainties(
+            self.evolutionParameters,
+            self.fitFunction,
+            self.x_data,
+            self.y_data,
+        )
 
         self.warning = warning
-        self.display_resonator_parameters(self.evolutionParameters)
+        self._warn_large_uncertainties(
+            self.evolutionParameters,
+            self.evolutionParametersUncertainties,
+        )
+        self.display_resonator_parameters(
+            params=self.evolutionParameters,
+            to_markdown=False,
+            uncertainties=self.evolutionParametersUncertainties,
+        )
 
     def run_minimization_algorithm(
         self, margin=[0.1, 0.1, 0.1], method="Nelder-Mead"
@@ -539,10 +585,29 @@ class EvolutionaryAlgorithm:
                 },
             )
         self.minimizationParameters = minimizationParameters.x
-        self.minimizationParametersUncertainties = get_uncertainties(self.minimizationParameters, self.fitFunction, self.x_data, self.y_data)
-        self.display_resonator_parameters(self.minimizationParameters)
+        self.minimizationParametersUncertainties = get_uncertainties(
+            self.minimizationParameters,
+            self.fitFunction,
+            self.x_data,
+            self.y_data,
+        )
+        self._warn_large_uncertainties(
+            self.minimizationParameters,
+            self.minimizationParametersUncertainties,
+        )
+        self.display_resonator_parameters(
+            params=self.minimizationParameters,
+            to_markdown=False,
+            uncertainties=self.minimizationParametersUncertainties,
+        )
 
-    def display_resonator_parameters(self, params=None, to_markdown=False):
+    def display_resonator_parameters(
+        self,
+        params=None,
+        to_markdown=False,
+        uncertainties=None,
+        display_uncertainties=True,
+    ):
         """
         Displays resonance parameters in a formatted table using ASCII characters.
 
@@ -550,33 +615,150 @@ class EvolutionaryAlgorithm:
             solution: A NumPy array of resonator parameters, typically shaped
             (n_resonators, 3).
         """
-        header_format = "{:^10}|{:^24}|{:^18}|{:^18}"
-        data_format = "{:^10d}|{:^24.2e}|{:^18.2f}|{:^18.3e}"
+
+        # Use self parameters if not provided as argument.
+        if params is None:
+            if self.minimizationParameters is not None:
+                params = self.minimizationParameters
+                print("[*] Displaying parameters after minimization")
+                if uncertainties is None:
+                    uncertainties = self.minimizationParametersUncertainties
+            elif self.evolutionParameters is not None:
+                params = self.evolutionParameters
+                if uncertainties is None:
+                    uncertainties = self.evolutionParametersUncertainties
+            else:
+                print("[!] No parameters to display.")
+                return
+
+        flagged_mask = self._compute_flagged_params_mask(params, uncertainties)
+
+        if not display_uncertainties:
+            uncertainties = None
+            flagged_mask = None
+
         if to_markdown:
             print("\n")
             print("| Resonator | Rs [Ohm/m or Ohm] | Q | fres [Hz] |")
             print("|-----------|------------------|---|-----------|")
-            for i, parameters in enumerate(params.reshape(-1, 3)):
-                print(
-                    f"| {i + 1} | {parameters[0]:.6g} | {parameters[1]:.6g} | {parameters[2]:.6g} |"
-                )
+            params_reshaped = params.reshape(-1, 3)
+            if uncertainties is not None:
+                uncert_reshaped = uncertainties.reshape(-1, 3)
+                for i, (p_row, u_row) in enumerate(
+                    zip(params_reshaped, uncert_reshaped)
+                ):
+                    rs, q, fres = p_row
+                    urs, uq, ufres = u_row
+                    print(
+                        f"| {i + 1} | {rs:.6g} ± {urs:.2g} | {q:.6g} ± {uq:.2g} | {fres:.6g} ± {ufres:.2g} |"
+                    )
+            else:
+                for i, parameters in enumerate(params_reshaped):
+                    print(
+                        f"| {i + 1} | {parameters[0]:.6g} | {parameters[1]:.6g} | {parameters[2]:.6g} |"
+                    )
         else:
             print("\n")
-            print("-" * 70)
+            print("-" * 76)
 
             # Print header
+            header_format = "{:^10}|{:^24}|{:^18}|{:^24}"
             print(
                 header_format.format(
                     "Resonator", "Rs [Ohm/m or Ohm]", "Q", "fres [Hz]"
                 )
             )
-            print("-" * 70)
+            print("-" * 76)
 
             # Print data
-            for i, parameters in enumerate(params.reshape(-1, 3)):
-                print(data_format.format(i + 1, *parameters))
+            params_reshaped = params.reshape(-1, 3)
+            if uncertainties is not None:
+                uncert_reshaped = uncertainties.reshape(-1, 3)
+                if flagged_mask is not None:
+                    flagged_reshaped = flagged_mask.reshape(-1, 3)
+                else:
+                    flagged_reshaped = np.zeros_like(
+                        params_reshaped, dtype=bool
+                    )
 
-            print("-" * 70)
+                for i, (p_row, u_row) in enumerate(
+                    zip(params_reshaped, uncert_reshaped)
+                ):
+                    rs, q, fres = p_row
+                    urs, uq, ufres = u_row
+
+                    rs_str = f"{rs:.2e} ± {urs:.1e}"
+                    q_str = f"{q:.2f} ± {uq:.2f}"
+                    fres_str = f"{fres:.2e} ± {ufres:.1e}"
+
+                    rs_cell = f"{rs_str:^24}"
+                    q_cell = f"{q_str:^18}"
+                    fres_cell = f"{fres_str:^24}"
+
+                    # Highlight cells whose relative uncertainty exceeds threshold.
+                    if flagged_reshaped[i, 0]:
+                        rs_cell = f"\033[31m{rs_cell}\033[0m"
+                    if flagged_reshaped[i, 1]:
+                        q_cell = f"\033[31m{q_cell}\033[0m"
+                    if flagged_reshaped[i, 2]:
+                        fres_cell = f"\033[31m{fres_cell}\033[0m"
+
+                    print(f"{i + 1:^10d}|{rs_cell}|{q_cell}|{fres_cell}")
+            else:
+                for i, parameters in enumerate(params_reshaped):
+                    print(
+                        f"{i + 1:^10d}|{parameters[0]:^24.2e}|{parameters[1]:^18.2f}|{parameters[2]:^24.3e}"
+                    )
+
+            print("-" * 76)
+
+    def _compute_flagged_params_mask(self, params, uncertainties):
+        """Compute boolean mask for parameters above relative uncertainty threshold."""
+
+        if params is None or uncertainties is None:
+            return None
+
+        threshold = getattr(self, "uncertainty_warning", None)
+        if threshold is None:
+            return None
+
+        params = np.asarray(params, dtype=float)
+        uncertainties = np.asarray(uncertainties, dtype=float)
+        if params.shape != uncertainties.shape:
+            return None
+
+        with np.errstate(divide="ignore", invalid="ignore"):
+            rel_unc = np.abs(uncertainties / params)
+
+        return np.isfinite(rel_unc) & (rel_unc >= threshold)
+
+    def _warn_large_uncertainties(self, params, uncertainties):
+        """Print a warning if any parameter has a large relative uncertainty.
+
+        The relative uncertainty is defined as ``abs(sigma / value)``. If this
+        exceeds ``self.uncertainty_warning`` for any
+        parameter, a concise warning is printed.
+        """
+
+        mask = self._compute_flagged_params_mask(params, uncertainties)
+        self.flagged_params = mask
+
+        if mask is None:
+            return
+
+        threshold = getattr(self, "uncertainty_warning", None)
+        n_flagged = int(mask.sum())
+        if n_flagged == 0:
+            return
+
+        params = np.asarray(params, dtype=float)
+        uncertainties = np.asarray(uncertainties, dtype=float)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            rel_unc = np.abs(uncertainties / params)
+        max_rel = float(np.nanmax(rel_unc[mask]))
+        print(
+            f"[!] Warning: {n_flagged} parameter(s) have relative uncertainty >= {threshold:.2f} (max {max_rel:.2f})."
+        )
 
     def get_wake(self, time_data=None, use_minimization=True):
         # Check for time data
