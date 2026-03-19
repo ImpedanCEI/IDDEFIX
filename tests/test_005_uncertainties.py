@@ -25,7 +25,7 @@ class TestAnalyticalImpedance:
             "3": [500, 20, 1.75e9],
         }
         cls.frequency = np.linspace(0, 2e9, 1000)
-        cls.noise = np.random.normal(0, 20, len(cls.frequency))
+        cls.noise = np.random.normal(0, 20, len(cls.frequency)) * (1 + 1j)
         cls.impedance = (
             iddefix.Impedances.n_Resonator_longitudinal_imp(
                 cls.frequency, cls.parameters
