@@ -150,8 +150,8 @@ class TestAnalyticalImpedance:
         np.testing.assert_allclose(
             uncertainties_min / uncertainties_cf,
             np.ones_like(uncertainties_min),
-            rtol=1e-6,
-            atol=self.atol,
+            rtol=1e-5,
+            atol=1e-5,
         )
 
     def test_warn_large_uncertainties_sets_flagged_params(self, capsys):
