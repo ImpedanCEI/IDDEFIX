@@ -19,7 +19,6 @@ class ProgressBarCallback:
         self.pbar = tqdm(total=max_generations, desc=desc, unit="gen")
 
     def __call__(self, *args):
-
         # --- scipy differential_evolution: (xk, convergence) ---
         if len(args) == 2 and not hasattr(args[0], "evaluator"):
             xk, convergence = args
@@ -41,9 +40,7 @@ class ProgressBarCallback:
             F = np.atleast_1d(algorithm.pop.get("F"))
             gap = float(np.mean(F) - np.min(F))
             self._gap0 = getattr(self, "_gap0", gap if gap > 0 else 1.0)
-            convergence = float(
-                np.clip(1.0 - gap / (self._gap0 + 1e-12), 0.0, 1.0)
-            )
+            convergence = float(np.clip(1.0 - gap / (self._gap0 + 1e-12), 0.0, 1.0))
 
             self.pbar.set_postfix({"conv": f"{(100 * (convergence)):6.1f} %"})
 
@@ -179,9 +176,7 @@ class Solvers:
 
         solution, message = (
             best,
-            "Convergence achieved"
-            if i < maxiter
-            else "Maximum iterations reached",
+            "Convergence achieved" if i < maxiter else "Maximum iterations reached",
         )
 
         return solution, message
@@ -232,9 +227,7 @@ class Solvers:
 
         solution, message = (
             best,
-            "Convergence achieved"
-            if i < maxiter
-            else "Maximum iterations reached",
+            "Convergence achieved" if i < maxiter else "Maximum iterations reached",
         )
 
         return solution, message

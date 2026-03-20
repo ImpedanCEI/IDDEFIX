@@ -186,9 +186,7 @@ class EvolutionaryAlgorithm:
 
         elif fitFunction == "wake potential":
             if self.sigma is None:
-                print(
-                    "[!] sigma not specified, using the default sigma=1e-10 s"
-                )
+                print("[!] sigma not specified, using the default sigma=1e-10 s")
                 self.sigma = 1e-10
 
             if plane == "longitudinal":
@@ -211,9 +209,7 @@ class EvolutionaryAlgorithm:
                     "[!] Using the partially decayed resonator formalism for impedance"
                 )
             else:
-                print(
-                    "[!] Using the fully decayed resonator formalism for impedance"
-                )
+                print("[!] Using the fully decayed resonator formalism for impedance")
 
             if plane == "longitudinal":
                 self.fitFunction = partial(
@@ -340,9 +336,7 @@ class EvolutionaryAlgorithm:
 
         return solution, message
 
-    def run_cmaes(
-        self, maxiter=1000, popsize=50, sigma=0.6, verbose=False, **kwargs
-    ):
+    def run_cmaes(self, maxiter=1000, popsize=50, sigma=0.6, verbose=False, **kwargs):
         """
         Runs the CMA-ES (Covariance Matrix Adaptation Evolution Strategy) algorithm
         from `pymoo` to optimize resonance parameters.
@@ -498,9 +492,7 @@ class EvolutionaryAlgorithm:
             uncertainties=self.evolutionParametersUncertainties,
         )
 
-    def run_minimization_algorithm(
-        self, margin=[0.1, 0.1, 0.1], method="Nelder-Mead"
-    ):
+    def run_minimization_algorithm(self, margin=[0.1, 0.1, 0.1], method="Nelder-Mead"):
         """
         Runs a minimization algorithm to refine resonance parameters.
 
@@ -568,9 +560,7 @@ class EvolutionaryAlgorithm:
                 },
             )
         else:
-            print(
-                "Differential Evolution algorithm not run, minimization only"
-            )
+            print("Differential Evolution algorithm not run, minimization only")
             minimizationParameters = minimize(
                 objective_function,
                 x0=np.mean(self.parameterBounds, axis=1),
@@ -664,9 +654,7 @@ class EvolutionaryAlgorithm:
             # Print header
             header_format = "{:^10}|{:^24}|{:^18}|{:^24}"
             print(
-                header_format.format(
-                    "Resonator", "Rs [Ohm/m or Ohm]", "Q", "fres [Hz]"
-                )
+                header_format.format("Resonator", "Rs [Ohm/m or Ohm]", "Q", "fres [Hz]")
             )
             print("-" * 76)
 
@@ -677,9 +665,7 @@ class EvolutionaryAlgorithm:
                 if flagged_mask is not None:
                     flagged_reshaped = flagged_mask.reshape(-1, 3)
                 else:
-                    flagged_reshaped = np.zeros_like(
-                        params_reshaped, dtype=bool
-                    )
+                    flagged_reshaped = np.zeros_like(params_reshaped, dtype=bool)
 
                 for i, (p_row, u_row) in enumerate(
                     zip(params_reshaped, uncert_reshaped)
@@ -791,9 +777,7 @@ class EvolutionaryAlgorithm:
 
         return wake_data
 
-    def get_wake_potential(
-        self, time_data=None, sigma=None, use_minimization=True
-    ):
+    def get_wake_potential(self, time_data=None, sigma=None, use_minimization=True):
         # Check for time data
         if time_data is None:
             if self.time_data is None:
@@ -925,9 +909,7 @@ class EvolutionaryAlgorithm:
 
         return f, Z
 
-    def compute_fft(
-        self, time_data=None, wake_data=None, fmax=3e9, samples=1001
-    ):
+    def compute_fft(self, time_data=None, wake_data=None, fmax=3e9, samples=1001):
         # Check for time data - not override self
         if time_data is None:
             if self.time_data is None:
@@ -1027,9 +1009,7 @@ class EvolutionaryAlgorithm:
         else:
             print("txt not saved, please provide x_data and y_data")
 
-    def read_txt(
-        self, txt, skiprows=2, delimiter=None, usecols=None, as_dict=False
-    ):
+    def read_txt(self, txt, skiprows=2, delimiter=None, usecols=None, as_dict=False):
         """
         Reads data from an ASCII text file and returns it as a dictionary or tuple.
 

@@ -14,7 +14,7 @@ parallel RLC (Resistor, Inductor, Capacitor) resonator circuit.
         Z_{\parallel}(\omega, R_s, Q, \omega_r) = \frac{R_S}{1+iQ(\frac{\omega_r}{\omega}-\frac{\omega}{\omega_r})}
 \end{equation}
 
- 
+
 
 #### Multiple:
 
@@ -54,7 +54,7 @@ DE algorithms operate by evolving a population of candidate solutions over sever
 
 
 **Population Initialization**
-The algorithm begins by initializing a population of $N$ individuals (candidate solutions) randomly within the bounds of the search space. Each individual is represented as a vector of decision variables: 
+The algorithm begins by initializing a population of $N$ individuals (candidate solutions) randomly within the bounds of the search space. Each individual is represented as a vector of decision variables:
 
 $$
         \textbf{x}_i = [x_{i,1},x_{i,2},...,x_{i,D}], \qquad i=1,2,...,N
@@ -107,4 +107,3 @@ $\mathbf{f(\cdot)}$ is the **objective function** to be minimized.
 * A maximum number of generations or function evaluations
 * Convergence tolerance (e.g., minimal change in the best solution across generations)
 * Achieving a target fitness value
-

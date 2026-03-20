@@ -225,9 +225,7 @@ class SmartBoundDetermination:
         self.minus_3dB_points = np.zeros(Nres)
         self.upper_lower_bounds = np.zeros(Nres)
 
-        for i, (peak, height) in enumerate(
-            zip(peaks, peaks_height["peak_heights"])
-        ):
+        for i, (peak, height) in enumerate(zip(peaks, peaks_height["peak_heights"])):
             minus_3dB_point = height * np.sqrt(1 / 2)
             self.minus_3dB_points[i] = minus_3dB_point
             idx_crossings = np.argwhere(
@@ -246,9 +244,7 @@ class SmartBoundDetermination:
         # Clean inf values in Qs --> not a valid resonance
         valid_indices = ~np.isinf(initial_Qs)
         peaks = peaks[valid_indices]
-        peaks_height = {
-            "peak_heights": peaks_height["peak_heights"][valid_indices]
-        }
+        peaks_height = {"peak_heights": peaks_height["peak_heights"][valid_indices]}
         initial_Qs = initial_Qs[valid_indices]
         Nres = len(peaks)
 
@@ -339,11 +335,7 @@ class SmartBoundDetermination:
         2      |  85.61 to 864.12       |  120.55 to 200.23|  5.30e+08 to 7.23e+08
         ------------------------------------------------------------
         """
-        params = (
-            self.parameterBounds
-            if parameterBounds is None
-            else parameterBounds
-        )
+        params = self.parameterBounds if parameterBounds is None else parameterBounds
         N_resonators = len(params) // 3  # Compute number of resonators
 
         # Define formatting
@@ -357,12 +349,8 @@ class SmartBoundDetermination:
             print("|-----------|------------------|---|-----------|")
             for i in range(N_resonators):
                 rs_range = f"{params[i * 3][0]:.2f} to {params[i * 3][1]:.2f}"
-                q_range = (
-                    f"{params[i * 3 + 1][0]:.2f} to {params[i * 3 + 1][1]:.2f}"
-                )
-                fres_range = (
-                    f"{params[i * 3 + 2][0]:.2e} to {params[i * 3 + 2][1]:.2e}"
-                )
+                q_range = f"{params[i * 3 + 1][0]:.2f} to {params[i * 3 + 1][1]:.2f}"
+                fres_range = f"{params[i * 3 + 2][0]:.2e} to {params[i * 3 + 2][1]:.2e}"
                 print(f"| {i + 1} | {rs_range} | {q_range} | {fres_range} |")
         else:
             # ASCII Table
@@ -370,21 +358,15 @@ class SmartBoundDetermination:
 
             # Print header
             print(
-                header_format.format(
-                    "Resonator", "Rs [Ohm/m or Ohm]", "Q", "fres [Hz]"
-                )
+                header_format.format("Resonator", "Rs [Ohm/m or Ohm]", "Q", "fres [Hz]")
             )
             print("-" * 80)
 
             # Print data
             for i in range(N_resonators):
                 rs_range = f"{params[i * 3][0]:.2f} to {params[i * 3][1]:.2f}"
-                q_range = (
-                    f"{params[i * 3 + 1][0]:.2f} to {params[i * 3 + 1][1]:.2f}"
-                )
-                fres_range = (
-                    f"{params[i * 3 + 2][0]:.2e} to {params[i * 3 + 2][1]:.2e}"
-                )
+                q_range = f"{params[i * 3 + 1][0]:.2f} to {params[i * 3 + 1][1]:.2f}"
+                fres_range = f"{params[i * 3 + 2][0]:.2e} to {params[i * 3 + 2][1]:.2e}"
                 print(data_format.format(i + 1, rs_range, q_range, fres_range))
 
             print("-" * 80)

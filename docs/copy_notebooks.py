@@ -1,5 +1,5 @@
-import shutil
 import os
+import shutil
 
 # Define source and destination directories
 repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))

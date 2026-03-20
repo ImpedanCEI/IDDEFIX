@@ -75,9 +75,7 @@ class TestAnalyticalImpedance:
         ]
 
         def objective_function(x, *parameters):
-            grouped_parameters = iddefix.utils.pars_to_dict(
-                np.asarray(parameters)
-            )
+            grouped_parameters = iddefix.utils.pars_to_dict(np.asarray(parameters))
             predicted_y = cls.DE_model.fitFunction(x, grouped_parameters)
             return np.concatenate([predicted_y.real, predicted_y.imag])
 
@@ -89,9 +87,7 @@ class TestAnalyticalImpedance:
             bounds=np.array(cls.minimizationBounds).T,
             absolute_sigma=False,
         )
-        cls.z_cf = cls.DE_model.fitFunction(
-            cls.DE_model.frequency_data, cls.popt
-        )
+        cls.z_cf = cls.DE_model.fitFunction(cls.DE_model.frequency_data, cls.popt)
 
     # --- DE -------------------------------------------------------------------
 
@@ -103,9 +99,7 @@ class TestAnalyticalImpedance:
         assert hasattr(self.DE_model, "minimizationParametersUncertainties")
         assert hasattr(self.DE_model, "evolutionParametersUncertainties")
         # Optional: ensure warnings didn't include "error"
-        assert (
-            "error" not in str(getattr(self.DE_model, "warning", "")).lower()
-        )
+        assert "error" not in str(getattr(self.DE_model, "warning", "")).lower()
 
     def test_abs_DE_impedance(self, plot: bool = False):
         z_true = np.abs(self.impedance)
@@ -123,9 +117,7 @@ class TestAnalyticalImpedance:
                 color="black",
             )
             plt.plot(self.frequency, z_de, label="DE fit", lw=2)
-            plt.plot(
-                self.frequency, z_min, label="Minimized DE fit", lw=2, ls="--"
-            )
+            plt.plot(self.frequency, z_min, label="Minimized DE fit", lw=2, ls="--")
             plt.plot(self.frequency, z_min, label="Curve fit DE fit", ls=":")
             plt.xlabel("Frequency [Hz]")
             plt.ylabel("|Z(f)| [Ohm]")
@@ -178,10 +170,7 @@ if __name__ == "__main__":
     t = TestAnalyticalImpedance()
     # pytest won’t call setup_class in this mode, so do it:
     t.setup_class()
-    print(
-        "Running analytical impedance fitting and uncertainty"
-        " tests with plots..."
-    )
+    print("Running analytical impedance fitting and uncertainty tests with plots...")
     t.test_DE_model()
     t.test_abs_DE_impedance(plot=True)
     t.test_uncertainties()

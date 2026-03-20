@@ -37,4 +37,3 @@ template: |
 include-commit-messages: true
 sort-by: "merged_at"
 sort-direction: descending
-
