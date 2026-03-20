@@ -27,7 +27,7 @@ The source code is available in the `IDDEFIX` [GitHub repository](https://github
 
 📚 For information on `IDDEFIX`'s differential evolution theory and code implementation, see:
 
-```{toctree} 
+```{toctree}
 :caption: IDDEFIX
 :maxdepth: 2
 theory.md
@@ -36,7 +36,7 @@ iddefix.rst
 
 📁 For examples on how to use, check out [notebook examples](https://github.com/ImpedanCEI/IDDEFIX/tree/main/examples). They have been embedded in the documentation using `myst_nb`:
 
-```{toctree} 
+```{toctree}
 :caption: Examples
 :maxdepth: 2
 examples/001_analytical_resonator

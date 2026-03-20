@@ -55,13 +55,7 @@ class Wakes:
 
         omega_r = 2 * np.pi * resonant_frequency
         if Q == 0.5:
-            Wl = (
-                2
-                * Rs
-                * omega_r
-                * np.exp(-omega_r * times)
-                * (1 - omega_r * times)
-            )
+            Wl = 2 * Rs * omega_r * np.exp(-omega_r * times) * (1 - omega_r * times)
         elif Q < 0.5:
             omega_r_bar = omega_r * np.sqrt((1 / (4 * Q**2)) - 1)
             cos_term = np.cosh(omega_r_bar * times)
@@ -86,9 +80,7 @@ class Wakes:
                 * exp_term
                 * (cos_term - omega_r / (2 * Q * omega_r_bar) * sin_term)
             )
-        Wl[times == 0.0] = omega_r / (
-            2 * Q
-        )  # Fundamental theorem of beam loading
+        Wl[times == 0.0] = omega_r / (2 * Q)  # Fundamental theorem of beam loading
         Wl[times < 0] = 0.0
 
         return Wl
@@ -309,35 +301,25 @@ class Wakes:
             expo1 = arg_expo1.apply(exp)
             arg_expo2 = 1j * (kr * times_mp - alphar * kr * sigma**2)
             expo2 = arg_expo2.apply(exp)
-            im_expo_erfc = matrix(
-                [im(ex * er) for (ex, er) in zip(expo2, erfc_v)]
-            )
-            re_expo_erfc = matrix(
-                [re(ex * er) for (ex, er) in zip(expo2, erfc_v)]
-            )
+            im_expo_erfc = matrix([im(ex * er) for (ex, er) in zip(expo2, erfc_v)])
+            re_expo_erfc = matrix([re(ex * er) for (ex, er) in zip(expo2, erfc_v)])
             W = np.hstack(
                 [
                     cst * ex1 * (cstsin * im_exr + cstcos * re_exr)
-                    for (ex1, im_exr, re_exr) in zip(
-                        expo1, im_expo_erfc, re_expo_erfc
-                    )
+                    for (ex1, im_exr, re_exr) in zip(expo1, im_expo_erfc, re_expo_erfc)
                 ]
             )
         else:
             cst = np.exp((alphar**2 - kr**2) * sigma**2 / 2)
             erfc_v = sp.erfc(
-                -(times - alphar * sigma**2 + 1j * kr * sigma**2)
-                / (np.sqrt(2) * sigma)
+                -(times - alphar * sigma**2 + 1j * kr * sigma**2) / (np.sqrt(2) * sigma)
             )
             expo1 = np.exp(-alphar * times)
             expo2 = np.exp(1j * (kr * times - alphar * kr * sigma**2))
             W = (
                 cst
                 * expo1
-                * (
-                    cstsin * np.imag(expo2 * erfc_v)
-                    + cstcos * np.real(expo2 * erfc_v)
-                )
+                * (cstsin * np.imag(expo2 * erfc_v) + cstcos * np.real(expo2 * erfc_v))
             )
 
         return W
@@ -349,9 +331,7 @@ class Wakes:
             dict_params = pars_to_dict(pars)  # takes list or ndarray
 
         Wpl = sum(
-            Wakes.Resonator_longitudinal_wake_potential(
-                times, *params, sigma=sigma
-            )
+            Wakes.Resonator_longitudinal_wake_potential(times, *params, sigma=sigma)
             for params in dict_params.values()
         )
         return Wpl
@@ -400,10 +380,7 @@ class Wakes:
 
             times_mp = matrix(times)
             cst = (
-                Rs
-                * omegar**2
-                / (2 * Q * kr)
-                * exp((alphar**2 - kr**2) * sigma**2 / 2)
+                Rs * omegar**2 / (2 * Q * kr) * exp((alphar**2 - kr**2) * sigma**2 / 2)
             )
             erfc_arg = -(times_mp - alphar * sigma**2 + 1j * kr * sigma**2) / (
                 np.sqrt(2) * sigma
@@ -413,14 +390,9 @@ class Wakes:
             expo1 = arg_expo1.apply(exp)
             arg_expo2 = 1j * (kr * times_mp - alphar * kr * sigma**2)
             expo2 = arg_expo2.apply(exp)
-            im_expo_erfc = matrix(
-                [im(ex * er) for (ex, er) in zip(expo2, erfc_v)]
-            )
+            im_expo_erfc = matrix([im(ex * er) for (ex, er) in zip(expo2, erfc_v)])
             W = np.hstack(
-                [
-                    cst * ex1 * im_exr
-                    for (ex1, im_exr) in zip(expo1, im_expo_erfc)
-                ]
+                [cst * ex1 * im_exr for (ex1, im_exr) in zip(expo1, im_expo_erfc)]
             )
         else:
             cst = (
@@ -430,8 +402,7 @@ class Wakes:
                 * np.exp((alphar**2 - kr**2) * sigma**2 / 2)
             )
             erf_v = sp.erf(
-                (times - alphar * sigma**2 + 1j * kr * sigma**2)
-                / (np.sqrt(2) * sigma)
+                (times - alphar * sigma**2 + 1j * kr * sigma**2) / (np.sqrt(2) * sigma)
             )
             expo1 = np.exp(-alphar * times)
             expo2 = np.exp(1j * (kr * times - alphar * kr * sigma**2))
@@ -446,9 +417,7 @@ class Wakes:
             dict_params = pars_to_dict(pars)  # takes list or ndarray
 
         Wpt = sum(
-            Wakes.Resonator_transverse_wake_potential(
-                times, *params, sigma=sigma
-            )
+            Wakes.Resonator_transverse_wake_potential(times, *params, sigma=sigma)
             for params in dict_params.values()
         )
         return Wpt
@@ -507,13 +476,9 @@ class Impedances:
         """
         if wake_length is None:
             # Fully decayed wake
-            zero_index = np.where(frequencies > 0)[
-                0
-            ]  # find index of non-zero element
+            zero_index = np.where(frequencies > 0)[0]  # find index of non-zero element
             if zero_index.size < frequencies.size:
-                Zl = np.zeros_like(
-                    frequencies, dtype=complex
-                )  # initialize Zl as 0
+                Zl = np.zeros_like(frequencies, dtype=complex)  # initialize Zl as 0
                 Zl[zero_index] = Rs / (
                     1
                     + 1j
@@ -551,9 +516,7 @@ class Impedances:
             C = omega_r * np.sqrt(1 - 1 / 4 / Q**2)
             T = wake_length / c
 
-            zero_index = np.where(frequencies > 0)[
-                0
-            ]  # find index of non-zero element
+            zero_index = np.where(frequencies > 0)[0]  # find index of non-zero element
             if zero_index.size < frequencies.size:
                 # A = Rs * omega_r / 2 / Q
                 A = (
@@ -562,17 +525,13 @@ class Impedances:
                 exp_term = np.exp(-(B - 1j * (C - omega[zero_index])) * T)
                 numerator = A * (1 - exp_term)
                 denominator = B - 1j * (C - omega[zero_index])
-                Zl = np.zeros_like(
-                    frequencies, dtype=complex
-                )  # initialize Zl as 0
+                Zl = np.zeros_like(frequencies, dtype=complex)  # initialize Zl as 0
                 # calculate all Zl for non-zero frequencies
                 Zl[zero_index] = numerator / denominator
 
             else:
                 # A = Rs * omega_r / 2 / Q
-                A = (
-                    Rs * omega / 2 / Q
-                )  # correct scaling to fit with usual formula
+                A = Rs * omega / 2 / Q  # correct scaling to fit with usual formula
                 exp_term = np.exp(-(B - 1j * (C - omega)) * T)
                 numerator = A * (1 - exp_term)
                 denominator = B - 1j * (C - omega)
@@ -621,13 +580,9 @@ class Impedances:
         """
         if wake_length is None:
             # Fully decayed wake
-            zero_index = np.where(frequencies > 0)[
-                0
-            ]  # find index of non-zero element
+            zero_index = np.where(frequencies > 0)[0]  # find index of non-zero element
             if zero_index.size < frequencies.size:
-                Zt = np.zeros_like(
-                    frequencies, dtype=complex
-                )  # initialize Zt as 0
+                Zt = np.zeros_like(frequencies, dtype=complex)  # initialize Zt as 0
                 Zt[zero_index] = (
                     resonant_frequency
                     / frequencies[zero_index]
@@ -677,24 +632,16 @@ class Impedances:
             C = omega_r * np.sqrt(1 - 1 / 4 / Q**2)
             T = wake_length / c
 
-            zero_index = np.where(frequencies > 0)[
-                0
-            ]  # find index of non-zero element
+            zero_index = np.where(frequencies > 0)[0]  # find index of non-zero element
             if zero_index.size < frequencies.size:
                 exp_term = np.exp(-T * (B + 1j * omega[zero_index]))
                 cos_term = np.cos(C * T)
                 sin_term = (B + 1j * omega[zero_index]) / C * np.sin(C * T)
                 denominator = C**2 + (B + 1j * omega[zero_index]) ** 2
-                Zt = np.zeros_like(
-                    frequencies, dtype=complex
-                )  # initialize Zt as 0
+                Zt = np.zeros_like(frequencies, dtype=complex)  # initialize Zt as 0
                 # calculate all Zt for non-zero frequencies
                 Zt[zero_index] = (
-                    1j
-                    * A
-                    * C
-                    / denominator
-                    * (1 - exp_term * (cos_term + sin_term))
+                    1j * A * C / denominator * (1 - exp_term * (cos_term + sin_term))
                 )
 
             else:
@@ -702,13 +649,7 @@ class Impedances:
                 cos_term = np.cos(C * T)
                 sin_term = (B + 1j * omega) / C * np.sin(C * T)
                 denominator = C**2 + (B + 1j * omega) ** 2
-                Zt = (
-                    1j
-                    * A
-                    * C
-                    / denominator
-                    * (1 - exp_term * (cos_term + sin_term))
-                )
+                Zt = 1j * A * C / denominator * (1 - exp_term * (cos_term + sin_term))
 
         return Zt
 

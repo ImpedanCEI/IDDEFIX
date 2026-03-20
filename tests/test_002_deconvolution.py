@@ -50,9 +50,7 @@ def stability_with_samples(time_data, wake_data, plot=False):
     norms = []
     spectra = {}
     for s in samples_list:
-        f, Z = iddefix.compute_deconvolution(
-            time_data, wake_data, sigma, samples=s
-        )
+        f, Z = iddefix.compute_deconvolution(time_data, wake_data, sigma, samples=s)
         norms.append(compute_norm(f, Z))
         spectra[s] = (f, Z)
 
@@ -79,9 +77,7 @@ def stability_with_samples(time_data, wake_data, plot=False):
         plt.tight_layout()
         plt.show()
 
-    assert max_dev < 0.05, (
-        f"Impedance norm varies too much with samples: {ratios}"
-    )
+    assert max_dev < 0.05, f"Impedance norm varies too much with samples: {ratios}"
 
 
 @pytest.mark.parametrize(

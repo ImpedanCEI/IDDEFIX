@@ -117,12 +117,8 @@ def test_compare_impedances(load_data, plot=False, adaptative=False):
     Z_nft *= 1j  # transverse
 
     # Test that |Z| distributions are roughly consistent
-    rel_error = np.mean(np.abs(np.abs(Z_nft) - np.abs(Z_de))) / np.mean(
-        np.abs(Z_de)
-    )
-    assert rel_error < 0.1, (
-        f"Relative impedance error too high: {rel_error:.2%}"
-    )
+    rel_error = np.mean(np.abs(np.abs(Z_nft) - np.abs(Z_de))) / np.mean(np.abs(Z_de))
+    assert rel_error < 0.1, f"Relative impedance error too high: {rel_error:.2%}"
 
     if plot:
         fig = plt.figure(figsize=(12, 7))

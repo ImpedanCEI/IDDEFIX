@@ -103,10 +103,7 @@ class ObjectiveFunctions:
         grouped_parameters = pars_to_dict(parameters)
         predicted_y = fitFunction(x, grouped_parameters)
         log_squared_error = np.nansum(
-            np.log(
-                (y.real - predicted_y.real) ** 2
-                + (y.imag - predicted_y.imag) ** 2
-            )
+            np.log((y.real - predicted_y.real) ** 2 + (y.imag - predicted_y.imag) ** 2)
         )
         return log_squared_error
 
