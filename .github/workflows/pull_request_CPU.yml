@@ -31,7 +31,6 @@ jobs:
 
       - name: Install IDDEFIX
         run: |
-          cd iddefix
           pip install .
           pip install wakis
           pip install pytest pytest-cov
