@@ -53,9 +53,7 @@ class TestAnalyticalImpedance:
             plane="longitudinal",
             objectiveFunction="real",
         )
-        cls.CMAES_model.run_cmaes(
-            maxiter=5000, popsize=50, sigma=0.6, verbose=False
-        )
+        cls.CMAES_model.run_cmaes(maxiter=5000, popsize=50, sigma=0.6, verbose=False)
         cls.CMAES_model.run_minimization_algorithm()
         print(cls.CMAES_model.warning)
 
@@ -86,9 +84,7 @@ class TestAnalyticalImpedance:
         assert hasattr(self.DE_model, "minimizationParameters")
         assert hasattr(self.DE_model, "evolutionParameters")
         # Optional: ensure warnings didn't include "error"
-        assert (
-            "error" not in str(getattr(self.DE_model, "warning", "")).lower()
-        )
+        assert "error" not in str(getattr(self.DE_model, "warning", "")).lower()
 
     def test_abs_DE_impedance(self, plot: bool = False):
         z_true = np.abs(self.impedance)
@@ -113,12 +109,8 @@ class TestAnalyticalImpedance:
             and np.isfinite(z_min).all()
         )
 
-        np.testing.assert_allclose(
-            z_de, z_true, rtol=self.rtol, atol=self.atol
-        )
-        np.testing.assert_allclose(
-            z_min, z_true, rtol=self.rtol, atol=self.atol
-        )
+        np.testing.assert_allclose(z_de, z_true, rtol=self.rtol, atol=self.atol)
+        np.testing.assert_allclose(z_min, z_true, rtol=self.rtol, atol=self.atol)
         np.testing.assert_allclose(z_min, z_de, rtol=5e-3, atol=self.atol)
 
         def rel_rmse(a, b):
@@ -157,18 +149,10 @@ class TestAnalyticalImpedance:
             plt.tight_layout()
             plt.show()
 
-        np.testing.assert_allclose(
-            zr_de, zr_true, rtol=self.rtol, atol=self.atol
-        )
-        np.testing.assert_allclose(
-            zi_de, zi_true, rtol=self.rtol, atol=self.atol
-        )
-        np.testing.assert_allclose(
-            zr_min, zr_true, rtol=self.rtol, atol=self.atol
-        )
-        np.testing.assert_allclose(
-            zi_min, zi_true, rtol=self.rtol, atol=self.atol
-        )
+        np.testing.assert_allclose(zr_de, zr_true, rtol=self.rtol, atol=self.atol)
+        np.testing.assert_allclose(zi_de, zi_true, rtol=self.rtol, atol=self.atol)
+        np.testing.assert_allclose(zr_min, zr_true, rtol=self.rtol, atol=self.atol)
+        np.testing.assert_allclose(zi_min, zi_true, rtol=self.rtol, atol=self.atol)
 
     # --- CMA-ES ---------------------------------------------------------------
 
@@ -176,10 +160,7 @@ class TestAnalyticalImpedance:
         assert self.CMAES_model is not None
         assert hasattr(self.CMAES_model, "minimizationParameters")
         assert hasattr(self.CMAES_model, "evolutionParameters")
-        assert (
-            "error"
-            not in str(getattr(self.CMAES_model, "warning", "")).lower()
-        )
+        assert "error" not in str(getattr(self.CMAES_model, "warning", "")).lower()
 
     def test_abs_CMAES_impedance(self, plot: bool = False):
         z_true = np.abs(self.impedance)
@@ -190,9 +171,7 @@ class TestAnalyticalImpedance:
             plt.figure(figsize=(8, 5))
             plt.plot(self.frequency, z_true, label="Target impedance", lw=2)
             plt.plot(self.frequency, z_cma, label="CMA-ES fit", ls="--")
-            plt.plot(
-                self.frequency, z_min, label="Minimized CMA-ES fit", ls=":"
-            )
+            plt.plot(self.frequency, z_min, label="Minimized CMA-ES fit", ls=":")
             plt.xlabel("Frequency [Hz]")
             plt.ylabel("|Z(f)| [Ohm]")
             plt.title("Analytical resonator impedance fitting with CMA-ES")
@@ -206,12 +185,8 @@ class TestAnalyticalImpedance:
             and np.isfinite(z_min).all()
         )
 
-        np.testing.assert_allclose(
-            z_cma, z_true, rtol=self.rtol, atol=self.atol
-        )
-        np.testing.assert_allclose(
-            z_min, z_true, rtol=self.rtol, atol=self.atol
-        )
+        np.testing.assert_allclose(z_cma, z_true, rtol=self.rtol, atol=self.atol)
+        np.testing.assert_allclose(z_min, z_true, rtol=self.rtol, atol=self.atol)
         np.testing.assert_allclose(z_min, z_cma, rtol=5e-3, atol=self.atol)
 
         def rel_rmse(a, b):
@@ -227,12 +202,8 @@ class TestAnalyticalImpedance:
     def test_reim_CMAES_impedance(self, plot: bool = False):
         zr_true = np.real(self.impedance)
         zi_true = np.imag(self.impedance)
-        zr_cma = np.real(
-            self.CMAES_model.get_impedance(use_minimization=False)
-        )
-        zi_cma = np.imag(
-            self.CMAES_model.get_impedance(use_minimization=False)
-        )
+        zr_cma = np.real(self.CMAES_model.get_impedance(use_minimization=False))
+        zi_cma = np.imag(self.CMAES_model.get_impedance(use_minimization=False))
         zr_min = np.real(self.CMAES_model.get_impedance())
         zi_min = np.imag(self.CMAES_model.get_impedance())
 
@@ -240,42 +211,28 @@ class TestAnalyticalImpedance:
             fig, axs = plt.subplots(2, 1, figsize=(8, 10))
             axs[0].plot(self.frequency, zr_true, label="Target Real", lw=2)
             axs[0].plot(self.frequency, zr_cma, label="CMA-ES Real", ls="--")
-            axs[0].plot(
-                self.frequency, zr_min, label="CMA-ES Real (min)", ls=":"
-            )
+            axs[0].plot(self.frequency, zr_min, label="CMA-ES Real (min)", ls=":")
             axs[0].set_xlabel("Frequency [Hz]")
             axs[0].set_ylabel("Re{Z} [Ohm]")
             axs[0].legend()
 
             axs[1].plot(self.frequency, zi_true, label="Target Imag", lw=2)
             axs[1].plot(self.frequency, zi_cma, label="CMA-ES Imag", ls="--")
-            axs[1].plot(
-                self.frequency, zi_min, label="CMA-ES Imag (min)", ls=":"
-            )
+            axs[1].plot(self.frequency, zi_min, label="CMA-ES Imag (min)", ls=":")
             axs[1].set_xlabel("Frequency [Hz]")
             axs[1].set_ylabel("Im{Z} [Ohm]")
             axs[1].legend()
             plt.tight_layout()
             plt.show()
 
-        np.testing.assert_allclose(
-            zr_cma, zr_true, rtol=self.rtol, atol=self.atol
-        )
-        np.testing.assert_allclose(
-            zi_cma, zi_true, rtol=self.rtol, atol=self.atol
-        )
-        np.testing.assert_allclose(
-            zr_min, zr_true, rtol=self.rtol, atol=self.atol
-        )
-        np.testing.assert_allclose(
-            zi_min, zi_true, rtol=self.rtol, atol=self.atol
-        )
+        np.testing.assert_allclose(zr_cma, zr_true, rtol=self.rtol, atol=self.atol)
+        np.testing.assert_allclose(zi_cma, zi_true, rtol=self.rtol, atol=self.atol)
+        np.testing.assert_allclose(zr_min, zr_true, rtol=self.rtol, atol=self.atol)
+        np.testing.assert_allclose(zi_min, zi_true, rtol=self.rtol, atol=self.atol)
 
     def test_table_display(self):
         print("For terminal:")
-        self.DE_model.display_resonator_parameters(
-            self.DE_model.minimizationParameters
-        )
+        self.DE_model.display_resonator_parameters(self.DE_model.minimizationParameters)
         print("\nFor Markdown:")
         self.DE_model.display_resonator_parameters(
             self.DE_model.minimizationParameters, to_markdown=True

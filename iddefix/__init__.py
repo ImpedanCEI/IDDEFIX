@@ -1,21 +1,22 @@
-from . import framework
-from . import objectiveFunctions
-from . import resonatorFormulas
-from . import solvers
-from . import smartBoundDetermination
-from . import utils
-from . import uncertainties
-
+from . import (
+    framework,
+    objectiveFunctions,
+    resonatorFormulas,
+    smartBoundDetermination,
+    solvers,
+    uncertainties,
+    utils,
+)
+from ._version import __version__
 from .framework import EvolutionaryAlgorithm
 from .objectiveFunctions import ObjectiveFunctions
-from .resonatorFormulas import Wakes, Impedances
+from .resonatorFormulas import Impedances, Wakes
 from .smartBoundDetermination import SmartBoundDetermination
-
 from .utils import (
-    compute_fft,
-    compute_deconvolution,
     compute_convolution,
+    compute_deconvolution,
+    compute_fft,
+    compute_ineffint,
+    compute_neffint,
     gaussian_bunch,
 )
-from .utils import compute_ineffint, compute_neffint
-from ._version import __version__

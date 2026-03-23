@@ -129,9 +129,7 @@ def compute_convolution(data_time, data_wake, sigma, kernel="numpy"):
 
     # Perform the convolution
     wake_convolved = convolve(data_wake, lambdat) / np.sum(lambdat)
-    t_convolved = (
-        np.linspace(data_time[0], data_time[-1], len(wake_convolved)) * 2
-    )
+    t_convolved = np.linspace(data_time[0], data_time[-1], len(wake_convolved)) * 2
 
     return t_convolved, wake_convolved
 
@@ -213,10 +211,7 @@ def gaussian_bunch(time, sigma):
     """
     # Analytical gaussian with given sigma
     return (
-        1
-        / (sigma * np.sqrt(2 * np.pi))
-        * np.exp(-(time**2) / (2 * sigma**2))
-        / c_light
+        1 / (sigma * np.sqrt(2 * np.pi)) * np.exp(-(time**2) / (2 * sigma**2)) / c_light
     )
 
 
@@ -368,9 +363,7 @@ def compute_neffint(
         elif error.lower() == "rms":
             interpolation_error_norm = interpolation_error_rms
 
-        func = interp1d(
-            data_time, data_wake, kind="linear", fill_value="extrapolate"
-        )
+        func = interp1d(data_time, data_wake, kind="linear", fill_value="extrapolate")
 
         times, wake = neffint.improve_frequency_range(
             initial_frequencies=data_time,
