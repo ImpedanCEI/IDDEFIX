@@ -7,13 +7,24 @@ Modified Tue 23 Sep @edelafue
 @author: sjoly
 """
 
+from typing import Callable
+
 import numpy as np
+import numpy.typing as npt
+
+ArrayLike = npt.ArrayLike
+FitCallable = Callable[[ArrayLike, dict[int, ArrayLike]], ArrayLike]
 
 from .utils import pars_to_dict
 
 
 class ObjectiveFunctions:
-    def sumOfSquaredError(parameters, fitFunction, x, y):
+    def sumOfSquaredError(
+        parameters: ArrayLike,
+        fitFunction: FitCallable,
+        x: ArrayLike,
+        y: ArrayLike,
+    ) -> float:
         """Calculates the sum of squared errors (SSE) for a given fit function.
 
         This function computes the SSE between the predicted values from a fit
@@ -38,7 +49,12 @@ class ObjectiveFunctions:
         )
         return squared_error
 
-    def sumOfSquaredErrorReal(parameters, fitFunction, x, y):
+    def sumOfSquaredErrorReal(
+        parameters: ArrayLike,
+        fitFunction: FitCallable,
+        x: ArrayLike,
+        y: ArrayLike,
+    ) -> float:
         """Calculates the real sum of squared errors (SSE) for a given fit function.
 
         This function computes the SSE between the predicted values from a fit
@@ -61,7 +77,12 @@ class ObjectiveFunctions:
         squared_error = np.nansum((y.real - predicted_y.real) ** 2)
         return squared_error
 
-    def sumOfSquaredErrorAbs(parameters, fitFunction, x, y):
+    def sumOfSquaredErrorAbs(
+        parameters: ArrayLike,
+        fitFunction: FitCallable,
+        x: ArrayLike,
+        y: ArrayLike,
+    ) -> float:
         """Calculates the magnitude-based sum of squared errors (SSE).
 
         This function computes the SSE between the magnitudes of the predicted
@@ -83,7 +104,12 @@ class ObjectiveFunctions:
         squared_error = np.nansum((np.abs(y) - np.abs(predicted_y)) ** 2)
         return squared_error
 
-    def logsumOfSquaredError(parameters, fitFunction, x, y):
+    def logsumOfSquaredError(
+        parameters: ArrayLike,
+        fitFunction: FitCallable,
+        x: ArrayLike,
+        y: ArrayLike,
+    ) -> float:
         """Calculates the sum of log squared errors for a fit function.
 
         This function computes the log squared errors between the predicted
@@ -107,7 +133,12 @@ class ObjectiveFunctions:
         )
         return log_squared_error
 
-    def logsumOfSquaredErrorReal(parameters, fitFunction, x, y):
+    def logsumOfSquaredErrorReal(
+        parameters: ArrayLike,
+        fitFunction: FitCallable,
+        x: ArrayLike,
+        y: ArrayLike,
+    ) -> float:
         """Calculates the real sum of log squared errors for a given fit function.
 
         This function computes the real log squared errors between the predicted values
@@ -130,7 +161,13 @@ class ObjectiveFunctions:
         log_squared_error = np.nansum(np.log((y.real - predicted_y.real) ** 2))
         return log_squared_error
 
-    def logsumOfSquaredErrorAbs(parameters, fitFunction, x, y, eps=1e-12):
+    def logsumOfSquaredErrorAbs(
+        parameters: ArrayLike,
+        fitFunction: FitCallable,
+        x: ArrayLike,
+        y: ArrayLike,
+        eps: float = 1e-12,
+    ) -> float:
         """Calculates the magnitude-based sum of log squared errors.
 
         This function computes the log of squared errors between the magnitudes

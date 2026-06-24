@@ -1,8 +1,16 @@
+from typing import Callable
+
 import numpy as np
+import numpy.typing as npt
 from scipy.constants import c as c_light
 
+ArrayLike = npt.ArrayLike
+NumericArray = npt.NDArray[np.float64]
+ComplexArray = npt.NDArray[np.complex128]
+ParameterDict = dict[int, ArrayLike]
 
-def pars_to_dict(pars):
+
+def pars_to_dict(pars: ArrayLike) -> dict[int, ArrayLike]:
     """Converts a list of parameters into a dictionary of parameter groups.
 
     This function takes a list of parameters `pars` and groups them into
@@ -31,7 +39,12 @@ def pars_to_dict(pars):
     return grouped_parameters
 
 
-def compute_fft(data_time, data_wake, fmax=3e9, samples=1001):
+def compute_fft(
+    data_time: ArrayLike,
+    data_wake: ArrayLike,
+    fmax: float = 3e9,
+    samples: int = 1001,
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Compute the Fourier transform of a wake and return the frequencies
     and impedance values within a specified frequency range.
@@ -86,7 +99,12 @@ def compute_fft(data_time, data_wake, fmax=3e9, samples=1001):
     return f, Z
 
 
-def compute_convolution(data_time, data_wake, sigma, kernel="numpy"):
+def compute_convolution(
+    data_time: ArrayLike,
+    data_wake: ArrayLike,
+    sigma: float,
+    kernel: str = "numpy",
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Compute the convolution of a wake function with a Gaussian bunch profile.
 
@@ -135,8 +153,12 @@ def compute_convolution(data_time, data_wake, sigma, kernel="numpy"):
 
 
 def compute_deconvolution(
-    data_time, data_wake_potential, sigma, fmax=3e9, samples=1001
-):
+    data_time: ArrayLike,
+    data_wake_potential: ArrayLike,
+    sigma: float,
+    fmax: float = 3e9,
+    samples: int = 1001,
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Deconvolve a wake potential with a Gaussian bunch profile to obtain the
     impedance spectrum.
@@ -193,7 +215,7 @@ def compute_deconvolution(
     return f, Z
 
 
-def gaussian_bunch(time, sigma):
+def gaussian_bunch(time: ArrayLike, sigma: float) -> np.ndarray:
     """
     Generate a Gaussian bunch profile.
 
@@ -215,7 +237,12 @@ def gaussian_bunch(time, sigma):
     )
 
 
-def gaussian_bunch_spectrum(time, sigma, fmax, samples=1001):
+def gaussian_bunch_spectrum(
+    time: ArrayLike,
+    sigma: float,
+    fmax: float,
+    samples: int = 1001,
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Generate a Gaussian bunch profile.
 
@@ -245,11 +272,17 @@ def gaussian_bunch_spectrum(time, sigma, fmax, samples=1001):
     return f[mask], lambdaf[mask]
 
 
-def interpolation_error_abs(func_output, interpolant_output):
+def interpolation_error_abs(
+    func_output: ArrayLike,
+    interpolant_output: ArrayLike,
+) -> np.ndarray:
     return np.abs(func_output - interpolant_output)
 
 
-def interpolation_error_rms(func_output, interpolant_output):
+def interpolation_error_rms(
+    func_output: ArrayLike,
+    interpolant_output: ArrayLike,
+) -> np.ndarray:
     error = interpolant_output - func_output
     squared_error = error**2
     mean_squared_error = np.mean(
@@ -260,14 +293,14 @@ def interpolation_error_rms(func_output, interpolant_output):
 
 
 def compute_ineffint(
-    data_freq,
-    data_impedance,
-    times=np.linspace(1e-11, 50e-9, 1000),
-    adaptative=True,
-    interpolation="linear",
-    plane="longitudinal",
-    error="Abs",
-):
+    data_freq: ArrayLike,
+    data_impedance: ArrayLike,
+    times: ArrayLike = np.linspace(1e-11, 50e-9, 1000),
+    adaptative: bool = True,
+    interpolation: str = "linear",
+    plane: str = "longitudinal",
+    error: str = "Abs",
+) -> tuple[ArrayLike, np.ndarray]:
     try:
         import neffint
     except Exception:
@@ -329,14 +362,14 @@ def compute_ineffint(
 
 
 def compute_neffint(
-    data_time,
-    data_wake,
-    frequencies=np.linspace(1, 5e9, 1000),
-    adaptative=True,
-    interpolation="linear",
-    plane="longitudinal",
-    error="abs",
-):
+    data_time: ArrayLike,
+    data_wake: ArrayLike,
+    frequencies: ArrayLike = np.linspace(1, 5e9, 1000),
+    adaptative: bool = True,
+    interpolation: str = "linear",
+    plane: str = "longitudinal",
+    error: str = "abs",
+) -> tuple[ArrayLike, np.ndarray]:
     try:
         import neffint
     except Exception:

@@ -6,15 +6,27 @@ Created on Mon Mar 23 13:20:11 2020
 @author: sjoly
 """
 
+from typing import Sequence
+
 import numpy as np
+import numpy.typing as npt
 from scipy import special as sp
 
 from .utils import pars_to_dict
 
+ArrayLike = npt.ArrayLike
+ParameterDict = dict[int, Sequence[float]]
+ParsType = ParameterDict | ArrayLike
+
 
 class Wakes:
     # Longitudinal and transverse wake functions
-    def Resonator_longitudinal_wake(times, Rs, Q, resonant_frequency):
+    def Resonator_longitudinal_wake(
+        times: ArrayLike,
+        Rs: float,
+        Q: float,
+        resonant_frequency: float,
+    ) -> np.ndarray:
         """Calculates the longitudinal wake function of a resonator.
 
         This function calculates the longitudinal wake function of a resonator
@@ -85,7 +97,12 @@ class Wakes:
 
         return Wl
 
-    def Resonator_transverse_wake(times, Rs, Q, resonant_frequency):
+    def Resonator_transverse_wake(
+        times: ArrayLike,
+        Rs: float,
+        Q: float,
+        resonant_frequency: float,
+    ) -> np.ndarray:
         """Calculates the longitudinal wake function of a resonator.
 
         This function calculates the transverse wake function of a resonator
@@ -141,7 +158,7 @@ class Wakes:
 
         return Wt
 
-    def n_Resonator_longitudinal_wake(times, pars):
+    def n_Resonator_longitudinal_wake(times: ArrayLike, pars: ParsType) -> np.ndarray:
         """Calculates the combined longitudinal wake function of multiple resonators.
 
         This function calculates the total longitudinal wake function induced by a system
@@ -194,7 +211,7 @@ class Wakes:
         )
         return Wl
 
-    def n_Resonator_transverse_wake(times, pars):
+    def n_Resonator_transverse_wake(times: ArrayLike, pars: ParsType) -> np.ndarray:
         """Calculates the combined transverse wake function of multiple resonators.
 
         This function calculates the total transverse wake function induced by a system
@@ -249,8 +266,13 @@ class Wakes:
 
     # Longitudinal and transverse wake potentials
     def Resonator_longitudinal_wake_potential(
-        times, Rs, Q, resonant_frequency, sigma=1e-10, use_mpmath=False
-    ):
+        times: ArrayLike,
+        Rs: float,
+        Q: float,
+        resonant_frequency: float,
+        sigma: float = 1e-10,
+        use_mpmath: bool = False,
+    ) -> np.ndarray:
         """
         Single resonator wake potential (longitudinal) for a Gaussian bunch of line density.
 
@@ -324,7 +346,11 @@ class Wakes:
 
         return W
 
-    def n_Resonator_longitudinal_wake_potential(times, pars, sigma=1e-10):
+    def n_Resonator_longitudinal_wake_potential(
+        times: ArrayLike,
+        pars: ParsType,
+        sigma: float = 1e-10,
+    ) -> np.ndarray:
         if type(pars) is dict:
             dict_params = pars
         else:
@@ -337,8 +363,13 @@ class Wakes:
         return Wpl
 
     def Resonator_transverse_wake_potential(
-        times, Rs, Q, resonant_frequency, sigma=1e-10, use_mpmath=False
-    ):
+        times: ArrayLike,
+        Rs: float,
+        Q: float,
+        resonant_frequency: float,
+        sigma: float = 1e-10,
+        use_mpmath: bool = False,
+    ) -> np.ndarray:
         """
         Single resonator wake potential (transverse) for a Gaussian bunch of line density.
 
@@ -410,7 +441,11 @@ class Wakes:
 
         return W
 
-    def n_Resonator_transverse_wake_potential(times, pars, sigma=1e-10):
+    def n_Resonator_transverse_wake_potential(
+        times: ArrayLike,
+        pars: ParsType,
+        sigma: float = 1e-10,
+    ) -> np.ndarray:
         if type(pars) is dict:
             dict_params = pars
         else:
@@ -426,8 +461,12 @@ class Wakes:
 class Impedances:
     # Longitudinal and transverse impedance functions
     def Resonator_longitudinal_imp(
-        frequencies, Rs, Q, resonant_frequency, wake_length=None
-    ):
+        frequencies: ArrayLike,
+        Rs: float,
+        Q: float,
+        resonant_frequency: float,
+        wake_length: float | None = None,
+    ) -> np.ndarray:
         """Calculates the longitudinal impedance of a resonator.
 
         This function calculates the longitudinal impedance of a resonator
@@ -540,8 +579,12 @@ class Impedances:
         return Zl
 
     def Resonator_transverse_imp(
-        frequencies, Rs, Q, resonant_frequency, wake_length=None
-    ):
+        frequencies: ArrayLike,
+        Rs: float,
+        Q: float,
+        resonant_frequency: float,
+        wake_length: float | None = None,
+    ) -> np.ndarray:
         """Calculates the transverse impedance of a resonator.
 
         This function calculates the transverse impedance of a resonator with shunt
@@ -653,7 +696,11 @@ class Impedances:
 
         return Zt
 
-    def n_Resonator_longitudinal_imp(frequencies, pars, wake_length=None):
+    def n_Resonator_longitudinal_imp(
+        frequencies: ArrayLike,
+        pars: ParsType,
+        wake_length: float | None = None,
+    ) -> np.ndarray:
         """Calculates the combined longitudinal impedance of multiple resonators.
 
         This function calculates the total longitudinal impedance of a system consisting
@@ -720,7 +767,11 @@ class Impedances:
 
         return Zl
 
-    def n_Resonator_transverse_imp(frequencies, pars, wake_length=None):
+    def n_Resonator_transverse_imp(
+        frequencies: ArrayLike,
+        pars: ParsType,
+        wake_length: float | None = None,
+    ) -> np.ndarray:
         """Calculates the combined transverse impedance of multiple resonators.
 
         This function calculates the total transverse impedance of a system consisting

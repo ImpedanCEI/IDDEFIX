@@ -8,22 +8,26 @@ Created on Sat Dec  5 16:34:10 2020
 
 import matplotlib.pyplot as plt
 import numpy as np
+import numpy.typing as npt
 from scipy.signal import find_peaks
+
+ArrayLike = npt.ArrayLike
+ParameterBounds = list[tuple[float, float]]
 
 
 class SmartBoundDetermination:
     def __init__(
         self,
-        frequency_data,
-        impedance_data,
-        minimum_peak_height=1.0,
-        threshold=None,
-        distance=None,
-        prominence=None,
-        Rs_bounds=[0.8, 10],
-        Q_bounds=[0.5, 5],
-        fres_bounds=[-0.01e9, +0.01e9],
-    ):
+        frequency_data: ArrayLike,
+        impedance_data: ArrayLike,
+        minimum_peak_height: float = 1.0,
+        threshold: float | None = None,
+        distance: float | None = None,
+        prominence: float | None = None,
+        Rs_bounds: list[float] = [0.8, 10],
+        Q_bounds: list[float] = [0.5, 5],
+        fres_bounds: list[float] = [-0.01e9, +0.01e9],
+    ) -> None:
         """
         Automatically determines parameter bounds for resonance fitting
         by detecting impedance peaks in frequency-domain data.
@@ -136,13 +140,13 @@ class SmartBoundDetermination:
 
     def find(
         self,
-        frequency_data=None,
-        impedance_data=None,
-        minimum_peak_height=None,
-        threshold=None,
-        distance=None,
-        prominence=None,
-    ):
+        frequency_data: ArrayLike | None = None,
+        impedance_data: ArrayLike | None = None,
+        minimum_peak_height: float | None = None,
+        threshold: float | None = None,
+        distance: float | None = None,
+        prominence: float | None = None,
+    ) -> ParameterBounds:
         """
         Identifies peaks in the impedance data and determines the bounds
         for fitting parameters based on the detected peaks.
@@ -277,7 +281,7 @@ class SmartBoundDetermination:
         self.parameterBounds = parameterBounds
         return parameterBounds
 
-    def inspect(self):
+    def inspect(self) -> None:
         plt.figure()
         plt.plot(self.frequency_data, self.impedance_data)
 
@@ -318,7 +322,11 @@ class SmartBoundDetermination:
 
         return None
 
-    def to_table(self, parameterBounds=None, to_markdown=False):
+    def to_table(
+        self,
+        parameterBounds: ParameterBounds | None = None,
+        to_markdown: bool = False,
+    ) -> None:
         """
         Displays resonance parameters in a formatted ASCII table.
 

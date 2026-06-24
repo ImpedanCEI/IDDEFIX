@@ -8,8 +8,10 @@ Created on Mon Mar 23 13:20:11 2020
 """
 
 from functools import partial
+from typing import Any, Callable, Sequence
 
 import numpy as np
+import numpy.typing as npt
 from scipy.optimize import minimize
 
 from .objectiveFunctions import ObjectiveFunctions as obj
@@ -19,21 +21,25 @@ from .solvers import Solvers
 from .uncertainties import get_uncertainties
 from .utils import compute_fft
 
+ArrayLike = npt.ArrayLike
+ParameterBounds = list[tuple[float, float]]
+ObjectiveCallable = Callable[..., float]
+
 
 class EvolutionaryAlgorithm:
     def __init__(
         self,
-        x_data,
-        y_data,
-        N_resonators,
-        parameterBounds,
-        plane="longitudinal",
-        fitFunction="impedance",
-        objectiveFunction=None,
-        wake_length=None,
-        sigma=None,
-        uncertainty_warning=0.2,
-    ):
+        x_data: ArrayLike,
+        y_data: ArrayLike,
+        N_resonators: int,
+        parameterBounds: ParameterBounds,
+        plane: str = "longitudinal",
+        fitFunction: str = "impedance",
+        objectiveFunction: ObjectiveCallable | str | None = None,
+        wake_length: float | None = None,
+        sigma: float | None = None,
+        uncertainty_warning: float = 0.2,
+    ) -> None:
         """
         Implements an evolutionary algorithm for fitting impedance models to data.
 
@@ -224,7 +230,7 @@ class EvolutionaryAlgorithm:
             self.frequency_data = x_data
             self.impedance_data = y_data
 
-    def check_y_data(self):
+    def check_y_data(self) -> None:
         """
         Small function to avoid 0 frequency leading to zero division when
         using resonators.
@@ -235,18 +241,18 @@ class EvolutionaryAlgorithm:
 
     def generate_Initial_Parameters(
         self,
-        parameterBounds,
-        objectiveFunction,
-        fitFunction,
-        x_values_data,
-        y_values_data,
-        maxiter=2000,
-        popsize=150,
-        mutation=(0.1, 0.5),
-        crossover_rate=0.8,
-        tol=0.01,
-        solver="scipy",
-    ):
+        parameterBounds: ParameterBounds,
+        objectiveFunction: ObjectiveCallable,
+        fitFunction: Callable[..., np.ndarray],
+        x_values_data: ArrayLike,
+        y_values_data: ArrayLike,
+        maxiter: int = 2000,
+        popsize: int = 150,
+        mutation: tuple[float, float] = (0.1, 0.5),
+        crossover_rate: float = 0.8,
+        tol: float = 0.01,
+        solver: str = "scipy",
+    ) -> tuple[np.ndarray, str]:
         """
         Generates initial parameter estimates using a
         Differential Evolution (DE) solver.
@@ -336,7 +342,14 @@ class EvolutionaryAlgorithm:
 
         return solution, message
 
-    def run_cmaes(self, maxiter=1000, popsize=50, sigma=0.6, verbose=False, **kwargs):
+    def run_cmaes(
+        self,
+        maxiter: int = 1000,
+        popsize: int = 50,
+        sigma: float = 0.6,
+        verbose: bool = False,
+        **kwargs: Any,
+    ) -> Any:
         """
         Runs the CMA-ES (Covariance Matrix Adaptation Evolution Strategy) algorithm
         from `pymoo` to optimize resonance parameters.
@@ -407,13 +420,13 @@ class EvolutionaryAlgorithm:
 
     def run_differential_evolution(
         self,
-        maxiter=2000,
-        popsize=15,
-        mutation=(0.1, 0.5),
-        crossover_rate=0.8,
-        tol=0.01,
-        solver="scipy",
-    ):
+        maxiter: int = 2000,
+        popsize: int = 15,
+        mutation: tuple[float, float] = (0.1, 0.5),
+        crossover_rate: float = 0.8,
+        tol: float = 0.01,
+        solver: str = "scipy",
+    ) -> None:
         """
         Runs the differential evolution (DE) algorithm to estimate optimal
         resonance parameters.
@@ -492,7 +505,11 @@ class EvolutionaryAlgorithm:
             uncertainties=self.evolutionParametersUncertainties,
         )
 
-    def run_minimization_algorithm(self, margin=[0.1, 0.1, 0.1], method="Nelder-Mead"):
+    def run_minimization_algorithm(
+        self,
+        margin: float | Sequence[float] = [0.1, 0.1, 0.1],
+        method: str = "Nelder-Mead",
+    ) -> None:
         """
         Runs a minimization algorithm to refine resonance parameters.
 
@@ -593,11 +610,11 @@ class EvolutionaryAlgorithm:
 
     def display_resonator_parameters(
         self,
-        params=None,
-        to_markdown=False,
-        uncertainties=None,
-        display_uncertainties=True,
-    ):
+        params: ArrayLike | None = None,
+        to_markdown: bool = False,
+        uncertainties: ArrayLike | None = None,
+        display_uncertainties: bool = True,
+    ) -> None:
         """
         Displays resonance parameters in a formatted table using ASCII characters.
 
@@ -698,7 +715,11 @@ class EvolutionaryAlgorithm:
 
             print("-" * 76)
 
-    def _compute_flagged_params_mask(self, params, uncertainties):
+    def _compute_flagged_params_mask(
+        self,
+        params: ArrayLike | None,
+        uncertainties: ArrayLike | None,
+    ) -> np.ndarray | None:
         """Compute boolean mask for parameters above relative uncertainty threshold."""
 
         if params is None or uncertainties is None:
@@ -718,7 +739,11 @@ class EvolutionaryAlgorithm:
 
         return np.isfinite(rel_unc) & (rel_unc >= threshold)
 
-    def _warn_large_uncertainties(self, params, uncertainties):
+    def _warn_large_uncertainties(
+        self,
+        params: ArrayLike | None,
+        uncertainties: ArrayLike | None,
+    ) -> None:
         """Print a warning if any parameter has a large relative uncertainty.
 
         The relative uncertainty is defined as ``abs(sigma / value)``. If this
@@ -746,7 +771,11 @@ class EvolutionaryAlgorithm:
             f"[!] Warning: {n_flagged} parameter(s) have relative uncertainty >= {threshold:.2f} (max {max_rel:.2f})."
         )
 
-    def get_wake(self, time_data=None, use_minimization=True):
+    def get_wake(
+        self,
+        time_data: ArrayLike | None = None,
+        use_minimization: bool = True,
+    ) -> np.ndarray:
         # Check for time data
         if time_data is None:
             if self.time_data is None:
@@ -777,7 +806,12 @@ class EvolutionaryAlgorithm:
 
         return wake_data
 
-    def get_wake_potential(self, time_data=None, sigma=None, use_minimization=True):
+    def get_wake_potential(
+        self,
+        time_data: ArrayLike | None = None,
+        sigma: float | None = None,
+        use_minimization: bool = True,
+    ) -> np.ndarray:
         # Check for time data
         if time_data is None:
             if self.time_data is None:
@@ -821,8 +855,10 @@ class EvolutionaryAlgorithm:
         return wake_potential_data
 
     def get_impedance_from_fitFunction(
-        self, frequency_data=None, use_minimization=True
-    ):
+        self,
+        frequency_data: ArrayLike | None = None,
+        use_minimization: bool = True,
+    ) -> np.ndarray:
         # Check for frequency data
         if frequency_data is None:
             if self.frequency_data is None:
@@ -843,8 +879,11 @@ class EvolutionaryAlgorithm:
         return impedance_data
 
     def get_impedance(
-        self, frequency_data=None, use_minimization=True, wakelength=None
-    ):
+        self,
+        frequency_data: ArrayLike | None = None,
+        use_minimization: bool = True,
+        wakelength: float | None = None,
+    ) -> np.ndarray:
         # Check for frequency data
         if frequency_data is None:
             if self.frequency_data is None:
@@ -881,8 +920,12 @@ class EvolutionaryAlgorithm:
         return impedance_data
 
     def get_impedance_from_fft(
-        self, time_data=None, wake_data=None, fmax=3e9, samples=1001
-    ):
+        self,
+        time_data: ArrayLike | None = None,
+        wake_data: ArrayLike | None = None,
+        fmax: float = 3e9,
+        samples: int = 1001,
+    ) -> tuple[np.ndarray, np.ndarray]:
         # Check for time data
         if time_data is None:
             if self.time_data is None:
@@ -909,24 +952,13 @@ class EvolutionaryAlgorithm:
 
         return f, Z
 
-    def compute_fft(self, time_data=None, wake_data=None, fmax=3e9, samples=1001):
-        # Check for time data - not override self
-        if time_data is None:
-            if self.time_data is None:
-                raise AttributeError("Provide time data array")
-            time_data = self.time_data
-
-        # Check for wake data - not override self
-        if wake_data is None:
-            if self.wake_data is None:
-                raise AttributeError("Provide wake data array")
-            wake_data = self.wake_data
-
-        compute_fft(time_data, wake_data, fmax, samples)
-
     def get_extrapolated_wake(
-        self, new_end_time=None, dt=None, time_data=None, use_minimization=True
-    ):
+        self,
+        new_end_time: float | None = None,
+        dt: float | None = None,
+        time_data: ArrayLike | None = None,
+        use_minimization: bool = True,
+    ) -> tuple[np.ndarray, np.ndarray]:
         # Check for time data
         if time_data is None:
             if self.time_data is None:
@@ -951,8 +983,13 @@ class EvolutionaryAlgorithm:
         return ext_time_data, ext_wake_data
 
     def save_txt(
-        self, f_name, x_data=None, y_data=None, x_name="X [-]", y_name="Y [-]"
-    ):
+        self,
+        f_name: str,
+        x_data: ArrayLike | None = None,
+        y_data: ArrayLike | None = None,
+        x_name: str = "X [-]",
+        y_name: str = "Y [-]",
+    ) -> None:
         """
         Saves x and y data to a text file in a two-column format.
 
@@ -1009,7 +1046,14 @@ class EvolutionaryAlgorithm:
         else:
             print("txt not saved, please provide x_data and y_data")
 
-    def read_txt(self, txt, skiprows=2, delimiter=None, usecols=None, as_dict=False):
+    def read_txt(
+        self,
+        txt: str,
+        skiprows: int = 2,
+        delimiter: str | None = None,
+        usecols: Sequence[int] | None = None,
+        as_dict: bool = False,
+    ) -> dict[Any, np.ndarray] | tuple[np.ndarray, np.ndarray]:
         """
         Reads data from an ASCII text file and returns it as a dictionary or tuple.
 
