@@ -17,10 +17,10 @@ import sys
 # sys.path.insert(0, os.path.abspath('../iddefix/'))
 sys.path.append(os.path.abspath(".."))
 
-import os
-
 # Copy notebooks
 import subprocess
+
+from .version import __version__  # noqa: F401
 
 # Run the copy_notebooks.py script before building the docs
 copy_script = os.path.join(os.path.dirname(__file__), "copy_notebooks.py")
@@ -33,7 +33,7 @@ copyright = "2025, CERN, BE-ABP-CEI"
 author = "Sebastien Joly, Malthe Raschke, Elena de la Fuente"
 
 # The full version, including alpha/beta/rc tags
-release = "1.0"
+release = __version__
 
 # -- General configuration ---------------------------------------------------
 
