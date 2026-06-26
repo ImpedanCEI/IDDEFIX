@@ -20,7 +20,7 @@ sys.path.append(os.path.abspath(".."))
 # Copy notebooks
 import subprocess
 
-from .version import __version__  # noqa: F401
+from iddefix import __version__  # noqa: F401
 
 # Run the copy_notebooks.py script before building the docs
 copy_script = os.path.join(os.path.dirname(__file__), "copy_notebooks.py")
