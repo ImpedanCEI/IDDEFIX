@@ -1,11 +1,22 @@
+from typing import Callable
+
 import numpy as np
+import numpy.typing as npt
 from scipy.linalg import svd
 from scipy.optimize._numdiff import approx_derivative
 
 import iddefix
 
+ArrayLike = npt.ArrayLike
+FitCallable = Callable[[ArrayLike, dict[int, ArrayLike]], ArrayLike]
 
-def StackedResiduals(parameters, x, fitFunction, y):
+
+def StackedResiduals(
+    parameters: ArrayLike,
+    x: ArrayLike,
+    fitFunction: FitCallable,
+    y: ArrayLike,
+) -> np.ndarray:
     """The stacked residuals (real and imaginary parts).
 
     This function takes the parameters obtained from the Differential Evolution or
@@ -34,7 +45,12 @@ def StackedResiduals(parameters, x, fitFunction, y):
     return residuals
 
 
-def build_jacobian(parameters, fitFunction, x, y):
+def build_jacobian(
+    parameters: ArrayLike,
+    fitFunction: FitCallable,
+    x: ArrayLike,
+    y: ArrayLike,
+) -> np.ndarray:
     """Build the Jacobian of the system.
 
     This function takes the parameters obtained from the Differential Evolution or
@@ -64,7 +80,12 @@ def build_jacobian(parameters, fitFunction, x, y):
     return jac
 
 
-def get_uncertainties(parameters, fitFunction, x, y):
+def get_uncertainties(
+    parameters: ArrayLike,
+    fitFunction: FitCallable,
+    x: ArrayLike,
+    y: ArrayLike,
+) -> np.ndarray:
     r"""Compute the parameter uncertainties of the results of the Differential
     Evolution or minimization algorithm.
 

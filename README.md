@@ -6,6 +6,7 @@
 **I**mpedance **D**etermination through **D**ifferential **E**volution **FI**tting and e**X**trapolation.
 
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![ty](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ty/main/assets/badge/v0.json)](https://github.com/astral-sh/ty)
 ![PyPI - Version](https://img.shields.io/pypi/v/IDDEFIX?style=flat-square&color=green)
 ![PyPI - License](https://img.shields.io/pypi/l/IDDEFIX?style=flat-square&color=pink)
 [![Documentation Status](https://readthedocs.org/projects/iddefix/badge/?version=latest)](https://iddefix.readthedocs.io/en/latest/?badge=latest)

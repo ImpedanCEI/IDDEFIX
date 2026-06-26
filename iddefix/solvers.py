@@ -7,18 +7,23 @@ Created on Sat Dec  5 16:33:41 2020
 @contributor: edelafue, babreufig
 """
 
+from typing import Any, Callable
+
 import numpy as np
 from scipy.optimize import differential_evolution
 from tqdm import tqdm
 
+ParameterBounds = list[tuple[float, float]]
+MinimizationFunction = Callable[[np.ndarray], float]
+
 
 class ProgressBarCallback:
-    def __init__(self, max_generations, desc="Optimization"):
+    def __init__(self, max_generations: int, desc: str = "Optimization") -> None:
         self.max_generations = max_generations
         self.current_generation = 0
         self.pbar = tqdm(total=max_generations, desc=desc, unit="gen")
 
-    def __call__(self, *args):
+    def __call__(self, *args: Any) -> bool | None:
         # --- scipy differential_evolution: (xk, convergence) ---
         if len(args) == 2 and not hasattr(args[0], "evaluator"):
             xk, convergence = args
@@ -44,11 +49,11 @@ class ProgressBarCallback:
 
             self.pbar.set_postfix({"conv": f"{(100 * (convergence)):6.1f} %"})
 
-    def close(self):
+    def close(self) -> None:
         self.pbar.close()
 
 
-def stop_criterion(solver):
+def stop_criterion(solver: Any) -> float:
     """Stopping criterion used in SciPy's differential evolution.
 
     Based on the criterion used in
@@ -68,15 +73,15 @@ def stop_criterion(solver):
 
 class Solvers:
     def run_scipy_solver(
-        parameterBounds,
-        minimization_function,
-        maxiter=2000,
-        popsize=150,
-        mutation=(0.1, 0.5),
-        crossover_rate=0.8,
-        tol=0.01,
+        parameterBounds: ParameterBounds,
+        minimization_function: MinimizationFunction,
+        maxiter: int = 2000,
+        popsize: int = 150,
+        mutation: tuple[float, float] = (0.1, 0.5),
+        crossover_rate: float = 0.8,
+        tol: float = 0.01,
         **kwargs,
-    ):
+    ) -> tuple[np.ndarray, str]:
         """Run SciPy's ``differential_evolution`` to minimize a function.
 
         All arguments are detailed in the SciPy documentation:
@@ -127,15 +132,15 @@ class Solvers:
         return solution, message
 
     def run_pyfde_solver(
-        parameterBounds,
-        minimization_function,
-        maxiter=2000,
-        popsize=150,
-        mutation=(0.45),
-        crossover_rate=0.8,
-        tol=0.01,
+        parameterBounds: ParameterBounds,
+        minimization_function: MinimizationFunction,
+        maxiter: int = 2000,
+        popsize: int = 150,
+        mutation: float = 0.45,
+        crossover_rate: float = 0.8,
+        tol: float = 0.01,
         **kwargs,
-    ):
+    ) -> tuple[np.ndarray, str]:
         """
         Runs the pyfde ClassicDE solver to minimize a given function.
 
@@ -182,13 +187,13 @@ class Solvers:
         return solution, message
 
     def run_pyfde_jade_solver(
-        parameterBounds,
-        minimization_function,
-        maxiter=2000,
-        popsize=150,
-        tol=0.01,
+        parameterBounds: ParameterBounds,
+        minimization_function: MinimizationFunction,
+        maxiter: int = 2000,
+        popsize: int = 150,
+        tol: float = 0.01,
         **kwargs,
-    ):
+    ) -> tuple[np.ndarray, str]:
         """
         Runs the pyfde JADE solver to minimize a given function.
 
@@ -233,14 +238,14 @@ class Solvers:
         return solution, message
 
     def run_pymoo_cmaes_solver(
-        parameterBounds,
-        minimization_function,
-        sigma=0.1,
-        maxiter=None,  # default: 100 + 150 * (N+3)**2 // popsize**0.5
-        popsize=None,  # defaul: 4 + int(3 * np.log(len(parameterBounds)))
-        verbose=False,
+        parameterBounds: ParameterBounds,
+        minimization_function: MinimizationFunction,
+        sigma: float = 0.1,
+        maxiter: int | None = None,  # default: 100 + 150 * (N+3)**2 // popsize**0.5
+        popsize: int | None = None,  # defaul: 4 + int(3 * np.log(len(parameterBounds)))
+        verbose: bool = False,
         **kwargs,
-    ):
+    ) -> tuple[np.ndarray, str, Any]:
         """
         Runs the pymoo CMAES solver to minimize a given function.
 
@@ -267,11 +272,18 @@ class Solvers:
                         """)
 
         class OptimizationProblem(Problem):
-            def __init__(self, objective_function, n_var, n_obj, xl, xu):
+            def __init__(
+                self,
+                objective_function: MinimizationFunction,
+                n_var: int,
+                n_obj: int,
+                xl: list[float],
+                xu: list[float],
+            ) -> None:
                 super().__init__(n_var=n_var, n_obj=n_obj, xl=xl, xu=xu)
                 self.objective_function = objective_function
 
-            def _evaluate(self, x, out):
+            def _evaluate(self, x: np.ndarray, out: dict[str, Any]) -> None:
                 out["F"] = [self.objective_function(xi) for xi in x]
 
         problem = OptimizationProblem(
