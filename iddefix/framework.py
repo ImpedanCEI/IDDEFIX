@@ -882,7 +882,7 @@ class EvolutionaryAlgorithm:
         self,
         frequency_data: ArrayLike | None = None,
         use_minimization: bool = True,
-        wakelength: float | None = None,
+        wake_length: float | None = None,
     ) -> np.ndarray:
         # Check for frequency data
         if frequency_data is None:
@@ -902,19 +902,19 @@ class EvolutionaryAlgorithm:
         # Which plane and formula
         if self.plane == "longitudinal" and self.N_resonators > 1:
             impedance_data = imp.n_Resonator_longitudinal_imp(
-                frequency_data, pars, wakelength
+                frequency_data, pars, wake_length
             )
         elif self.plane == "transverse" and self.N_resonators > 1:
             impedance_data = imp.n_Resonator_transverse_imp(
-                frequency_data, pars, wakelength
+                frequency_data, pars, wake_length
             )
         elif self.plane == "longitudinal" and self.N_resonators == 1:
             impedance_data = imp.Resonator_longitudinal_imp(
-                frequency_data, pars, wakelength
+                frequency_data, pars, wake_length
             )
         elif self.plane == "transverse" and self.N_resonators == 1:
             impedance_data = imp.Resonator_transverse_imp(
-                frequency_data, pars, wakelength
+                frequency_data, pars, wake_length
             )
 
         return impedance_data
