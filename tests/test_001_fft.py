@@ -69,7 +69,7 @@ def test_compare_wakes(load_data, plot=False, adaptative=False):
     f_fd = np.linspace(0, 5e9, 1000)
 
     global t, W
-    Z_fd = DE_model.get_impedance(frequency_data=f_fd, wakelength=None)
+    Z_fd = DE_model.get_impedance(frequency_data=f_fd, wake_length=None)
     t, W = iddefix.compute_ineffint(
         f_fd,
         Z_fd,
@@ -101,7 +101,7 @@ def test_compare_impedances(load_data, plot=False, adaptative=False):
     DE_model, _, _, _ = load_data
     f_de = np.linspace(1, 5e9, 10000)
     time = np.linspace(0, 50e-9, 1000)
-    Z_de = DE_model.get_impedance(frequency_data=f_de, wakelength=None)
+    Z_de = DE_model.get_impedance(frequency_data=f_de, wake_length=None)
     W_de = DE_model.get_wake(time)
 
     f_fft, Z_fft = iddefix.compute_fft(time, W_de / c_light, fmax=5e9)
