@@ -1,4 +1,4 @@
-"""Least-squares fitting for fixed real and complex poles."""
+"""Evolutionary pole fitting with optional linear residue elimination."""
 
 from dataclasses import dataclass
 
@@ -21,7 +21,7 @@ ArrayLike = npt.ArrayLike
 
 @dataclass
 class ResidueFitResult:
-    """Result of a linear residue fit."""
+    """Residues and fitted response for a set of poles."""
 
     poles: np.ndarray
     residues: np.ndarray
@@ -43,6 +43,57 @@ class PoleOptimizationResult:
     objective_value: float
     success: bool
     message: str
+
+
+def _number_independent_residue_parameters(
+    number_real_poles: int,
+    number_complex_pairs: int,
+) -> int:
+    """Return the number of real parameters describing all residues."""
+    return number_real_poles + 2 * number_complex_pairs
+
+
+def decode_residue_parameters(
+    parameters: ArrayLike,
+    number_real_poles: int,
+    number_complex_pairs: int,
+) -> np.ndarray:
+    """Restore real/conjugate residues from independent real parameters.
+
+    The parameter order is
+
+    ``[real residues, Re(complex residues), Im(complex residues)]``,
+
+    with real and imaginary parts interleaved for each complex pair.
+    """
+    parameters = np.asarray(parameters, dtype=float)
+
+    expected_size = _number_independent_residue_parameters(
+        number_real_poles,
+        number_complex_pairs,
+    )
+
+    if parameters.size != expected_size:
+        raise ValueError(
+            f"expected {expected_size} residue parameters, "
+            f"received {parameters.size}"
+        )
+
+    real_residues = parameters[:number_real_poles]
+    complex_parameters = parameters[number_real_poles:]
+
+    complex_residues = (
+        complex_parameters[0::2]
+        + 1j * complex_parameters[1::2]
+    )
+
+    return np.concatenate(
+        [
+            real_residues.astype(complex),
+            complex_residues,
+            np.conj(complex_residues),
+        ]
+    )
 
 def decode_log_poles(
     parameters: ArrayLike,
@@ -610,6 +661,209 @@ def fit_residues(
         rank=int(rank),
     )
 
+
+def evaluate_residue_parameters(
+    frequencies: ArrayLike,
+    impedance: ArrayLike,
+    real_poles: ArrayLike,
+    complex_poles: ArrayLike,
+    residue_parameters: ArrayLike,
+    wake_length: float | None = None,
+    weights: ArrayLike | None = None,
+    direct_term: float = 0.0,
+    enforce_zero_dc: bool = False,
+    plane: str = "longitudinal",
+) -> ResidueFitResult:
+    """Evaluate explicitly supplied residue parameters.
+
+    This is the counterpart of :func:`fit_residues` for the fully
+    evolutionary formulation. No least-squares problem is solved.
+    """
+    frequencies = np.atleast_1d(
+        np.asarray(frequencies, dtype=float)
+    )
+    impedance = np.atleast_1d(
+        np.asarray(impedance, dtype=complex)
+    )
+    real_poles = np.atleast_1d(
+        np.asarray(real_poles, dtype=complex)
+    )
+    complex_poles = np.atleast_1d(
+        np.asarray(complex_poles, dtype=complex)
+    )
+
+    if frequencies.size != impedance.size:
+        raise ValueError(
+            "frequencies and impedance must have the same length"
+        )
+
+    if weights is None:
+        weights = np.ones(frequencies.size, dtype=float)
+    else:
+        weights = np.atleast_1d(
+            np.asarray(weights, dtype=float)
+        )
+
+        if weights.size != frequencies.size:
+            raise ValueError(
+                "weights and frequencies must have the same length"
+            )
+
+    full_poles = np.concatenate(
+        [
+            real_poles,
+            complex_poles,
+            np.conj(complex_poles),
+        ]
+    )
+
+    full_residues = decode_residue_parameters(
+        residue_parameters,
+        number_real_poles=real_poles.size,
+        number_complex_pairs=complex_poles.size,
+    )
+
+    if enforce_zero_dc:
+        # Z(0) = factor * (d + sum(r_k / -p_k)) = 0.
+        # The direct term is therefore not an independent DE parameter.
+        direct_term = float(
+            np.real(
+                np.sum(full_residues / full_poles)
+            )
+        )
+
+    full_basis = _pole_basis(
+        frequencies,
+        full_poles,
+        wake_length,
+        plane,
+    )
+
+    fitted_impedance = (
+        impedance_plane_factor(plane) * direct_term
+        + full_basis @ full_residues
+    )
+
+    error = impedance - fitted_impedance
+
+    squared_error = float(
+        np.sum(np.abs(error) ** 2)
+    )
+
+    weighted_squared_error = float(
+        np.sum(np.abs(weights * error) ** 2)
+    )
+
+    return ResidueFitResult(
+        poles=full_poles,
+        residues=full_residues,
+        direct_term=float(direct_term),
+        fitted_impedance=fitted_impedance,
+        squared_error=squared_error,
+        weighted_squared_error=weighted_squared_error,
+        rank=-1,
+    )
+
+
+def pole_residue_objective(
+    parameters: ArrayLike,
+    frequencies: ArrayLike,
+    impedance: ArrayLike,
+    number_real_poles: int,
+    number_complex_pairs: int,
+    wake_length: float | None = None,
+    weights: ArrayLike | None = None,
+    fit_direct_term: bool = False,
+    enforce_zero_dc: bool = False,
+    direct_term_bounds: tuple[float, float] | None = None,
+    plane: str = "longitudinal",
+) -> float:
+    """Evaluate a candidate containing poles and residues."""
+    parameters = np.asarray(parameters, dtype=float)
+    impedance = np.atleast_1d(
+        np.asarray(impedance, dtype=complex)
+    )
+
+    number_pole_parameters = (
+        number_real_poles + 2 * number_complex_pairs
+    )
+    number_residue_parameters = (
+        _number_independent_residue_parameters(
+            number_real_poles,
+            number_complex_pairs,
+        )
+    )
+
+    pole_parameters = parameters[:number_pole_parameters]
+    residue_stop = (
+        number_pole_parameters + number_residue_parameters
+    )
+    residue_parameters = parameters[
+        number_pole_parameters:residue_stop
+    ]
+
+    if fit_direct_term and not enforce_zero_dc:
+        direct_term = float(parameters[residue_stop])
+    else:
+        direct_term = 0.0
+
+    real_poles, complex_poles = decode_log_poles(
+        pole_parameters,
+        number_real_poles,
+        number_complex_pairs,
+    )
+
+    try:
+        result = evaluate_residue_parameters(
+            frequencies=frequencies,
+            impedance=impedance,
+            real_poles=real_poles,
+            complex_poles=complex_poles,
+            residue_parameters=residue_parameters,
+            wake_length=wake_length,
+            weights=weights,
+            direct_term=direct_term,
+            enforce_zero_dc=enforce_zero_dc,
+            plane=plane,
+        )
+    except (ValueError, np.linalg.LinAlgError):
+        return np.inf
+
+    if (
+        enforce_zero_dc
+        and direct_term_bounds is not None
+        and not (
+            direct_term_bounds[0]
+            <= result.direct_term
+            <= direct_term_bounds[1]
+        )
+    ):
+        return np.inf
+
+    if weights is None:
+        weights_array = np.ones_like(
+            impedance,
+            dtype=float,
+        )
+    else:
+        weights_array = np.asarray(weights, dtype=float)
+
+    normalization = np.sum(
+        np.abs(weights_array * impedance) ** 2
+    )
+
+    if normalization == 0.0:
+        normalization = 1.0
+
+    normalized_error = (
+        result.weighted_squared_error / normalization
+    )
+
+    if not np.isfinite(normalized_error):
+        return np.inf
+
+    return float(normalized_error)
+
 def pole_objective(
     parameters: ArrayLike,
     frequencies: ArrayLike,
@@ -696,12 +950,20 @@ def fit_poles_evolutionary(
     fit_direct_term: bool = False,
     enforce_zero_dc: bool = False,
     plane: str = "longitudinal",
+    residue_solver: str = "least_squares",
+    residue_bounds: list[tuple[float, float]] | None = None,
+    direct_term_bounds: tuple[float, float] | None = None,
 ) -> PoleOptimizationResult:
-    """Fit pole locations using Differential Evolution.
+    """Fit a pole-residue model using Differential Evolution.
 
-    Differential Evolution optimizes logarithmic pole parameters.
-    For every candidate pole set, the optimal residues are obtained
-    by linear least squares.
+    With ``residue_solver='least_squares'``, Differential Evolution
+    optimizes logarithmic pole parameters and the residues are eliminated
+    by linear least squares for every pole candidate.
+
+    With ``residue_solver='differential_evolution'``, poles and independent
+    residue components are optimized jointly. The independent residue order
+    is ``[real residues, Re(r_complex), Im(r_complex)]``, with the real and
+    imaginary components interleaved for each complex-conjugate pair.
 
     Parameters
     ----------
@@ -724,6 +986,16 @@ def fit_poles_evolutionary(
     wake_length
         Simulated wake length in metres. If None, fully decayed
         impedance data are assumed.
+    residue_solver
+        ``'least_squares'`` (default) or ``'differential_evolution'``.
+    residue_bounds
+        Bounds for the independent real residue parameters. Required for
+        ``residue_solver='differential_evolution'``.
+    direct_term_bounds
+        Bounds for the direct term. Required when the direct term is fitted
+        by Differential Evolution. With ``enforce_zero_dc=True``, the direct
+        term is instead computed from the residues and these bounds are only
+        used as an admissibility constraint when supplied.
     """
     frequencies = np.atleast_1d(
         np.asarray(frequencies, dtype=float)
@@ -740,35 +1012,109 @@ def fit_poles_evolutionary(
         frequency_weighting=frequency_weighting,
         magnitude_floor=magnitude_floor,
     )
-    expected_number_bounds = (
+    expected_number_pole_bounds = (
         number_real_poles
         + 2 * number_complex_pairs
     )
 
-    if len(parameter_bounds) != expected_number_bounds:
+    if len(parameter_bounds) != expected_number_pole_bounds:
         raise ValueError(
-            f"expected {expected_number_bounds} parameter bounds, "
+            f"expected {expected_number_pole_bounds} parameter bounds, "
             f"received {len(parameter_bounds)}"
         )
 
-    objective_function = partial(
-        pole_objective,
-        frequencies=frequencies,
-        impedance=impedance,
-        number_real_poles=number_real_poles,
-        number_complex_pairs=number_complex_pairs,
-        wake_length=wake_length,
-        weights=weights,
-        fit_direct_term=fit_direct_term,
-        enforce_zero_dc=enforce_zero_dc,
-        plane=plane,
-    )
+    normalized_residue_solver = residue_solver.lower()
+
+    if normalized_residue_solver == "least_squares":
+        if residue_bounds is not None:
+            raise ValueError(
+                "residue_bounds are only used with "
+                "residue_solver='differential_evolution'"
+            )
+
+        objective_function = partial(
+            pole_objective,
+            frequencies=frequencies,
+            impedance=impedance,
+            number_real_poles=number_real_poles,
+            number_complex_pairs=number_complex_pairs,
+            wake_length=wake_length,
+            weights=weights,
+            fit_direct_term=fit_direct_term,
+            enforce_zero_dc=enforce_zero_dc,
+            plane=plane,
+        )
+
+        optimization_bounds = parameter_bounds
+
+    elif normalized_residue_solver == "differential_evolution":
+        expected_number_residue_bounds = (
+            _number_independent_residue_parameters(
+                number_real_poles,
+                number_complex_pairs,
+            )
+        )
+
+        if residue_bounds is None:
+            raise ValueError(
+                "residue_bounds are required with "
+                "residue_solver='differential_evolution'"
+            )
+
+        if len(residue_bounds) != expected_number_residue_bounds:
+            raise ValueError(
+                f"expected {expected_number_residue_bounds} residue "
+                f"bounds, received {len(residue_bounds)}"
+            )
+
+        if enforce_zero_dc and not fit_direct_term:
+            raise ValueError(
+                "The fully evolutionary solver currently requires "
+                "fit_direct_term=True when enforce_zero_dc=True. "
+                "The direct term is then determined by the DC constraint."
+            )
+
+        optimization_bounds = [
+            *parameter_bounds,
+            *residue_bounds,
+        ]
+
+        if fit_direct_term and not enforce_zero_dc:
+            if direct_term_bounds is None:
+                raise ValueError(
+                    "direct_term_bounds are required when the direct "
+                    "term is optimized by Differential Evolution"
+                )
+
+            optimization_bounds.append(
+                direct_term_bounds
+            )
+
+        objective_function = partial(
+            pole_residue_objective,
+            frequencies=frequencies,
+            impedance=impedance,
+            number_real_poles=number_real_poles,
+            number_complex_pairs=number_complex_pairs,
+            wake_length=wake_length,
+            weights=weights,
+            fit_direct_term=fit_direct_term,
+            enforce_zero_dc=enforce_zero_dc,
+            direct_term_bounds=direct_term_bounds,
+            plane=plane,
+        )
+
+    else:
+        raise ValueError(
+            "residue_solver must be 'least_squares' or "
+            "'differential_evolution'"
+        )
 
     updating = "immediate" if workers == 1 else "deferred"
 
     optimization = differential_evolution(
         objective_function,
-        bounds=parameter_bounds,
+        bounds=optimization_bounds,
         strategy="rand1bin",
         maxiter=maxiter,
         popsize=popsize,
@@ -782,26 +1128,62 @@ def fit_poles_evolutionary(
         updating=updating,
     )
 
+    pole_parameters = optimization.x[
+        :expected_number_pole_bounds
+    ]
+
     real_poles, complex_poles = decode_log_poles(
-        optimization.x,
+        pole_parameters,
         number_real_poles,
         number_complex_pairs,
     )
 
-    residue_fit = fit_residues(
-        frequencies=frequencies,
-        impedance=impedance,
-        real_poles=real_poles,
-        complex_poles=complex_poles,
-        wake_length=wake_length,
-        weights=weights,
-        fit_direct_term=fit_direct_term,
-        enforce_zero_dc=enforce_zero_dc,
-        plane=plane,
-    )
+    if normalized_residue_solver == "least_squares":
+        residue_fit = fit_residues(
+            frequencies=frequencies,
+            impedance=impedance,
+            real_poles=real_poles,
+            complex_poles=complex_poles,
+            wake_length=wake_length,
+            weights=weights,
+            fit_direct_term=fit_direct_term,
+            enforce_zero_dc=enforce_zero_dc,
+            plane=plane,
+        )
+    else:
+        residue_start = expected_number_pole_bounds
+        residue_stop = (
+            residue_start
+            + _number_independent_residue_parameters(
+                number_real_poles,
+                number_complex_pairs,
+            )
+        )
+
+        if fit_direct_term and not enforce_zero_dc:
+            direct_term = float(
+                optimization.x[residue_stop]
+            )
+        else:
+            direct_term = 0.0
+
+        residue_fit = evaluate_residue_parameters(
+            frequencies=frequencies,
+            impedance=impedance,
+            real_poles=real_poles,
+            complex_poles=complex_poles,
+            residue_parameters=optimization.x[
+                residue_start:residue_stop
+            ],
+            wake_length=wake_length,
+            weights=weights,
+            direct_term=direct_term,
+            enforce_zero_dc=enforce_zero_dc,
+            plane=plane,
+        )
 
     return PoleOptimizationResult(
-        pole_parameters=optimization.x,
+        pole_parameters=pole_parameters,
         real_poles=real_poles,
         complex_poles=complex_poles,
         residue_fit=residue_fit,

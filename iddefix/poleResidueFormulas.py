@@ -35,6 +35,7 @@ class PoleResidue:
         residues: ArrayLike,
         direct_term: complex = 0.0,
         plane: str = "longitudinal",
+        proportional_term: complex = 0.0,
     ) -> np.ndarray:
         """Evaluate a longitudinal or transverse impedance."""
         frequencies = np.atleast_1d(
@@ -67,6 +68,7 @@ class PoleResidue:
 
         transfer_function = (
             direct_term
+            + proportional_term * s
             + np.sum(
                 residues[None, :]
                 / (
@@ -90,6 +92,7 @@ class PoleResidue:
         wake_length: float,
         direct_term: complex = 0.0,
         plane: str = "longitudinal",
+        proportional_term: complex = 0.0,
     ) -> np.ndarray:
         """Evaluate the impedance obtained from a finite wake."""
         frequencies = np.atleast_1d(
@@ -140,6 +143,7 @@ class PoleResidue:
 
         transfer_function = (
             direct_term
+            + proportional_term * s
             + np.sum(
                 residues[None, :]
                 * basis,
@@ -181,4 +185,3 @@ class PoleResidue:
         wake[times < 0.0] = 0.0
 
         return np.real_if_close(wake)
-

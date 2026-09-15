@@ -8,6 +8,8 @@ from iddefix.resonatorFormulas import (
 from iddefix.poleResidueFitting import (
     build_fit_weights,
     decode_log_poles,
+    decode_residue_parameters,
+    evaluate_residue_parameters,
     fit_poles_evolutionary,
     fit_residues,
     pole_objective,
@@ -15,6 +17,58 @@ from iddefix.poleResidueFitting import (
 
 
 from scipy.integrate import quad
+
+
+def test_decode_residue_parameters_restores_conjugate_structure():
+    residues = decode_residue_parameters(
+        parameters=[3.0, 4.0, -2.0],
+        number_real_poles=1,
+        number_complex_pairs=1,
+    )
+
+    np.testing.assert_allclose(
+        residues,
+        [3.0, 4.0 - 2.0j, 4.0 + 2.0j],
+    )
+
+
+def test_explicit_residue_parameters_reproduce_impedance():
+    frequencies = np.linspace(1.0e6, 2.0e8, 200)
+    real_poles = np.array([-2.0e7])
+    complex_poles = np.array([-5.0e6 + 4.0e7j])
+    residue_parameters = np.array([1.5e10, 2.0e10, 0.7e10])
+
+    expected_residues = np.array(
+        [
+            1.5e10,
+            2.0e10 + 0.7e10j,
+            2.0e10 - 0.7e10j,
+        ]
+    )
+
+    impedance = PoleResidue.impedance(
+        frequencies=frequencies,
+        poles=[
+            real_poles[0],
+            complex_poles[0],
+            np.conj(complex_poles[0]),
+        ],
+        residues=expected_residues,
+        direct_term=2.5,
+    )
+
+    result = evaluate_residue_parameters(
+        frequencies=frequencies,
+        impedance=impedance,
+        real_poles=real_poles,
+        complex_poles=complex_poles,
+        residue_parameters=residue_parameters,
+        direct_term=2.5,
+    )
+
+    np.testing.assert_allclose(result.residues, expected_residues)
+    np.testing.assert_allclose(result.fitted_impedance, impedance)
+    assert result.weighted_squared_error < 1.0e-12
 
 
 def test_real_pole_wake():
@@ -1086,3 +1140,57 @@ def test_transverse_least_squares_recovers_residues():
         rtol=1.0e-11,
         atol=1.0e-7,
     )
+
+
+def test_fully_evolutionary_fit_recovers_real_pole_and_residue():
+    frequencies = np.linspace(1.0e6, 1.0e8, 120)
+    expected_pole = -2.0e7
+    expected_residue = 1.5e10
+
+    impedance = PoleResidue.impedance(
+        frequencies=frequencies,
+        poles=[expected_pole],
+        residues=[expected_residue],
+    )
+
+    result = fit_poles_evolutionary(
+        frequencies=frequencies,
+        impedance=impedance,
+        number_real_poles=1,
+        number_complex_pairs=0,
+        parameter_bounds=[
+            (np.log10(1.0e7), np.log10(4.0e7)),
+        ],
+        residue_solver="differential_evolution",
+        residue_bounds=[(0.5e10, 2.5e10)],
+        maxiter=150,
+        popsize=10,
+        tol=1.0e-10,
+        polish=True,
+        seed=1234,
+        workers=1,
+    )
+
+    np.testing.assert_allclose(
+        result.real_poles,
+        [expected_pole],
+        rtol=1.0e-4,
+    )
+    np.testing.assert_allclose(
+        result.residue_fit.residues,
+        [expected_residue],
+        rtol=1.0e-4,
+    )
+    assert result.objective_value < 1.0e-10
+
+
+def test_fully_evolutionary_fit_requires_residue_bounds():
+    with np.testing.assert_raises(ValueError):
+        fit_poles_evolutionary(
+            frequencies=[1.0e6],
+            impedance=[1.0 + 1.0j],
+            number_real_poles=1,
+            number_complex_pairs=0,
+            parameter_bounds=[(6.0, 8.0)],
+            residue_solver="differential_evolution",
+        )
