@@ -984,6 +984,76 @@ def test_finite_wake_impedance_includes_direct_term():
     )
 
 
+def test_impedance_includes_proportional_term():
+    frequencies = np.array([0.0, 1.0e6, 2.0e6])
+    proportional_term = 3.0e-9
+
+    without_proportional_term = PoleResidue.impedance(
+        frequencies=frequencies,
+        poles=[-1.0e7],
+        residues=[2.0e9],
+    )
+
+    with_proportional_term = PoleResidue.impedance(
+        frequencies=frequencies,
+        poles=[-1.0e7],
+        residues=[2.0e9],
+        proportional_term=proportional_term,
+    )
+
+    np.testing.assert_allclose(
+        with_proportional_term - without_proportional_term,
+        proportional_term * 2j * np.pi * frequencies,
+    )
+
+
+def test_least_squares_recovers_direct_and_proportional_terms():
+    frequencies = np.linspace(0.0, 2.0e8, 500)
+    expected_pole = -2.0e7
+    expected_residue = 1.5e10
+    expected_direct_term = 2.5
+    expected_proportional_term = 3.0e-9
+
+    impedance = PoleResidue.impedance(
+        frequencies=frequencies,
+        poles=[expected_pole],
+        residues=[expected_residue],
+        direct_term=expected_direct_term,
+        proportional_term=expected_proportional_term,
+    )
+
+    result = fit_residues(
+        frequencies=frequencies,
+        impedance=impedance,
+        real_poles=[expected_pole],
+        complex_poles=[],
+        fit_direct_term=True,
+        fit_proportional_term=True,
+    )
+
+    np.testing.assert_allclose(
+        result.residues,
+        [expected_residue],
+        rtol=1.0e-10,
+    )
+    np.testing.assert_allclose(
+        result.direct_term,
+        expected_direct_term,
+        rtol=1.0e-10,
+    )
+    np.testing.assert_allclose(
+        result.proportional_term,
+        expected_proportional_term,
+        rtol=1.0e-10,
+    )
+    np.testing.assert_allclose(
+        result.fitted_impedance,
+        impedance,
+        rtol=1.0e-10,
+        atol=1.0e-7,
+    )
+
+
 def test_transverse_resonator_matches_pole_residue():
     frequencies = np.linspace(
         1.0e6,
@@ -1194,3 +1264,63 @@ def test_fully_evolutionary_fit_requires_residue_bounds():
             parameter_bounds=[(6.0, 8.0)],
             residue_solver="differential_evolution",
         )
+
+
+def test_fully_evolutionary_fit_recovers_direct_and_proportional_terms():
+    frequencies = np.linspace(0.0, 2.0e8, 200)
+    expected_pole = -2.0e7
+    expected_residue = 1.5e10
+    expected_direct_term = 2.5
+    expected_proportional_term = 3.0e-9
+
+    impedance = PoleResidue.impedance(
+        frequencies=frequencies,
+        poles=[expected_pole],
+        residues=[expected_residue],
+        direct_term=expected_direct_term,
+        proportional_term=expected_proportional_term,
+    )
+
+    result = fit_poles_evolutionary(
+        frequencies=frequencies,
+        impedance=impedance,
+        number_real_poles=1,
+        number_complex_pairs=0,
+        parameter_bounds=[
+            (np.log10(1.9e7), np.log10(2.1e7)),
+        ],
+        residue_solver="differential_evolution",
+        residue_bounds=[(1.4e10, 1.6e10)],
+        fit_direct_term=True,
+        direct_term_bounds=(2.0, 3.0),
+        fit_proportional_term=True,
+        proportional_term_bounds=(2.5e-9, 3.5e-9),
+        maxiter=200,
+        popsize=12,
+        tol=1.0e-9,
+        polish=True,
+        seed=1234,
+        workers=1,
+    )
+
+    np.testing.assert_allclose(
+        result.real_poles,
+        [expected_pole],
+        rtol=1.0e-4,
+    )
+    np.testing.assert_allclose(
+        result.residue_fit.residues,
+        [expected_residue],
+        rtol=1.0e-4,
+    )
+    np.testing.assert_allclose(
+        result.residue_fit.direct_term,
+        expected_direct_term,
+        rtol=1.0e-4,
+    )
+    np.testing.assert_allclose(
+        result.residue_fit.proportional_term,
+        expected_proportional_term,
+        rtol=1.0e-4,
+    )
+    assert result.objective_value < 1.0e-10

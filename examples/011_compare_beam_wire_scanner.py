@@ -1,8 +1,11 @@
 """Compare SmartBounds resonator and pole-residue fits of BWS data.
 
 SmartBounds detects the resonances and supplies bounds in (Rs, Q, fres).
-The Q and fres bounds are converted to bounds for complex poles. Starting
-from a complex-pole-only model, one, two, and three real poles are added.
+The Q and fres bounds are converted to bounds for complex poles. The
+legacy resonator model and the pole-residue models are fitted to the same
+complex impedance samples with the same weighting. The pole-residue fits
+use Differential Evolution for the poles and linear least squares for the
+residues. Increasing number of real poles are added to the pole-residue model
 """
 
 from pathlib import Path
@@ -29,8 +32,16 @@ MINIMUM_PEAK_HEIGHT = 2.0
 REAL_POLE_COUNTS = (0, 1, 2, 3, 4)
 RANDOM_SEED = 2026
 
-MAXITER = 200
-POPSIZE = 10
+# Keep the optimizer budgets separate.  SciPy interprets ``popsize`` as
+# a multiplier of the number of nonlinear optimization variables.
+LEGACY_MAXITER = 200
+LEGACY_POPSIZE = 10
+LEGACY_LOCAL_MINIMIZATION = True
+
+POLE_RESIDUE_MAXITER = 200
+POLE_RESIDUE_POPSIZE = 4
+POLE_RESIDUE_POLISH = True
+
 TOLERANCE = 1.0e-4
 MUTATION = (0.3, 0.8)
 CROSSOVER_RATE = 0.5
@@ -634,56 +645,7 @@ def main():
     runtimes = {}
 
     # -------------------------------------------------
-    # 1. Resonator fit of Re(Z)
-    #
-    # This reproduces the procedure from notebook 003.
-    # -------------------------------------------------
-
-    np.random.seed(RANDOM_SEED)
-
-    real_only_model = iddefix.EvolutionaryAlgorithm(
-        x_data=fit_frequencies,
-        y_data=fit_impedance.real,
-        N_resonators=number_complex_pairs,
-        parameterBounds=resonator_parameter_bounds,
-        plane="longitudinal",
-        objectiveFunction=(
-            iddefix.ObjectiveFunctions
-            .sumOfSquaredErrorReal
-        ),
-    )
-
-    start_time = perf_counter()
-
-    real_only_model.run_differential_evolution(
-        maxiter=MAXITER,
-        popsize=POPSIZE,
-        tol=TOLERANCE,
-        mutation=MUTATION,
-        crossover_rate=CROSSOVER_RATE,
-        solver="scipy",
-    )
-
-    real_only_model.run_minimization_algorithm(
-        margin=0.5
-    )
-
-    runtimes["Resonators: real only"] = (
-        perf_counter() - start_time
-    )
-
-    fits["Resonators: real only"] = (
-        real_only_model.get_impedance(
-            frequency_data=frequencies,
-            use_minimization=True,
-        )
-    )
-
-    # -------------------------------------------------
-    # 2. Resonator fit of complex Z
-    #
-    # Same SmartBounds and optimizer settings.
-    # Only the objective function has changed.
+    # 1. Legacy resonator fit of complex Z
     # -------------------------------------------------
 
     np.random.seed(RANDOM_SEED)
@@ -706,26 +668,29 @@ def main():
     start_time = perf_counter()
 
     complex_resonator_model.run_differential_evolution(
-        maxiter=MAXITER,
-        popsize=POPSIZE,
+        maxiter=LEGACY_MAXITER,
+        popsize=LEGACY_POPSIZE,
         tol=TOLERANCE,
         mutation=MUTATION,
         crossover_rate=CROSSOVER_RATE,
         solver="scipy",
     )
 
-    complex_resonator_model.run_minimization_algorithm(
-        margin=0.5
-    )
+    if LEGACY_LOCAL_MINIMIZATION:
+        complex_resonator_model.run_minimization_algorithm(
+            margin=0.5
+        )
 
-    runtimes["Resonators: complex"] = (
+    runtimes["Legacy resonators"] = (
         perf_counter() - start_time
     )
 
-    fits["Resonators: complex"] = (
+    fits["Legacy resonators"] = (
         complex_resonator_model.get_impedance(
             frequency_data=frequencies,
-            use_minimization=True,
+            use_minimization=(
+                LEGACY_LOCAL_MINIMIZATION
+            ),
         )
     )
 
@@ -742,10 +707,9 @@ def main():
     pole_results = {}
 
     # -------------------------------------------------
-    # 3. Pole-residue fits of complex Z
+    # 2. Pole-residue fits of complex Z
     # -------------------------------------------------
 
-    #Reduced number of frequency samples
     for number_real_poles in REAL_POLE_COUNTS:
         label = (
             "Pole-residue: "
@@ -764,6 +728,21 @@ def main():
                 frequencies,
             )
             + complex_pole_bounds
+        )
+
+        legacy_dimension = (
+            3 * number_complex_pairs
+        )
+        pole_residue_dimension = (
+            number_real_poles
+            + 2 * number_complex_pairs
+        )
+
+        print(
+            "  approximate SciPy populations: "
+            f"legacy={LEGACY_POPSIZE * legacy_dimension}, "
+            "pole-residue="
+            f"{POLE_RESIDUE_POPSIZE * pole_residue_dimension}"
         )
 
         start_time = perf_counter()
@@ -790,12 +769,13 @@ def main():
             frequency_weighting=(
                 "linear"
             ),
-            maxiter=MAXITER,
-            popsize=POPSIZE,
+            residue_solver="least_squares",
+            maxiter=POLE_RESIDUE_MAXITER,
+            popsize=POLE_RESIDUE_POPSIZE,
             mutation=MUTATION,
             crossover_rate=CROSSOVER_RATE,
             tol=TOLERANCE,
-            polish=True,
+            polish=POLE_RESIDUE_POLISH,
             seed=(
                 RANDOM_SEED
                 + number_real_poles

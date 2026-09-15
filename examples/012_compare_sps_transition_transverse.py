@@ -17,13 +17,21 @@ from iddefix.poleResidueFormulas import PoleResidue
 
 REAL_POLE_COUNTS = (0, 1)
 
-BACKGROUND_SAMPLES = 150
-SAMPLES_PER_RESONANCE = 25
+BACKGROUND_SAMPLES = 50
+SAMPLES_PER_RESONANCE = 10
 
 RANDOM_SEED = 2026
 
-MAXITER = 200
-POPSIZE = 10
+# Differential Evolution optimizes all resonator parameters in the
+# legacy model.  In the pole-residue model it optimizes only the poles;
+# the residues are determined by linear least squares for every pole
+# candidate.  The optimizer budgets are therefore configured separately.
+LEGACY_MAXITER = 200
+LEGACY_POPSIZE = 10
+
+POLE_RESIDUE_MAXITER = 20
+POLE_RESIDUE_POPSIZE = 4
+POLE_RESIDUE_POLISH = False
 
 
 def weighted_complex_error(
@@ -443,9 +451,6 @@ def main():
         fit_indices
     ]
 
-    fit_frequencies=frequencies
-    fit_impedance=impedance
-
     print(
         f"Using {fit_frequencies.size} "
         f"of {frequencies.size} "
@@ -486,8 +491,8 @@ def main():
     start_time = perf_counter()
 
     resonator_model.run_differential_evolution(
-        maxiter=MAXITER,
-        popsize=POPSIZE,
+        maxiter=LEGACY_MAXITER,
+        popsize=LEGACY_POPSIZE,
         tol=1.0e-4,
         mutation=(0.1, 0.5),
         crossover_rate=0.8,
@@ -552,20 +557,20 @@ def main():
             ),
             wake_length=wake_length,
             plane="transverse",
-            fit_direct_term=(
-                number_real_poles > 0
-            ),
+            fit_direct_term=True,
+            fit_proportional_term=True,
             enforce_zero_dc=False,
             amplitude_weighting=(
                 "sqrt_relative"
             ),
             frequency_weighting="linear",
-            maxiter=MAXITER,
-            popsize=POPSIZE,
+            residue_solver="least_squares",
+            maxiter=POLE_RESIDUE_MAXITER,
+            popsize=POLE_RESIDUE_POPSIZE,
             mutation=(0.1, 0.5),
             crossover_rate=0.8,
             tol=1.0e-4,
-            polish=True,
+            polish=POLE_RESIDUE_POLISH,
             seed=(
                 RANDOM_SEED
                 + number_real_poles
@@ -582,24 +587,14 @@ def main():
         ] = result
 
         fits[label] = (
-            PoleResidue
-            .finite_wake_impedance(
+            PoleResidue.finite_wake_impedance(
                 frequencies=frequencies,
-                poles=(
-                    result
-                    .residue_fit
-                    .poles
-                ),
-                residues=(
-                    result
-                    .residue_fit
-                    .residues
-                ),
+                poles=result.residue_fit.poles,
+                residues=result.residue_fit.residues,
                 wake_length=wake_length,
-                direct_term=(
-                    result
-                    .residue_fit
-                    .direct_term
+                direct_term=result.residue_fit.direct_term,
+                proportional_term=(
+                    result.residue_fit.proportional_term
                 ),
                 plane="transverse",
             )

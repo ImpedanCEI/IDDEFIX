@@ -19,6 +19,29 @@ from .poleResidueFormulas import (
 ArrayLike = npt.ArrayLike
 
 
+def _scaled_lstsq(
+    matrix: np.ndarray,
+    right_hand_side: np.ndarray,
+) -> tuple[np.ndarray, int]:
+    """Solve least squares after normalizing the matrix columns."""
+    column_scales = np.linalg.norm(matrix, axis=0)
+    column_scales = np.maximum(
+        column_scales,
+        np.finfo(float).tiny,
+    )
+
+    scaled_matrix = matrix / column_scales[None, :]
+
+    scaled_coefficients, _, rank, _ = lstsq(
+        scaled_matrix,
+        right_hand_side,
+        lapack_driver="gelsy",
+        check_finite=False,
+    )
+
+    return scaled_coefficients / column_scales, int(rank)
+
+
 @dataclass
 class ResidueFitResult:
     """Residues and fitted response for a set of poles."""
@@ -30,6 +53,7 @@ class ResidueFitResult:
     squared_error: float
     weighted_squared_error: float
     rank: int
+    proportional_term: float = 0.0
 
 
 @dataclass
@@ -335,6 +359,7 @@ def fit_residues(
     wake_length: float | None = None,
     weights: ArrayLike | None = None,
     fit_direct_term: bool = False,
+    fit_proportional_term: bool = False,
     enforce_zero_dc: bool = False,
     plane: str = "longitudinal",
 ) -> ResidueFitResult:
@@ -449,6 +474,12 @@ def fit_residues(
             )
         )
 
+    if fit_proportional_term:
+        s = 2j * np.pi * frequencies
+        columns.append(
+            impedance_plane_factor(plane) * s
+        )
+
     design_matrix = np.column_stack(columns)
 
     real_system_matrix = np.vstack(
@@ -503,6 +534,10 @@ def fit_residues(
         if fit_direct_term:
             dc_columns.append(1.0)
 
+        if fit_proportional_term:
+            # The proportional term h*s vanishes at s=0.
+            dc_columns.append(0.0)
+
         dc_constraint = np.asarray(
             dc_columns,
             dtype=float,
@@ -551,11 +586,9 @@ def fit_residues(
             )
         )
 
-        reduced_coefficients, _, rank, _ = lstsq(
+        reduced_coefficients, rank = _scaled_lstsq(
             reduced_system_matrix,
             weighted_right_hand_side,
-            lapack_driver="gelsy",
-            check_finite=False,
         )
 
         coefficients = np.empty(
@@ -578,11 +611,9 @@ def fit_residues(
         )
 
     else:
-        coefficients, _, rank, _ = lstsq(
+        coefficients, rank = _scaled_lstsq(
             weighted_system_matrix,
             weighted_right_hand_side,
-            lapack_driver="gelsy",
-            check_finite=False,
         )
 
     number_real = real_poles.size
@@ -606,10 +637,24 @@ def fit_residues(
         dtype=complex,
     )
 
+    coefficient_index = (
+        number_real + 2 * complex_poles.size
+    )
+
     if fit_direct_term:
-        direct_term = float(coefficients[-1])
+        direct_term = float(
+            coefficients[coefficient_index]
+        )
+        coefficient_index += 1
     else:
         direct_term = 0.0
+
+    if fit_proportional_term:
+        proportional_term = float(
+            coefficients[coefficient_index]
+        )
+    else:
+        proportional_term = 0.0
 
     full_poles = np.concatenate(
         [
@@ -635,7 +680,11 @@ def fit_residues(
     )
     fitted_impedance = (
         impedance_plane_factor(plane)
-        * direct_term
+        * (
+            direct_term
+            + proportional_term
+            * (2j * np.pi * frequencies)
+        )
         + full_basis @ full_residues
     )
 
@@ -659,6 +708,7 @@ def fit_residues(
         squared_error=squared_error,
         weighted_squared_error=weighted_squared_error,
         rank=int(rank),
+        proportional_term=proportional_term,
     )
 
 
@@ -671,6 +721,7 @@ def evaluate_residue_parameters(
     wake_length: float | None = None,
     weights: ArrayLike | None = None,
     direct_term: float = 0.0,
+    proportional_term: float = 0.0,
     enforce_zero_dc: bool = False,
     plane: str = "longitudinal",
 ) -> ResidueFitResult:
@@ -740,7 +791,12 @@ def evaluate_residue_parameters(
     )
 
     fitted_impedance = (
-        impedance_plane_factor(plane) * direct_term
+        impedance_plane_factor(plane)
+        * (
+            direct_term
+            + proportional_term
+            * (2j * np.pi * frequencies)
+        )
         + full_basis @ full_residues
     )
 
@@ -762,6 +818,7 @@ def evaluate_residue_parameters(
         squared_error=squared_error,
         weighted_squared_error=weighted_squared_error,
         rank=-1,
+        proportional_term=float(proportional_term),
     )
 
 
@@ -774,6 +831,7 @@ def pole_residue_objective(
     wake_length: float | None = None,
     weights: ArrayLike | None = None,
     fit_direct_term: bool = False,
+    fit_proportional_term: bool = False,
     enforce_zero_dc: bool = False,
     direct_term_bounds: tuple[float, float] | None = None,
     plane: str = "longitudinal",
@@ -804,8 +862,17 @@ def pole_residue_objective(
 
     if fit_direct_term and not enforce_zero_dc:
         direct_term = float(parameters[residue_stop])
+        coefficient_index = residue_stop + 1
     else:
         direct_term = 0.0
+        coefficient_index = residue_stop
+
+    if fit_proportional_term:
+        proportional_term = float(
+            parameters[coefficient_index]
+        )
+    else:
+        proportional_term = 0.0
 
     real_poles, complex_poles = decode_log_poles(
         pole_parameters,
@@ -823,6 +890,7 @@ def pole_residue_objective(
             wake_length=wake_length,
             weights=weights,
             direct_term=direct_term,
+            proportional_term=proportional_term,
             enforce_zero_dc=enforce_zero_dc,
             plane=plane,
         )
@@ -873,6 +941,7 @@ def pole_objective(
     wake_length: float | None = None,
     weights: ArrayLike | None = None,
     fit_direct_term: bool = False,
+    fit_proportional_term: bool = False,
     enforce_zero_dc: bool = False,
     plane: str = "longitudinal",
 ) -> float:
@@ -896,6 +965,7 @@ def pole_objective(
             wake_length=wake_length,
             weights=weights,
             fit_direct_term=fit_direct_term,
+            fit_proportional_term=fit_proportional_term,
             enforce_zero_dc=enforce_zero_dc,
             plane=plane,
         )
@@ -948,11 +1018,13 @@ def fit_poles_evolutionary(
     frequency_weighting: str = "samples",
     magnitude_floor: float | None = None,
     fit_direct_term: bool = False,
+    fit_proportional_term: bool = False,
     enforce_zero_dc: bool = False,
     plane: str = "longitudinal",
     residue_solver: str = "least_squares",
     residue_bounds: list[tuple[float, float]] | None = None,
     direct_term_bounds: tuple[float, float] | None = None,
+    proportional_term_bounds: tuple[float, float] | None = None,
 ) -> PoleOptimizationResult:
     """Fit a pole-residue model using Differential Evolution.
 
@@ -996,6 +1068,9 @@ def fit_poles_evolutionary(
         by Differential Evolution. With ``enforce_zero_dc=True``, the direct
         term is instead computed from the residues and these bounds are only
         used as an admissibility constraint when supplied.
+    proportional_term_bounds
+        Bounds for the proportional term. Required when it is fitted
+        by Differential Evolution.
     """
     frequencies = np.atleast_1d(
         np.asarray(frequencies, dtype=float)
@@ -1041,6 +1116,7 @@ def fit_poles_evolutionary(
             wake_length=wake_length,
             weights=weights,
             fit_direct_term=fit_direct_term,
+            fit_proportional_term=fit_proportional_term,
             enforce_zero_dc=enforce_zero_dc,
             plane=plane,
         )
@@ -1090,6 +1166,17 @@ def fit_poles_evolutionary(
                 direct_term_bounds
             )
 
+        if fit_proportional_term:
+            if proportional_term_bounds is None:
+                raise ValueError(
+                    "proportional_term_bounds are required when the "
+                    "proportional term is optimized by Differential Evolution"
+                )
+
+            optimization_bounds.append(
+                proportional_term_bounds
+            )
+
         objective_function = partial(
             pole_residue_objective,
             frequencies=frequencies,
@@ -1099,6 +1186,7 @@ def fit_poles_evolutionary(
             wake_length=wake_length,
             weights=weights,
             fit_direct_term=fit_direct_term,
+            fit_proportional_term=fit_proportional_term,
             enforce_zero_dc=enforce_zero_dc,
             direct_term_bounds=direct_term_bounds,
             plane=plane,
@@ -1147,6 +1235,7 @@ def fit_poles_evolutionary(
             wake_length=wake_length,
             weights=weights,
             fit_direct_term=fit_direct_term,
+            fit_proportional_term=fit_proportional_term,
             enforce_zero_dc=enforce_zero_dc,
             plane=plane,
         )
@@ -1164,8 +1253,17 @@ def fit_poles_evolutionary(
             direct_term = float(
                 optimization.x[residue_stop]
             )
+            coefficient_index = residue_stop + 1
         else:
             direct_term = 0.0
+            coefficient_index = residue_stop
+
+        if fit_proportional_term:
+            proportional_term = float(
+                optimization.x[coefficient_index]
+            )
+        else:
+            proportional_term = 0.0
 
         residue_fit = evaluate_residue_parameters(
             frequencies=frequencies,
@@ -1178,6 +1276,7 @@ def fit_poles_evolutionary(
             wake_length=wake_length,
             weights=weights,
             direct_term=direct_term,
+            proportional_term=proportional_term,
             enforce_zero_dc=enforce_zero_dc,
             plane=plane,
         )
