@@ -24,7 +24,6 @@ from iddefix.poleResidueFitting import (
 )
 from iddefix.resonatorFormulas import Impedances
 
-
 # ---------------------------------------------------------------------------
 # User settings
 # ---------------------------------------------------------------------------
@@ -63,9 +62,7 @@ def longitudinal_lossy_wall_impedance(
     mu_0 = 4.0e-7 * np.pi
     s = 2j * np.pi * frequencies
     coefficient = (
-        pipe_length
-        / (2.0 * np.pi * pipe_radius)
-        * np.sqrt(mu_0 / conductivity)
+        pipe_length / (2.0 * np.pi * pipe_radius) * np.sqrt(mu_0 / conductivity)
     )
     return coefficient * np.sqrt(s)
 
@@ -83,10 +80,7 @@ def build_real_pole_bounds(
         np.log10(maximum_rate),
         number_poles + 1,
     )
-    return [
-        (edges[index], edges[index + 1])
-        for index in range(number_poles)
-    ]
+    return [(edges[index], edges[index + 1]) for index in range(number_poles)]
 
 
 def build_real_residue_bounds(pole_bounds, maximum_impedance):
@@ -324,10 +318,7 @@ def main():
     }
 
     results = {
-        method_key: {
-            population: []
-            for population in ACTUAL_POPULATION_SIZES
-        }
+        method_key: {population: [] for population in ACTUAL_POPULATION_SIZES}
         for method_key in methods
     }
 
@@ -358,18 +349,10 @@ def main():
                     f"nfev={run['nfev']}"
                 )
 
-            errors = [
-                run["error"]
-                for run in results[method_key][population_size]
-            ]
-            runtimes = [
-                run["runtime"]
-                for run in results[method_key][population_size]
-            ]
+            errors = [run["error"] for run in results[method_key][population_size]]
+            runtimes = [run["runtime"] for run in results[method_key][population_size]]
             error_median, error_q25, error_q75 = percentile_summary(errors)
-            runtime_median, runtime_q25, runtime_q75 = percentile_summary(
-                runtimes
-            )
+            runtime_median, runtime_q25, runtime_q75 = percentile_summary(runtimes)
             print(
                 f"    error median [Q25, Q75]: {error_median:.6e} "
                 f"[{error_q25:.6e}, {error_q75:.6e}]"

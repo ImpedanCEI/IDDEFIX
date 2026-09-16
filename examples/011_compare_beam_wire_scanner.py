@@ -21,7 +21,6 @@ from iddefix.poleResidueFitting import (
 )
 from iddefix.poleResidueFormulas import PoleResidue
 
-
 USE_REDUCED_FREQUENCY_GRID = True
 
 NUMBER_BACKGROUND_SAMPLES = 100
@@ -85,14 +84,7 @@ def weighted_complex_error(
         frequency_weighting="linear",
     )
 
-    return float(
-        np.sum(
-            np.abs(
-                weights
-                * (fitted - y)
-            ) ** 2
-        )
-    )
+    return float(np.sum(np.abs(weights * (fitted - y)) ** 2))
 
 
 def smart_bounds_to_complex_pole_bounds(
@@ -154,21 +146,9 @@ def smart_bounds_to_complex_pole_bounds(
         alpha_min = omega_min / (2.0 * q_max)
         alpha_max = omega_max / (2.0 * q_min)
 
-        beta_min = (
-            omega_min
-            * np.sqrt(
-                1.0
-                - 1.0 / (4.0 * q_min**2)
-            )
-        )
+        beta_min = omega_min * np.sqrt(1.0 - 1.0 / (4.0 * q_min**2))
 
-        beta_max = (
-            omega_max
-            * np.sqrt(
-                1.0
-                - 1.0 / (4.0 * q_max**2)
-            )
-        )
+        beta_max = omega_max * np.sqrt(1.0 - 1.0 / (4.0 * q_max**2))
 
         decay_bounds.append(
             (
@@ -204,19 +184,9 @@ def real_pole_bounds(
     if number_real_poles == 0:
         return []
 
-    minimum_rate = (
-        2.0
-        * np.pi
-        * np.min(frequencies)
-        / 100.0
-    )
+    minimum_rate = 2.0 * np.pi * np.min(frequencies) / 100.0
 
-    maximum_rate = (
-        2.0
-        * np.pi
-        * np.max(frequencies)
-        * 100.0
-    )
+    maximum_rate = 2.0 * np.pi * np.max(frequencies) * 100.0
 
     logarithmic_edges = np.linspace(
         np.log10(minimum_rate),
@@ -237,17 +207,11 @@ def pointwise_relative_error(
     target,
 ):
     """Calculate a safely normalized pointwise complex error."""
-    magnitude_floor = (
-        np.max(np.abs(target))
-        * 1.0e-12
-    )
+    magnitude_floor = np.max(np.abs(target)) * 1.0e-12
 
-    return (
-        np.abs(fitted - target)
-        / np.maximum(
-            np.abs(target),
-            magnitude_floor,
-        )
+    return np.abs(fitted - target) / np.maximum(
+        np.abs(target),
+        magnitude_floor,
     )
 
 
@@ -271,42 +235,22 @@ def print_metrics(
         target,
     )
 
-    normalized_l2_error = (
-        np.linalg.norm(fitted - target)
-        / np.linalg.norm(target)
-    )
+    normalized_l2_error = np.linalg.norm(fitted - target) / np.linalg.norm(target)
 
-    weighted_normalized_l2_error = (
-        np.linalg.norm(
-            weights * (fitted - target)
-        )
-        / np.linalg.norm(
-            weights * target
-        )
-    )
+    weighted_normalized_l2_error = np.linalg.norm(
+        weights * (fitted - target)
+    ) / np.linalg.norm(weights * target)
 
     print(name)
     print(f"  runtime: {runtime:.2f} s")
 
-    print(
-        "  normalized L2 error: "
-        f"{normalized_l2_error:.6e}"
-    )
+    print(f"  normalized L2 error: {normalized_l2_error:.6e}")
 
-    print(
-        "  weighted normalized L2 error: "
-        f"{weighted_normalized_l2_error:.6e}"
-    )
+    print(f"  weighted normalized L2 error: {weighted_normalized_l2_error:.6e}")
 
-    print(
-        "  RMS relative error: "
-        f"{np.sqrt(np.mean(relative_error**2)):.6e}"
-    )
+    print(f"  RMS relative error: {np.sqrt(np.mean(relative_error**2)):.6e}")
 
-    print(
-        "  maximum relative error: "
-        f"{np.max(relative_error):.6e}"
-    )
+    print(f"  maximum relative error: {np.max(relative_error):.6e}")
 
     print()
 
@@ -424,21 +368,13 @@ def plot_comparison(
             label=label,
         )
 
-    axes[0].set_ylabel(
-        "Real(Z) [Ohm]"
-    )
+    axes[0].set_ylabel("Real(Z) [Ohm]")
 
-    axes[1].set_ylabel(
-        "Imag(Z) [Ohm]"
-    )
+    axes[1].set_ylabel("Imag(Z) [Ohm]")
 
-    axes[2].set_ylabel(
-        "Pointwise relative error"
-    )
+    axes[2].set_ylabel("Pointwise relative error")
 
-    axes[2].set_xlabel(
-        "Frequency [Hz]"
-    )
+    axes[2].set_xlabel("Frequency [Hz]")
 
     for axis in axes:
         axis.grid(
@@ -447,14 +383,12 @@ def plot_comparison(
         )
         axis.legend()
 
-    figure.suptitle(
-        "SmartBounds BWS comparison: "
-        f"{scale_name} frequency axis"
-    )
+    figure.suptitle(f"SmartBounds BWS comparison: {scale_name} frequency axis")
 
     figure.tight_layout()
 
     return figure
+
 
 def select_fit_indices(
     frequencies,
@@ -481,44 +415,19 @@ def select_fit_indices(
         dtype=int,
     )
 
-    selected_indices = [
-        background_indices
-    ]
+    selected_indices = [background_indices]
 
-    for resonance_index, peak_index in enumerate(
-        smart_bounds.peaks
-    ):
-        peak_frequency = frequencies[
-            peak_index
-        ]
+    for resonance_index, peak_index in enumerate(smart_bounds.peaks):
+        peak_frequency = frequencies[peak_index]
 
-        resonance_width = (
-            smart_bounds.upper_lower_bounds[
-                resonance_index
-            ]
-        )
+        resonance_width = smart_bounds.upper_lower_bounds[resonance_index]
 
-        lower_frequency = (
-            peak_frequency
-            - resonance_window_factor
-            * resonance_width
-        )
+        lower_frequency = peak_frequency - resonance_window_factor * resonance_width
 
-        upper_frequency = (
-            peak_frequency
-            + resonance_window_factor
-            * resonance_width
-        )
+        upper_frequency = peak_frequency + resonance_window_factor * resonance_width
 
         indices_inside_window = np.where(
-            (
-                frequencies
-                >= lower_frequency
-            )
-            & (
-                frequencies
-                <= upper_frequency
-            )
+            (frequencies >= lower_frequency) & (frequencies <= upper_frequency)
         )[0]
 
         if indices_inside_window.size == 0:
@@ -527,10 +436,7 @@ def select_fit_indices(
                 dtype=int,
             )
 
-        if (
-            indices_inside_window.size
-            > number_samples_per_resonance
-        ):
+        if indices_inside_window.size > number_samples_per_resonance:
             local_selection = np.linspace(
                 0,
                 indices_inside_window.size - 1,
@@ -538,15 +444,9 @@ def select_fit_indices(
                 dtype=int,
             )
 
-            indices_inside_window = (
-                indices_inside_window[
-                    local_selection
-                ]
-            )
+            indices_inside_window = indices_inside_window[local_selection]
 
-        selected_indices.append(
-            indices_inside_window
-        )
+        selected_indices.append(indices_inside_window)
 
         # Ensure that the detected peak itself is included.
         selected_indices.append(
@@ -556,23 +456,13 @@ def select_fit_indices(
             )
         )
 
-    return np.unique(
-        np.concatenate(
-            selected_indices
-        )
-    )
+    return np.unique(np.concatenate(selected_indices))
 
 
 def main():
-    data_path = (
-        Path(__file__).resolve().parent
-        / "data"
-        / "003_beam_wire_scanner.txt"
-    )
+    data_path = Path(__file__).resolve().parent / "data" / "003_beam_wire_scanner.txt"
 
-    frequencies, impedance = load_impedance(
-        data_path
-    )
+    frequencies, impedance = load_impedance(data_path)
 
     # -------------------------------------------------
     # Determine the same SmartBounds for all fits
@@ -584,55 +474,32 @@ def main():
         minimum_peak_height=MINIMUM_PEAK_HEIGHT,
     )
 
-    resonator_parameter_bounds = (
-        smart_bounds.parameterBounds
-    )
+    resonator_parameter_bounds = smart_bounds.parameterBounds
 
-    number_complex_pairs = int(
-        smart_bounds.N_resonators
-    )
+    number_complex_pairs = int(smart_bounds.N_resonators)
 
-    print(
-        "SmartBounds detected "
-        f"{number_complex_pairs} resonances."
-    )
+    print(f"SmartBounds detected {number_complex_pairs} resonances.")
 
-    print(
-        "Detected peak frequencies [Hz]:"
-    )
+    print("Detected peak frequencies [Hz]:")
 
-    print(
-        frequencies[smart_bounds.peaks]
-    )
+    print(frequencies[smart_bounds.peaks])
 
     smart_bounds.to_table()
 
     if USE_REDUCED_FREQUENCY_GRID:
         fit_indices = select_fit_indices(
-        frequencies=frequencies,
-        smart_bounds=smart_bounds,
-        number_background_samples=(
-            NUMBER_BACKGROUND_SAMPLES
-        ),
-        number_samples_per_resonance=(
-            NUMBER_SAMPLES_PER_RESONANCE
-        ),
-        resonance_window_factor=(
-            RESONANCE_WINDOW_FACTOR
-        ),
-    )
-    else:
-        fit_indices = np.arange(
-            frequencies.size
+            frequencies=frequencies,
+            smart_bounds=smart_bounds,
+            number_background_samples=(NUMBER_BACKGROUND_SAMPLES),
+            number_samples_per_resonance=(NUMBER_SAMPLES_PER_RESONANCE),
+            resonance_window_factor=(RESONANCE_WINDOW_FACTOR),
         )
+    else:
+        fit_indices = np.arange(frequencies.size)
 
-    fit_frequencies = frequencies[
-        fit_indices
-    ]
+    fit_frequencies = frequencies[fit_indices]
 
-    fit_impedance = impedance[
-        fit_indices
-    ]
+    fit_impedance = impedance[fit_indices]
 
     print(
         "Frequency samples used for fitting: "
@@ -650,19 +517,13 @@ def main():
 
     np.random.seed(RANDOM_SEED)
 
-    complex_resonator_model = (
-        iddefix.EvolutionaryAlgorithm(
-            x_data=fit_frequencies,
-            y_data=fit_impedance,
-            N_resonators=number_complex_pairs,
-            parameterBounds=(
-                resonator_parameter_bounds
-            ),
-            plane="longitudinal",
-            objectiveFunction=(
-                weighted_complex_error
-            ),
-        )
+    complex_resonator_model = iddefix.EvolutionaryAlgorithm(
+        x_data=fit_frequencies,
+        y_data=fit_impedance,
+        N_resonators=number_complex_pairs,
+        parameterBounds=(resonator_parameter_bounds),
+        plane="longitudinal",
+        objectiveFunction=(weighted_complex_error),
     )
 
     start_time = perf_counter()
@@ -677,31 +538,21 @@ def main():
     )
 
     if LEGACY_LOCAL_MINIMIZATION:
-        complex_resonator_model.run_minimization_algorithm(
-            margin=0.5
-        )
+        complex_resonator_model.run_minimization_algorithm(margin=0.5)
 
-    runtimes["Legacy resonators"] = (
-        perf_counter() - start_time
-    )
+    runtimes["Legacy resonators"] = perf_counter() - start_time
 
-    fits["Legacy resonators"] = (
-        complex_resonator_model.get_impedance(
-            frequency_data=frequencies,
-            use_minimization=(
-                LEGACY_LOCAL_MINIMIZATION
-            ),
-        )
+    fits["Legacy resonators"] = complex_resonator_model.get_impedance(
+        frequency_data=frequencies,
+        use_minimization=(LEGACY_LOCAL_MINIMIZATION),
     )
 
     # -------------------------------------------------
     # Convert SmartBounds to complex-pole bounds
     # -------------------------------------------------
 
-    complex_pole_bounds = (
-        smart_bounds_to_complex_pole_bounds(
-            resonator_parameter_bounds
-        )
+    complex_pole_bounds = smart_bounds_to_complex_pole_bounds(
+        resonator_parameter_bounds
     )
 
     pole_results = {}
@@ -711,10 +562,7 @@ def main():
     # -------------------------------------------------
 
     for number_real_poles in REAL_POLE_COUNTS:
-        label = (
-            "Pole-residue: "
-            f"+{number_real_poles} real poles"
-        )
+        label = f"Pole-residue: +{number_real_poles} real poles"
 
         print(
             f"Fitting {number_complex_pairs} "
@@ -730,13 +578,8 @@ def main():
             + complex_pole_bounds
         )
 
-        legacy_dimension = (
-            3 * number_complex_pairs
-        )
-        pole_residue_dimension = (
-            number_real_poles
-            + 2 * number_complex_pairs
-        )
+        legacy_dimension = 3 * number_complex_pairs
+        pole_residue_dimension = number_real_poles + 2 * number_complex_pairs
 
         print(
             "  approximate SciPy populations: "
@@ -750,25 +593,13 @@ def main():
         result = fit_poles_evolutionary(
             frequencies=fit_frequencies,
             impedance=fit_impedance,
-            number_real_poles=(
-                number_real_poles
-            ),
-            number_complex_pairs=(
-                number_complex_pairs
-            ),
-            parameter_bounds=(
-                parameter_bounds
-            ),
-            fit_direct_term=(
-                number_real_poles > 0
-            ),
+            number_real_poles=(number_real_poles),
+            number_complex_pairs=(number_complex_pairs),
+            parameter_bounds=(parameter_bounds),
+            fit_direct_term=(number_real_poles > 0),
             enforce_zero_dc=True,
-            amplitude_weighting=(
-                "sqrt_relative"
-            ),
-            frequency_weighting=(
-                "linear"
-            ),
+            amplitude_weighting=("sqrt_relative"),
+            frequency_weighting=("linear"),
             residue_solver="least_squares",
             maxiter=POLE_RESIDUE_MAXITER,
             popsize=POLE_RESIDUE_POPSIZE,
@@ -776,30 +607,19 @@ def main():
             crossover_rate=CROSSOVER_RATE,
             tol=TOLERANCE,
             polish=POLE_RESIDUE_POLISH,
-            seed=(
-                RANDOM_SEED
-                + number_real_poles
-            ),
+            seed=(RANDOM_SEED + number_real_poles),
             workers=1,
         )
 
-        runtimes[label] = (
-            perf_counter() - start_time
-        )
+        runtimes[label] = perf_counter() - start_time
 
-        pole_results[
-            number_real_poles
-        ] = result
+        pole_results[number_real_poles] = result
 
         fits[label] = PoleResidue.impedance(
             frequencies=frequencies,
             poles=result.residue_fit.poles,
-            residues=(
-                result.residue_fit.residues
-            ),
-            direct_term=(
-                result.residue_fit.direct_term
-            ),
+            residues=(result.residue_fit.residues),
+            direct_term=(result.residue_fit.direct_term),
         )
 
     # -------------------------------------------------
@@ -818,28 +638,15 @@ def main():
         )
 
         if label.startswith("Pole-residue"):
-            number_real_poles = int(
-                label.split("+")[1].split()[0]
-            )
+            number_real_poles = int(label.split("+")[1].split()[0])
 
-            result = pole_results[
-                number_real_poles
-            ]
+            result = pole_results[number_real_poles]
 
-            print(
-                "  real poles: "
-                f"{result.real_poles}"
-            )
+            print(f"  real poles: {result.real_poles}")
 
-            print(
-                "  complex poles: "
-                f"{result.complex_poles}"
-            )
+            print(f"  complex poles: {result.complex_poles}")
 
-            print(
-                "  direct term: "
-                f"{result.residue_fit.direct_term:.6e}"
-            )
+            print(f"  direct term: {result.residue_fit.direct_term:.6e}")
 
             print()
 

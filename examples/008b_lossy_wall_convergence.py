@@ -24,7 +24,6 @@ from iddefix.poleResidueFitting import (
 )
 from iddefix.resonatorFormulas import Impedances
 
-
 # ---------------------------------------------------------------------------
 # User settings
 # ---------------------------------------------------------------------------
@@ -64,9 +63,7 @@ def longitudinal_lossy_wall_impedance(
     mu_0 = 4.0e-7 * np.pi
     s = 2j * np.pi * frequencies
     coefficient = (
-        pipe_length
-        / (2.0 * np.pi * pipe_radius)
-        * np.sqrt(mu_0 / conductivity)
+        pipe_length / (2.0 * np.pi * pipe_radius) * np.sqrt(mu_0 / conductivity)
     )
     return coefficient * np.sqrt(s)
 
@@ -84,10 +81,7 @@ def build_real_pole_bounds(
         np.log10(maximum_rate),
         number_poles + 1,
     )
-    return [
-        (edges[index], edges[index + 1])
-        for index in range(number_poles)
-    ]
+    return [(edges[index], edges[index + 1]) for index in range(number_poles)]
 
 
 def build_real_residue_bounds(pole_bounds, maximum_impedance):
@@ -159,8 +153,7 @@ def run_de(objective, bounds, seed):
 
     if ACTUAL_POPULATION_SIZE % dimension != 0:
         raise ValueError(
-            "ACTUAL_POPULATION_SIZE must be divisible by every "
-            "optimization dimension"
+            "ACTUAL_POPULATION_SIZE must be divisible by every optimization dimension"
         )
 
     scipy_popsize = ACTUAL_POPULATION_SIZE // dimension
@@ -213,9 +206,7 @@ def pad_history(values):
 
 def plot_median_band(axis, x, histories, color, label):
     """Plot median and interquartile range over the random seeds."""
-    matrix = np.vstack(
-        [pad_history(history["objective"]) for history in histories]
-    )
+    matrix = np.vstack([pad_history(history["objective"]) for history in histories])
     median = np.nanmedian(matrix, axis=0)
     lower = np.nanpercentile(matrix, 25.0, axis=0)
     upper = np.nanpercentile(matrix, 75.0, axis=0)
@@ -322,10 +313,7 @@ def main():
         dimension = len(method["bounds"])
         print("\n" + method["label"])
         print(f"  optimization dimension: {dimension}")
-        print(
-            "  scipy popsize multiplier: "
-            f"{ACTUAL_POPULATION_SIZE // dimension}"
-        )
+        print(f"  scipy popsize multiplier: {ACTUAL_POPULATION_SIZE // dimension}")
 
         for seed in SEEDS:
             _, history = run_de(
@@ -343,16 +331,12 @@ def main():
         final_errors = np.array(
             [h["final_objective"] for h in all_histories[method_key]]
         )
-        runtimes = np.array(
-            [h["runtime"] for h in all_histories[method_key]]
-        )
+        runtimes = np.array([h["runtime"] for h in all_histories[method_key]])
         print(f"  median error: {np.median(final_errors):.6e}")
         print(f"  median runtime: {np.median(runtimes):.2f} s")
 
     generations = np.arange(1, MAXIMUM_GENERATIONS + 1)
-    approximate_evaluations = (
-        generations + 1
-    ) * ACTUAL_POPULATION_SIZE
+    approximate_evaluations = (generations + 1) * ACTUAL_POPULATION_SIZE
 
     figure, axes = plt.subplots(
         1,

@@ -10,7 +10,6 @@ import iddefix
 from iddefix.poleResidueFitting import fit_poles_evolutionary
 from iddefix.poleResidueFormulas import PoleResidue
 
-
 NUMBER_RESONATORS = 2
 NUMBER_COMPLEX_PAIRS = 2
 WAKE_LENGTH = 25.4  # metres
@@ -74,10 +73,7 @@ def pole_bounds():
 
 def normalized_l2_error(predicted, target):
     """Return ||predicted-target||_2 / ||target||_2."""
-    return float(
-        np.linalg.norm(predicted - target)
-        / np.linalg.norm(target)
-    )
+    return float(np.linalg.norm(predicted - target) / np.linalg.norm(target))
 
 
 def pointwise_relative_error(predicted, target):
@@ -108,8 +104,7 @@ def print_metrics(name, finite_fit, partial_data, full_fit, full_data, runtime):
         f"{normalized_l2_error(finite_fit, partial_data):.6e}"
     )
     print(
-        "  finite RMS relative error: "
-        f"{np.sqrt(np.mean(finite_relative_error**2)):.6e}"
+        f"  finite RMS relative error: {np.sqrt(np.mean(finite_relative_error**2)):.6e}"
     )
     print(
         "  extrapolation normalized L2 error: "
@@ -126,12 +121,10 @@ def main():
     data_directory = Path(__file__).resolve().parent / "data"
 
     partial_frequency, partial_impedance = load_impedance(
-        data_directory
-        / "002_impedance_acceleratorCavity_partially_decayed.txt"
+        data_directory / "002_impedance_acceleratorCavity_partially_decayed.txt"
     )
     full_frequency, full_impedance = load_impedance(
-        data_directory
-        / "002_impedance_acceleratorCavity_fully_decayed.txt"
+        data_directory / "002_impedance_acceleratorCavity_fully_decayed.txt"
     )
 
     if not np.allclose(partial_frequency, full_frequency):

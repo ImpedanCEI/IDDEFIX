@@ -3,10 +3,10 @@
 import numpy as np
 import numpy.typing as npt
 
-
 ArrayLike = npt.ArrayLike
 
 SPEED_OF_LIGHT = 299_792_458.0
+
 
 def impedance_plane_factor(
     plane: str,
@@ -20,9 +20,7 @@ def impedance_plane_factor(
     if normalized_plane == "transverse":
         return 1.0j
 
-    raise ValueError(
-        "plane must be 'longitudinal' or 'transverse'"
-    )
+    raise ValueError("plane must be 'longitudinal' or 'transverse'")
 
 
 class PoleResidue:
@@ -60,9 +58,7 @@ class PoleResidue:
         )
 
         if poles.size != residues.size:
-            raise ValueError(
-                "poles and residues must have the same length"
-            )
+            raise ValueError("poles and residues must have the same length")
 
         s = 2j * np.pi * frequencies
 
@@ -70,19 +66,12 @@ class PoleResidue:
             direct_term
             + proportional_term * s
             + np.sum(
-                residues[None, :]
-                / (
-                    s[:, None]
-                    - poles[None, :]
-                ),
+                residues[None, :] / (s[:, None] - poles[None, :]),
                 axis=1,
             )
         )
 
-        return (
-            impedance_plane_factor(plane)
-            * transfer_function
-        )
+        return impedance_plane_factor(plane) * transfer_function
 
     @staticmethod
     def finite_wake_impedance(
@@ -117,48 +106,29 @@ class PoleResidue:
         )
 
         if poles.size != residues.size:
-            raise ValueError(
-                "poles and residues must have the same length"
-            )
+            raise ValueError("poles and residues must have the same length")
 
         if wake_length < 0.0:
-            raise ValueError(
-                "wake_length must be non-negative"
-            )
+            raise ValueError("wake_length must be non-negative")
 
         s = 2j * np.pi * frequencies
         duration = wake_length / SPEED_OF_LIGHT
 
-        denominator = (
-            s[:, None]
-            - poles[None, :]
-        )
+        denominator = s[:, None] - poles[None, :]
 
-        basis = (
-            -np.expm1(
-                -denominator * duration
-            )
-            / denominator
-        )
+        basis = -np.expm1(-denominator * duration) / denominator
 
         transfer_function = (
             direct_term
             + proportional_term * s
             + np.sum(
-                residues[None, :]
-                * basis,
+                residues[None, :] * basis,
                 axis=1,
             )
         )
 
-        return (
-            impedance_plane_factor(plane)
-            * transfer_function
-        )
+        return impedance_plane_factor(plane) * transfer_function
 
-
-
-    
     @staticmethod
     def wake(
         times: ArrayLike,
@@ -177,8 +147,7 @@ class PoleResidue:
             raise ValueError("poles and residues must have the same length")
 
         wake = np.sum(
-            residues[None, :]
-            * np.exp(times[:, None] * poles[None, :]),
+            residues[None, :] * np.exp(times[:, None] * poles[None, :]),
             axis=1,
         )
 

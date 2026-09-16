@@ -14,7 +14,6 @@ from iddefix.poleResidueFitting import (
 )
 from iddefix.poleResidueFormulas import PoleResidue
 
-
 REAL_POLE_COUNTS = (0, 1)
 
 BACKGROUND_SAMPLES = 50
@@ -53,13 +52,7 @@ def weighted_complex_error(
         frequency_weighting="linear",
     )
 
-    return float(
-        np.sum(
-            np.abs(
-                weights * (fitted - y)
-            ) ** 2
-        )
-    )
+    return float(np.sum(np.abs(weights * (fitted - y)) ** 2))
 
 
 def smart_bounds_to_complex_pole_bounds(
@@ -74,13 +67,9 @@ def smart_bounds_to_complex_pole_bounds(
         len(parameter_bounds),
         3,
     ):
-        q_min, q_max = (
-            parameter_bounds[index + 1]
-        )
+        q_min, q_max = parameter_bounds[index + 1]
 
-        f_min, f_max = (
-            parameter_bounds[index + 2]
-        )
+        f_min, f_max = parameter_bounds[index + 2]
 
         q_min = max(
             q_min,
@@ -105,31 +94,13 @@ def smart_bounds_to_complex_pole_bounds(
         omega_min = 2.0 * np.pi * f_min
         omega_max = 2.0 * np.pi * f_max
 
-        alpha_min = (
-            omega_min
-            / (2.0 * q_max)
-        )
+        alpha_min = omega_min / (2.0 * q_max)
 
-        alpha_max = (
-            omega_max
-            / (2.0 * q_min)
-        )
+        alpha_max = omega_max / (2.0 * q_min)
 
-        beta_min = (
-            omega_min
-            * np.sqrt(
-                1.0
-                - 1.0 / (4.0 * q_min**2)
-            )
-        )
+        beta_min = omega_min * np.sqrt(1.0 - 1.0 / (4.0 * q_min**2))
 
-        beta_max = (
-            omega_max
-            * np.sqrt(
-                1.0
-                - 1.0 / (4.0 * q_max**2)
-            )
-        )
+        beta_max = omega_max * np.sqrt(1.0 - 1.0 / (4.0 * q_max**2))
 
         decay_bounds.append(
             (
@@ -145,10 +116,7 @@ def smart_bounds_to_complex_pole_bounds(
             )
         )
 
-    return (
-        decay_bounds
-        + frequency_bounds
-    )
+    return decay_bounds + frequency_bounds
 
 
 def real_pole_bounds(
@@ -160,19 +128,9 @@ def real_pole_bounds(
         return []
 
     # frequencies[0] is zero.
-    minimum_rate = (
-        2.0
-        * np.pi
-        * frequencies[1]
-        / 100.0
-    )
+    minimum_rate = 2.0 * np.pi * frequencies[1] / 100.0
 
-    maximum_rate = (
-        2.0
-        * np.pi
-        * frequencies[-1]
-        * 100.0
-    )
+    maximum_rate = 2.0 * np.pi * frequencies[-1] * 100.0
 
     edges = np.linspace(
         np.log10(minimum_rate),
@@ -203,35 +161,18 @@ def select_fit_indices(
         dtype=int,
     )
 
-    selected_indices = [
-        background_indices
-    ]
+    selected_indices = [background_indices]
 
-    for resonance_index, peak_index in enumerate(
-        smart_bounds.peaks
-    ):
-        peak_frequency = frequencies[
-            peak_index
-        ]
+    for resonance_index, peak_index in enumerate(smart_bounds.peaks):
+        peak_frequency = frequencies[peak_index]
 
-        resonance_width = (
-            smart_bounds.upper_lower_bounds[
-                resonance_index
-            ]
-        )
+        resonance_width = smart_bounds.upper_lower_bounds[resonance_index]
 
         inside_window = np.flatnonzero(
-            np.abs(
-                frequencies
-                - peak_frequency
-            )
-            <= 2.0 * resonance_width
+            np.abs(frequencies - peak_frequency) <= 2.0 * resonance_width
         )
 
-        if (
-            inside_window.size
-            > SAMPLES_PER_RESONANCE
-        ):
+        if inside_window.size > SAMPLES_PER_RESONANCE:
             local_indices = np.linspace(
                 0,
                 inside_window.size - 1,
@@ -239,15 +180,9 @@ def select_fit_indices(
                 dtype=int,
             )
 
-            inside_window = (
-                inside_window[
-                    local_indices
-                ]
-            )
+            inside_window = inside_window[local_indices]
 
-        selected_indices.append(
-            inside_window
-        )
+        selected_indices.append(inside_window)
 
         # Always include the exact detected peak.
         selected_indices.append(
@@ -257,11 +192,7 @@ def select_fit_indices(
             )
         )
 
-    return np.unique(
-        np.concatenate(
-            selected_indices
-        )
-    )
+    return np.unique(np.concatenate(selected_indices))
 
 
 def relative_error(
@@ -269,17 +200,11 @@ def relative_error(
     target,
 ):
     """Calculate pointwise relative complex error."""
-    magnitude_floor = (
-        np.max(np.abs(target))
-        * 1.0e-12
-    )
+    magnitude_floor = np.max(np.abs(target)) * 1.0e-12
 
-    return (
-        np.abs(fitted - target)
-        / np.maximum(
-            np.abs(target),
-            magnitude_floor,
-        )
+    return np.abs(fitted - target) / np.maximum(
+        np.abs(target),
+        magnitude_floor,
     )
 
 
@@ -295,39 +220,23 @@ def print_metrics(
         target,
     )
 
-    normalized_l2_error = (
-        np.linalg.norm(
-            fitted - target
-        )
-        / np.linalg.norm(target)
-    )
+    normalized_l2_error = np.linalg.norm(fitted - target) / np.linalg.norm(target)
 
     print(name)
     print(f"  runtime: {runtime:.2f} s")
 
-    print(
-        "  normalized L2 error: "
-        f"{normalized_l2_error:.6e}"
-    )
+    print(f"  normalized L2 error: {normalized_l2_error:.6e}")
 
-    print(
-        "  RMS relative error: "
-        f"{np.sqrt(np.mean(error**2)):.6e}"
-    )
+    print(f"  RMS relative error: {np.sqrt(np.mean(error**2)):.6e}")
 
-    print(
-        "  maximum relative error: "
-        f"{np.max(error):.6e}"
-    )
+    print(f"  maximum relative error: {np.max(error):.6e}")
 
     print()
 
 
 def main():
     data_path = (
-        Path(__file__).resolve().parent
-        / "data"
-        / "004_SPS_model_transitions_q26.txt"
+        Path(__file__).resolve().parent / "data" / "004_SPS_model_transitions_q26.txt"
     )
 
     data = np.loadtxt(
@@ -336,30 +245,20 @@ def main():
         delimiter="\t",
     )
 
-    wake_time = (
-        data[:, 0]
-        * 1.0e-9
-    )
+    wake_time = data[:, 0] * 1.0e-9
 
     dipolar_wake_potential = data[:, 2]
 
     # Fourier transform of the complete wake.
-    frequencies, wake_transform = (
-        iddefix.compute_fft(
-            wake_time,
-            dipolar_wake_potential,
-        )
+    frequencies, wake_transform = iddefix.compute_fft(
+        wake_time,
+        dipolar_wake_potential,
     )
 
     # Transverse convention used by example 004b.
-    impedance = (
-        -1j * wake_transform
-    )
+    impedance = -1j * wake_transform
 
-    wake_length = (
-        wake_time[-1]
-        * c_light
-    )
+    wake_length = wake_time[-1] * c_light
 
     # -------------------------------------------------
     # SmartBounds resonance detection
@@ -376,63 +275,34 @@ def main():
         0.0,
     )
 
-    _, early_wake_transform = (
-        iddefix.compute_fft(
-            wake_time,
-            early_wake,
-        )
+    _, early_wake_transform = iddefix.compute_fft(
+        wake_time,
+        early_wake,
     )
 
-    detection_signal = (
-        np.abs(wake_transform)
-        - np.abs(early_wake_transform)
+    detection_signal = np.abs(wake_transform) - np.abs(early_wake_transform)
+
+    minimum_peak_heights = np.zeros_like(frequencies)
+
+    minimum_peak_heights[frequencies < 2.0e9] = 0.25
+
+    minimum_peak_heights[frequencies >= 2.0e9] = 0.05
+
+    minimum_peak_heights[frequencies >= 2.5e9] = 0.10
+
+    smart_bounds = iddefix.SmartBoundDetermination(
+        frequency_data=frequencies,
+        impedance_data=detection_signal,
+        minimum_peak_height=(minimum_peak_heights),
     )
 
-    minimum_peak_heights = np.zeros_like(
-        frequencies
-    )
+    number_complex_pairs = int(smart_bounds.N_resonators)
 
-    minimum_peak_heights[
-        frequencies < 2.0e9
-    ] = 0.25
+    print(f"SmartBounds detected {number_complex_pairs} resonances.")
 
-    minimum_peak_heights[
-        frequencies >= 2.0e9
-    ] = 0.05
+    print("Peak frequencies [GHz]:")
 
-    minimum_peak_heights[
-        frequencies >= 2.5e9
-    ] = 0.10
-
-    smart_bounds = (
-        iddefix.SmartBoundDetermination(
-            frequency_data=frequencies,
-            impedance_data=detection_signal,
-            minimum_peak_height=(
-                minimum_peak_heights
-            ),
-        )
-    )
-
-    number_complex_pairs = int(
-        smart_bounds.N_resonators
-    )
-
-    print(
-        "SmartBounds detected "
-        f"{number_complex_pairs} resonances."
-    )
-
-    print(
-        "Peak frequencies [GHz]:"
-    )
-
-    print(
-        frequencies[
-            smart_bounds.peaks
-        ]
-        / 1.0e9
-    )
+    print(frequencies[smart_bounds.peaks] / 1.0e9)
 
     # -------------------------------------------------
     # Reduced frequency grid
@@ -443,19 +313,11 @@ def main():
         smart_bounds,
     )
 
-    fit_frequencies = frequencies[
-        fit_indices
-    ]
+    fit_frequencies = frequencies[fit_indices]
 
-    fit_impedance = impedance[
-        fit_indices
-    ]
+    fit_impedance = impedance[fit_indices]
 
-    print(
-        f"Using {fit_frequencies.size} "
-        f"of {frequencies.size} "
-        "frequency samples."
-    )
+    print(f"Using {fit_frequencies.size} of {frequencies.size} frequency samples.")
 
     print()
 
@@ -466,26 +328,16 @@ def main():
     # Complex transverse resonator fit
     # -------------------------------------------------
 
-    np.random.seed(
-        RANDOM_SEED
-    )
+    np.random.seed(RANDOM_SEED)
 
-    resonator_model = (
-        iddefix.EvolutionaryAlgorithm(
-            x_data=fit_frequencies,
-            y_data=fit_impedance,
-            N_resonators=(
-                number_complex_pairs
-            ),
-            parameterBounds=(
-                smart_bounds.parameterBounds
-            ),
-            plane="transverse",
-            wake_length=wake_length,
-            objectiveFunction=(
-                weighted_complex_error
-            ),
-        )
+    resonator_model = iddefix.EvolutionaryAlgorithm(
+        x_data=fit_frequencies,
+        y_data=fit_impedance,
+        N_resonators=(number_complex_pairs),
+        parameterBounds=(smart_bounds.parameterBounds),
+        plane="transverse",
+        wake_length=wake_length,
+        objectiveFunction=(weighted_complex_error),
     )
 
     start_time = perf_counter()
@@ -499,37 +351,27 @@ def main():
         solver="scipy",
     )
 
-    runtimes["Resonators"] = (
-        perf_counter() - start_time
-    )
+    runtimes["Resonators"] = perf_counter() - start_time
 
     # get_impedance_from_fitFunction uses the finite-wake
     # function configured by the model constructor.
-    fits["Resonators"] = (
-        resonator_model
-        .get_impedance_from_fitFunction(
-            frequency_data=frequencies,
-            use_minimization=False,
-        )
+    fits["Resonators"] = resonator_model.get_impedance_from_fitFunction(
+        frequency_data=frequencies,
+        use_minimization=False,
     )
 
     # -------------------------------------------------
     # Pole-residue fits
     # -------------------------------------------------
 
-    complex_pole_bounds = (
-        smart_bounds_to_complex_pole_bounds(
-            smart_bounds.parameterBounds
-        )
+    complex_pole_bounds = smart_bounds_to_complex_pole_bounds(
+        smart_bounds.parameterBounds
     )
 
     pole_results = {}
 
     for number_real_poles in REAL_POLE_COUNTS:
-        label = (
-            "Pole-residue: "
-            f"+{number_real_poles} real poles"
-        )
+        label = f"Pole-residue: +{number_real_poles} real poles"
 
         print(f"Fitting {label}...")
 
@@ -546,23 +388,15 @@ def main():
         result = fit_poles_evolutionary(
             frequencies=fit_frequencies,
             impedance=fit_impedance,
-            number_real_poles=(
-                number_real_poles
-            ),
-            number_complex_pairs=(
-                number_complex_pairs
-            ),
-            parameter_bounds=(
-                parameter_bounds
-            ),
+            number_real_poles=(number_real_poles),
+            number_complex_pairs=(number_complex_pairs),
+            parameter_bounds=(parameter_bounds),
             wake_length=wake_length,
             plane="transverse",
             fit_direct_term=True,
             fit_proportional_term=True,
             enforce_zero_dc=False,
-            amplitude_weighting=(
-                "sqrt_relative"
-            ),
+            amplitude_weighting=("sqrt_relative"),
             frequency_weighting="linear",
             residue_solver="least_squares",
             maxiter=POLE_RESIDUE_MAXITER,
@@ -571,33 +405,22 @@ def main():
             crossover_rate=0.8,
             tol=1.0e-4,
             polish=POLE_RESIDUE_POLISH,
-            seed=(
-                RANDOM_SEED
-                + number_real_poles
-            ),
+            seed=(RANDOM_SEED + number_real_poles),
             workers=1,
         )
 
-        runtimes[label] = (
-            perf_counter() - start_time
-        )
+        runtimes[label] = perf_counter() - start_time
 
-        pole_results[
-            number_real_poles
-        ] = result
+        pole_results[number_real_poles] = result
 
-        fits[label] = (
-            PoleResidue.finite_wake_impedance(
-                frequencies=frequencies,
-                poles=result.residue_fit.poles,
-                residues=result.residue_fit.residues,
-                wake_length=wake_length,
-                direct_term=result.residue_fit.direct_term,
-                proportional_term=(
-                    result.residue_fit.proportional_term
-                ),
-                plane="transverse",
-            )
+        fits[label] = PoleResidue.finite_wake_impedance(
+            frequencies=frequencies,
+            poles=result.residue_fit.poles,
+            residues=result.residue_fit.residues,
+            wake_length=wake_length,
+            direct_term=result.residue_fit.direct_term,
+            proportional_term=(result.residue_fit.proportional_term),
+            plane="transverse",
         )
 
     # -------------------------------------------------
@@ -677,25 +500,15 @@ def main():
             label=label,
         )
 
-    axes[0].set_ylabel(
-        "Real(Z_perp) [Ohm/m]"
-    )
+    axes[0].set_ylabel("Real(Z_perp) [Ohm/m]")
 
-    axes[1].set_ylabel(
-        "Imag(Z_perp) [Ohm/m]"
-    )
+    axes[1].set_ylabel("Imag(Z_perp) [Ohm/m]")
 
-    axes[2].set_ylabel(
-        "Abs(Z_perp) [Ohm/m]"
-    )
+    axes[2].set_ylabel("Abs(Z_perp) [Ohm/m]")
 
-    axes[3].set_ylabel(
-        "Relative error"
-    )
+    axes[3].set_ylabel("Relative error")
 
-    axes[3].set_xlabel(
-        "Frequency [Hz]"
-    )
+    axes[3].set_xlabel("Frequency [Hz]")
 
     for axis in axes:
         axis.grid(

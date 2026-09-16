@@ -8,7 +8,6 @@ import numpy as np
 from iddefix.poleResidueFitting import fit_poles_evolutionary
 from iddefix.poleResidueFormulas import PoleResidue
 
-
 PIPE_RADIUS = 20.0e-3
 PIPE_LENGTH = 0.5
 CONDUCTIVITY = 1.4e6
@@ -31,9 +30,7 @@ def load_cst_impedance(file_path):
     data = np.loadtxt(file_path, comments="#")
 
     if data.ndim != 2 or data.shape[1] < 3:
-        raise ValueError(
-            f"expected at least three columns in {file_path}"
-        )
+        raise ValueError(f"expected at least three columns in {file_path}")
 
     frequencies = data[:, 0]
     impedance = data[:, 1] + 1j * data[:, 2]
@@ -55,9 +52,7 @@ def longitudinal_lossy_wall_impedance(frequencies):
     s = 2j * np.pi * frequencies
 
     coefficient = (
-        PIPE_LENGTH
-        / (2.0 * np.pi * PIPE_RADIUS)
-        * np.sqrt(mu_0 / CONDUCTIVITY)
+        PIPE_LENGTH / (2.0 * np.pi * PIPE_RADIUS) * np.sqrt(mu_0 / CONDUCTIVITY)
     )
 
     return coefficient * np.sqrt(s)
@@ -74,10 +69,7 @@ def build_real_pole_bounds(number_poles):
         number_poles + 1,
     )
 
-    return [
-        (edges[index], edges[index + 1])
-        for index in range(number_poles)
-    ]
+    return [(edges[index], edges[index + 1]) for index in range(number_poles)]
 
 
 def relative_error(predicted, target):
@@ -93,15 +85,11 @@ def main():
     data_directory = Path(r"D:\Iddefix\Data")
     results = {}
 
-    for index, (wake_length, filename) in enumerate(
-        WAKE_LENGTHS.items()
-    ):
+    for index, (wake_length, filename) in enumerate(WAKE_LENGTHS.items()):
         file_path = data_directory / filename
 
         if not file_path.is_file():
-            raise FileNotFoundError(
-                f"CST export not found: {file_path}"
-            )
+            raise FileNotFoundError(f"CST export not found: {file_path}")
 
         frequencies, impedance = load_cst_impedance(file_path)
 
@@ -116,9 +104,7 @@ def main():
             impedance=impedance,
             number_real_poles=NUMBER_REAL_POLES,
             number_complex_pairs=0,
-            parameter_bounds=build_real_pole_bounds(
-                NUMBER_REAL_POLES
-            ),
+            parameter_bounds=build_real_pole_bounds(NUMBER_REAL_POLES),
             wake_length=wake_length,
             fit_direct_term=True,
             amplitude_weighting="relative",
@@ -214,12 +200,8 @@ def main():
         sharex=True,
     )
 
-    reference_frequencies = next(iter(results.values()))[
-        "frequencies"
-    ]
-    analytical_reference = longitudinal_lossy_wall_impedance(
-        reference_frequencies
-    )
+    reference_frequencies = next(iter(results.values()))["frequencies"]
+    analytical_reference = longitudinal_lossy_wall_impedance(reference_frequencies)
 
     reconstruction_axes[0].loglog(
         reference_frequencies,
@@ -258,9 +240,7 @@ def main():
             label=f"Finite fit: {wake_length:g} m",
         )
 
-    reconstruction_axes[0].set_ylabel(
-        "Longitudinal impedance [Ohm]"
-    )
+    reconstruction_axes[0].set_ylabel("Longitudinal impedance [Ohm]")
     reconstruction_axes[0].grid(True, which="both")
     reconstruction_axes[0].legend()
 

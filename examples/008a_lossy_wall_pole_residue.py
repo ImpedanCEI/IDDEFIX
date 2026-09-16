@@ -11,12 +11,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 import iddefix
-
 from iddefix.poleResidueFitting import (
     build_fit_weights,
     fit_poles_evolutionary,
 )
-
 
 # User settings
 PIPE_RADIUS = 20.0e-3
@@ -28,7 +26,7 @@ MAXIMUM_FREQUENCY = 1.0e9
 NUMBER_FREQUENCY_POINTS = 300
 
 # N real poles are compared with N/2 resonators.
-NUMBERS_OF_DYNAMIC_POLES = [2,4,6]
+NUMBERS_OF_DYNAMIC_POLES = [2, 4, 6]
 
 MAXIMUM_ITERATIONS = 300
 POPULATION_SIZE = 12
@@ -54,9 +52,7 @@ def longitudinal_lossy_wall_impedance(
     mu_0 = 4.0e-7 * np.pi
     s = 2j * np.pi * frequencies
     coefficient = (
-        pipe_length
-        / (2.0 * np.pi * pipe_radius)
-        * np.sqrt(mu_0 / conductivity)
+        pipe_length / (2.0 * np.pi * pipe_radius) * np.sqrt(mu_0 / conductivity)
     )
     return coefficient * np.sqrt(s)
 
@@ -74,10 +70,7 @@ def build_real_pole_bounds(
         np.log10(maximum_rate),
         number_poles + 1,
     )
-    return [
-        (edges[index], edges[index + 1])
-        for index in range(number_poles)
-    ]
+    return [(edges[index], edges[index + 1]) for index in range(number_poles)]
 
 
 def build_real_residue_bounds(
@@ -127,10 +120,7 @@ def weighted_resonator_error(parameters, fitFunction, x, y):
         frequency_weighting=FREQUENCY_WEIGHTING,
     )
     normalization = np.sum(np.abs(weights * y) ** 2)
-    return float(
-        np.sum(np.abs(weights * (predicted - y)) ** 2)
-        / normalization
-    )
+    return float(np.sum(np.abs(weights * (predicted - y)) ** 2) / normalization)
 
 
 def calculate_metrics(target_impedance, fitted_impedance, weights):
@@ -151,9 +141,7 @@ def calculate_metrics(target_impedance, fitted_impedance, weights):
                 / np.sum(np.abs(weights * target_impedance) ** 2)
             )
         ),
-        "rms_relative_error": float(
-            np.sqrt(np.mean(relative_error**2))
-        ),
+        "rms_relative_error": float(np.sqrt(np.mean(relative_error**2))),
         "maximum_relative_error": float(np.max(relative_error)),
     }
 
@@ -161,22 +149,12 @@ def calculate_metrics(target_impedance, fitted_impedance, weights):
 def print_result(label, runtime, metrics):
     print(label)
     print(f"  runtime: {runtime:.2f} s")
+    print(f"  normalized L2 error: {metrics['normalized_l2_error']:.6e}")
     print(
-        f"  normalized L2 error: "
-        f"{metrics['normalized_l2_error']:.6e}"
+        f"  weighted normalized L2 error: {metrics['weighted_normalized_l2_error']:.6e}"
     )
-    print(
-        f"  weighted normalized L2 error: "
-        f"{metrics['weighted_normalized_l2_error']:.6e}"
-    )
-    print(
-        f"  RMS relative error: "
-        f"{metrics['rms_relative_error']:.6e}"
-    )
-    print(
-        f"  maximum relative error: "
-        f"{metrics['maximum_relative_error']:.6e}"
-    )
+    print(f"  RMS relative error: {metrics['rms_relative_error']:.6e}")
+    print(f"  maximum relative error: {metrics['maximum_relative_error']:.6e}")
 
 
 def fit_original_resonators(
@@ -297,16 +275,11 @@ def main():
 
     for number_poles in NUMBERS_OF_DYNAMIC_POLES:
         if number_poles % 2:
-            raise ValueError(
-                "NUMBERS_OF_DYNAMIC_POLES must contain even values"
-            )
+            raise ValueError("NUMBERS_OF_DYNAMIC_POLES must contain even values")
 
         number_resonators = number_poles // 2
         print("=" * 78)
-        print(
-            f"Dynamic order: {number_poles} poles "
-            f"or {number_resonators} resonators"
-        )
+        print(f"Dynamic order: {number_poles} poles or {number_resonators} resonators")
         print("=" * 78)
 
         resonator_fit, runtime, parameters = fit_original_resonators(
@@ -315,9 +288,7 @@ def main():
             number_resonators,
             seed=1000 + number_poles,
         )
-        metrics = calculate_metrics(
-            target_impedance, resonator_fit, weights
-        )
+        metrics = calculate_metrics(target_impedance, resonator_fit, weights)
         results["resonators_de"][number_poles] = {
             "fit": resonator_fit,
             "runtime": runtime,
@@ -337,9 +308,7 @@ def main():
                 residue_solver,
                 seed=2000 + number_poles,
             )
-            metrics = calculate_metrics(
-                target_impedance, fitted_impedance, weights
-            )
+            metrics = calculate_metrics(target_impedance, fitted_impedance, weights)
             results[method_key][number_poles] = {
                 "fit": fitted_impedance,
                 "runtime": runtime,
@@ -348,10 +317,7 @@ def main():
             print_result(methods[method_key], runtime, metrics)
             print(f"  real poles: {result.real_poles}")
             print(f"  residues: {result.residue_fit.residues}")
-            print(
-                f"  direct term: "
-                f"{result.residue_fit.direct_term:.6e}\n"
-            )
+            print(f"  direct term: {result.residue_fit.direct_term:.6e}\n")
 
     colors = {
         "resonators_de": "tab:orange",
@@ -406,9 +372,7 @@ def main():
 
         impedance_axis.set_title(f"{number_poles} dynamic poles")
         impedance_axis.set_ylabel(r"$|Z_\parallel|$ [$\Omega$]")
-        error_axis.set_title(
-            f"Pointwise error, {number_poles} dynamic poles"
-        )
+        error_axis.set_title(f"Pointwise error, {number_poles} dynamic poles")
         error_axis.set_ylabel("Relative error")
         for axis in (impedance_axis, error_axis):
             axis.grid(True, which="both")
@@ -423,15 +387,10 @@ def main():
     for method_key, method_label in methods.items():
         orders = np.asarray(NUMBERS_OF_DYNAMIC_POLES)
         errors = [
-            results[method_key][order][
-                "weighted_normalized_l2_error"
-            ]
+            results[method_key][order]["weighted_normalized_l2_error"]
             for order in orders
         ]
-        runtimes = [
-            results[method_key][order]["runtime"]
-            for order in orders
-        ]
+        runtimes = [results[method_key][order]["runtime"] for order in orders]
         summary_axes[0].semilogy(
             orders,
             errors,

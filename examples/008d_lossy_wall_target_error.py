@@ -6,10 +6,10 @@ evaluations and wall time required to reach several weighted normalized
 L2-error targets.
 """
 
+import runpy
 from functools import partial
 from pathlib import Path
 from time import perf_counter
-import runpy
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -21,16 +21,11 @@ from iddefix.poleResidueFitting import (
     pole_residue_objective,
 )
 
-
 # Load shared analytical model and bound-building helpers without executing
 # the main program of example 008b.
-shared = runpy.run_path(
-    Path(__file__).with_name("008b_lossy_wall_convergence.py")
-)
+shared = runpy.run_path(Path(__file__).with_name("008b_lossy_wall_convergence.py"))
 
-longitudinal_lossy_wall_impedance = shared[
-    "longitudinal_lossy_wall_impedance"
-]
+longitudinal_lossy_wall_impedance = shared["longitudinal_lossy_wall_impedance"]
 build_real_pole_bounds = shared["build_real_pole_bounds"]
 build_real_residue_bounds = shared["build_real_residue_bounds"]
 build_resonator_bounds = shared["build_resonator_bounds"]
@@ -70,8 +65,7 @@ def run_until_target(objective, bounds, seed):
     dimension = len(bounds)
     if ACTUAL_POPULATION_SIZE % dimension != 0:
         raise ValueError(
-            "ACTUAL_POPULATION_SIZE must be divisible by every "
-            "optimization dimension"
+            "ACTUAL_POPULATION_SIZE must be divisible by every optimization dimension"
         )
 
     scipy_popsize = ACTUAL_POPULATION_SIZE // dimension
@@ -93,9 +87,7 @@ def run_until_target(objective, bounds, seed):
         history["generation"].append(generation)
 
         # Initial population plus one new population per generation.
-        history["evaluations"].append(
-            (generation + 1) * ACTUAL_POPULATION_SIZE
-        )
+        history["evaluations"].append((generation + 1) * ACTUAL_POPULATION_SIZE)
 
         return error <= strictest_target
 
@@ -328,10 +320,7 @@ def main():
             _, success = collect_target_statistics(
                 all_histories[method_key], target, "generation"
             )
-            print(
-                f"  target {target:.3g}: success={success:.0%}, "
-                + ", ".join(parts)
-            )
+            print(f"  target {target:.3g}: success={success:.0%}, " + ", ".join(parts))
 
     figure, axes = plt.subplots(
         1,
