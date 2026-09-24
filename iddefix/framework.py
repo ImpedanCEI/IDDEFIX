@@ -7,6 +7,7 @@ Created on Mon Mar 23 13:20:11 2020
 @modified by: MaltheRaschke, edelafue
 """
 
+import re
 from functools import partial
 from typing import Any, Callable, Sequence
 
@@ -166,12 +167,13 @@ class EvolutionaryAlgorithm:
                     `iddefix.objectiveFunctions.sumOfSquaredErrorReal` \
                     for real-valued only data"
                 )
-        elif type(self.objectiveFunction) is str:
-            if self.objectiveFunction.lower() == "complex":
+        elif isinstance(self.objectiveFunction, str):
+            objective_name = self.objectiveFunction.lower()
+            if objective_name == "complex":
                 self.objectiveFunction = obj.sumOfSquaredError
-            if self.objectiveFunction.lower() == "real":
+            elif objective_name == "real":
                 self.objectiveFunction = obj.sumOfSquaredErrorReal
-            elif self.objectiveFunction.lower() == "abs":
+            elif objective_name == "abs":
                 self.objectiveFunction = obj.sumOfSquaredErrorAbs
             else:
                 print(
@@ -404,6 +406,7 @@ class EvolutionaryAlgorithm:
             self.fitFunction,
             self.x_data,
             self.y_data,
+            self.parameterBounds,
         )
         self.warning = message
         self._warn_large_uncertainties(
@@ -492,6 +495,7 @@ class EvolutionaryAlgorithm:
             self.fitFunction,
             self.x_data,
             self.y_data,
+            self.parameterBounds,
         )
 
         self.warning = warning
@@ -592,11 +596,17 @@ class EvolutionaryAlgorithm:
                 },
             )
         self.minimizationParameters = minimizationParameters.x
+        uncertainty_bounds = (
+            minimizationBounds
+            if self.evolutionParameters is not None
+            else self.parameterBounds
+        )
         self.minimizationParametersUncertainties = get_uncertainties(
             self.minimizationParameters,
             self.fitFunction,
             self.x_data,
             self.y_data,
+            uncertainty_bounds,
         )
         self._warn_large_uncertainties(
             self.minimizationParameters,
@@ -714,6 +724,173 @@ class EvolutionaryAlgorithm:
                     )
 
             print("-" * 76)
+
+    def load_resonator_parameters(
+        self, table: str, use_minimization: bool = True
+    ) -> None:
+        """Load parameter values and uncertainties from a displayed table.
+
+        Accepts the ASCII or Markdown output of
+        ``display_resonator_parameters`` when uncertainties are shown. Header
+        and separator lines are optional. ANSI highlighting, including its
+        visible ``␛`` representation, is ignored.
+        The number of rows must match ``N_resonators``. Printed values have
+        limited precision, so the original fit arrays remain preferable when
+        they are available.
+
+        By default the values are stored as minimization results, which are
+        selected by the impedance getters. Missing evolutionary parameters and
+        uncertainties are also populated from the table. Set
+        ``use_minimization=False`` to store evolutionary results instead.
+        """
+        clean_table = re.sub(r"(?:\x1b|␛)\[[0-9;]*m", "", table)
+        number = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
+        value_with_uncertainty = re.compile(rf"\s*({number})\s*±\s*({number})\s*")
+        values = []
+        uncertainties = []
+
+        for line in clean_table.splitlines():
+            cells = [cell.strip() for cell in line.split("|") if cell.strip()]
+            if not cells or not cells[0].isdigit():
+                continue
+            if len(cells) != 4:
+                raise ValueError(f"Invalid resonator row: {line}")
+
+            row_number = int(cells[0])
+            if row_number != len(values) // 3 + 1:
+                raise ValueError("Resonator rows must be numbered consecutively")
+
+            row_values = []
+            row_uncertainties = []
+            for cell in cells[1:]:
+                match = value_with_uncertainty.fullmatch(cell)
+                if match is None:
+                    raise ValueError(f"Invalid parameter cell: {cell}")
+                row_values.append(float(match[1]))
+                row_uncertainties.append(float(match[2]))
+            values.extend(row_values)
+            uncertainties.extend(row_uncertainties)
+
+        if len(values) != 3 * self.N_resonators:
+            raise ValueError(
+                f"Expected {self.N_resonators} resonator rows, found {len(values) // 3}"
+            )
+
+        parameters = np.asarray(values)
+        parameter_uncertainties = np.asarray(uncertainties)
+        if use_minimization:
+            self.minimizationParameters = parameters
+            self.minimizationParametersUncertainties = parameter_uncertainties
+            if self.evolutionParameters is None:
+                self.evolutionParameters = parameters.copy()
+                self.evolutionParametersUncertainties = parameter_uncertainties.copy()
+        else:
+            self.evolutionParameters = parameters
+            self.evolutionParametersUncertainties = parameter_uncertainties
+        self._warn_large_uncertainties(parameters, parameter_uncertainties)
+
+    def remove_resonator(self, resonator_number: int) -> None:
+        """Remove a resonator by its 1-based number in the parameter table.
+
+        The corresponding values, uncertainties, and fit bounds are removed
+        from both evolution and minimization results when present. At least
+        one resonator must remain in the model.
+        """
+        if not 1 <= resonator_number <= self.N_resonators:
+            raise ValueError("resonator_number is outside the model")
+        if self.N_resonators == 1:
+            raise ValueError("The model must retain at least one resonator")
+
+        indices = np.arange(3 * (resonator_number - 1), 3 * resonator_number)
+        for name in (
+            "evolutionParameters",
+            "evolutionParametersUncertainties",
+            "minimizationParameters",
+            "minimizationParametersUncertainties",
+        ):
+            values = getattr(self, name)
+            if values is not None:
+                setattr(self, name, np.delete(values, indices))
+
+        first_bound = 3 * (resonator_number - 1)
+        self.parameterBounds = [
+            bound
+            for index, bound in enumerate(self.parameterBounds)
+            if not first_bound <= index < first_bound + 3
+        ]
+        self.N_resonators -= 1
+        self._update_parameter_flags()
+
+    def add_resonator(
+        self,
+        Rs: float,
+        Q: float,
+        fres: float,
+        uncertainty: float | Sequence[float] = 0,
+        parameter_bounds: ParameterBounds | None = None,
+    ) -> None:
+        """Append a resonator to the stored parameters and uncertainties.
+
+        ``uncertainty`` may be one value for all three parameters or a
+        sequence of three values in ``(Rs, Q, fres)`` order. The new mode is
+        appended to both result stages when both are present. Without explicit
+        ``parameter_bounds``, its fit bounds are open apart from Q >= 0.5 and
+        fres >= 0; supply finite bounds before running another fit.
+        """
+        if self.evolutionParameters is None and self.minimizationParameters is None:
+            raise ValueError("Load or fit resonator parameters before adding a mode")
+
+        new_parameters = np.array([Rs, Q, fres], dtype=float)
+        new_uncertainties = np.broadcast_to(
+            np.asarray(uncertainty, dtype=float), (3,)
+        ).copy()
+        if Q < 0.5 or fres <= 0:
+            raise ValueError("Q must be at least 0.5 and fres must be positive")
+        if np.any(new_uncertainties < 0):
+            raise ValueError("uncertainties must be non-negative")
+        if parameter_bounds is None:
+            new_bounds = [(-np.inf, np.inf), (0.5, np.inf), (0.0, np.inf)]
+        else:
+            if len(parameter_bounds) != 3:
+                raise ValueError("parameter_bounds must contain three pairs")
+            new_bounds = list(parameter_bounds)
+
+        for parameter_name, uncertainty_name in (
+            ("evolutionParameters", "evolutionParametersUncertainties"),
+            ("minimizationParameters", "minimizationParametersUncertainties"),
+        ):
+            parameters = getattr(self, parameter_name)
+            if parameters is None:
+                continue
+            setattr(
+                self,
+                parameter_name,
+                np.concatenate((parameters, new_parameters)),
+            )
+            uncertainties = getattr(self, uncertainty_name)
+            if uncertainties is None:
+                uncertainties = np.zeros_like(parameters, dtype=float)
+            setattr(
+                self,
+                uncertainty_name,
+                np.concatenate((uncertainties, new_uncertainties)),
+            )
+
+        self.parameterBounds = [*self.parameterBounds, *new_bounds]
+        self.N_resonators += 1
+        self._update_parameter_flags()
+
+    def _update_parameter_flags(self) -> None:
+        """Refresh uncertainty flags for the parameter stage used by getters."""
+        if self.minimizationParameters is not None:
+            parameters = self.minimizationParameters
+            uncertainties = self.minimizationParametersUncertainties
+        else:
+            parameters = self.evolutionParameters
+            uncertainties = self.evolutionParametersUncertainties
+        self.flagged_params = self._compute_flagged_params_mask(
+            parameters, uncertainties
+        )
 
     def _compute_flagged_params_mask(
         self,
@@ -918,6 +1095,117 @@ class EvolutionaryAlgorithm:
             )
 
         return impedance_data
+
+    def get_impedance_uncertainty(
+        self,
+        frequency_data: ArrayLike | None = None,
+        use_minimization: bool = True,
+        wake_length: float | None = None,
+        n_sigma: float = 1.0,
+        q_samples: int = 33,
+        vary: str = "both",
+        max_factor: float = 2.0,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Return pointwise sensitivity bounds on the real impedance.
+
+        ``vary`` selects Rs, Q, or both. The selected parameters vary by up to
+        ``n_sigma`` fitted standard deviations, limited to a multiplicative
+        range between ``value / max_factor`` and ``value * max_factor``.
+        Varied Q stays at or above 0.5, and resonant frequencies stay fixed.
+        Fitting search bounds are not used. These are sensitivity scenarios,
+        not confidence intervals.
+
+        Extrema are found per resonator and frequency, so the envelopes need
+        not represent one parameter set across the frequency range. For
+        partially decayed wakes, Q is sampled on ``q_samples`` points and
+        the extrema are approximate. The nominal Q is always sampled.
+
+        The nominal complex impedance remains available from ``get_impedance``.
+
+        Returns
+        -------
+        lower_bound, upper_bound : tuple of numpy.ndarray
+            Pointwise bounds on the real impedance, in the same units as
+            ``get_impedance``. These are not bounds on its imaginary part.
+        """
+        if n_sigma < 0:
+            raise ValueError("n_sigma must be non-negative")
+        if max_factor < 1:
+            raise ValueError("max_factor must be at least 1")
+        if wake_length is not None and q_samples < 2:
+            raise ValueError("q_samples must be at least 2")
+        vary = vary.lower()
+        if vary not in ("r", "rs", "q", "both"):
+            raise ValueError("vary must be 'R', 'Q', or 'both'")
+
+        if frequency_data is None:
+            if self.frequency_data is None:
+                raise AttributeError("Provide frequency data array")
+            frequency_data = self.frequency_data
+
+        if use_minimization and self.minimizationParameters is not None:
+            parameters = self.minimizationParameters
+            uncertainties = self.minimizationParametersUncertainties
+        else:
+            parameters = self.evolutionParameters
+            uncertainties = self.evolutionParametersUncertainties
+
+        if parameters is None or uncertainties is None:
+            raise AttributeError("Fit parameters and uncertainties are required")
+
+        parameters = np.asarray(parameters, dtype=float).reshape(-1, 3)
+        uncertainties = np.asarray(uncertainties, dtype=float).reshape(-1, 3)
+        frequency_data = np.asarray(frequency_data, dtype=float)
+        lower_bound = np.zeros_like(frequency_data)
+        upper_bound = np.zeros_like(frequency_data)
+
+        resonator_impedance = (
+            imp.Resonator_longitudinal_imp
+            if self.plane == "longitudinal"
+            else imp.Resonator_transverse_imp
+        )
+
+        def capped_limits(value: float, uncertainty: float) -> tuple[float, float]:
+            factor_limits = sorted((value / max_factor, value * max_factor))
+            return (
+                max(value - n_sigma * uncertainty, factor_limits[0]),
+                min(value + n_sigma * uncertainty, factor_limits[1]),
+            )
+
+        for (rs, q, resonant_frequency), (rs_sigma, q_sigma, _) in zip(
+            parameters, uncertainties
+        ):
+            rs_values = capped_limits(rs, rs_sigma) if vary != "q" else (rs,)
+            if vary in ("q", "both"):
+                q_lower, q_upper = capped_limits(q, q_sigma)
+                q_lower = max(q_lower, 0.5)
+                if wake_length is None:
+                    q_values = (q_lower, q_upper)
+                else:
+                    q_values = np.unique(
+                        np.append(np.linspace(q_lower, q_upper, q_samples), q)
+                    )
+            else:
+                q_values = (q,)
+
+            mode_lower = np.full_like(frequency_data, np.inf)
+            mode_upper = np.full_like(frequency_data, -np.inf)
+            for candidate_q in q_values:
+                for candidate_rs in rs_values:
+                    real_impedance = resonator_impedance(
+                        frequency_data,
+                        candidate_rs,
+                        candidate_q,
+                        resonant_frequency,
+                        wake_length,
+                    ).real
+                    np.minimum(mode_lower, real_impedance, out=mode_lower)
+                    np.maximum(mode_upper, real_impedance, out=mode_upper)
+
+            lower_bound += mode_lower
+            upper_bound += mode_upper
+
+        return lower_bound, upper_bound
 
     def get_impedance_from_fft(
         self,
