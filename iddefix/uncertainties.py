@@ -17,7 +17,7 @@ def StackedResiduals(
     fitFunction: FitCallable,
     y: ArrayLike,
 ) -> np.ndarray:
-    """The stacked residuals (real and imaginary parts).
+    """Return real residuals, stacking imaginary residuals for complex data.
 
     This function takes the parameters obtained from the Differential Evolution or
     minimization algorithm and evaluate the stacked residuals at that solution.
@@ -33,16 +33,15 @@ def StackedResiduals(
         residuals: The stacked residuals for a given solution.
     """
 
+    y = np.asarray(y)
     grouped_parameters = iddefix.utils.pars_to_dict(parameters)
     predicted_y = fitFunction(x, grouped_parameters)
 
-    residuals = np.concatenate(
-        [
-            y.real - predicted_y.real,
-            y.imag - predicted_y.imag,
-        ]
-    )
-    return residuals
+    real_residuals = y.real - predicted_y.real
+    if not np.iscomplex(y).any():
+        return real_residuals
+
+    return np.concatenate([real_residuals, y.imag - predicted_y.imag])
 
 
 def build_jacobian(
@@ -106,9 +105,11 @@ def get_uncertainties(
     matrix is obtained by computing the Moore-Penrose inverse, discarding zero
     singular values.
 
-    The uncertainties are defined as the `1 \sigma` standard deviation multiplied
-    by `\xi^2 / (M - N)`, where `M` is the length of `x`, `N` the length of
-    `parameters` and `\xi^2` the reduced chi-squared.
+    The covariance is scaled by the residual sum of squares divided by the
+    residual degrees of freedom (`M - N`), where `M` is the number of real
+    residuals (including imaginary components only for complex input) and
+    `N` is the number of parameters. The returned uncertainties are the
+    square roots of the covariance diagonal.
     It is equivalent to leaving the default option absolute_sigma=False in
     scipy.optimize.curve_fit().
 

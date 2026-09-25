@@ -19,7 +19,7 @@ from .objectiveFunctions import ObjectiveFunctions as obj
 from .resonatorFormulas import Impedances as imp
 from .resonatorFormulas import Wakes as wak
 from .solvers import Solvers
-from .uncertainties import get_uncertainties
+from .uncertainties import get_uncertainties as calculate_uncertainties
 from .utils import compute_fft
 
 ArrayLike = npt.ArrayLike
@@ -401,18 +401,10 @@ class EvolutionaryAlgorithm:
         )
 
         self.evolutionParameters = solution
-        self.evolutionParametersUncertainties = get_uncertainties(
-            self.evolutionParameters,
-            self.fitFunction,
-            self.x_data,
-            self.y_data,
-            self.parameterBounds,
+        self.get_uncertainties(
+            use_minimization=False, parameterBounds=self.parameterBounds
         )
         self.warning = message
-        self._warn_large_uncertainties(
-            self.evolutionParameters,
-            self.evolutionParametersUncertainties,
-        )
         self.display_resonator_parameters(
             params=self.evolutionParameters,
             to_markdown=False,
@@ -490,19 +482,11 @@ class EvolutionaryAlgorithm:
         )
 
         self.evolutionParameters = evolutionParameters
-        self.evolutionParametersUncertainties = get_uncertainties(
-            self.evolutionParameters,
-            self.fitFunction,
-            self.x_data,
-            self.y_data,
-            self.parameterBounds,
+        self.get_uncertainties(
+            use_minimization=False, parameterBounds=self.parameterBounds
         )
 
         self.warning = warning
-        self._warn_large_uncertainties(
-            self.evolutionParameters,
-            self.evolutionParametersUncertainties,
-        )
         self.display_resonator_parameters(
             params=self.evolutionParameters,
             to_markdown=False,
@@ -601,22 +585,59 @@ class EvolutionaryAlgorithm:
             if self.evolutionParameters is not None
             else self.parameterBounds
         )
-        self.minimizationParametersUncertainties = get_uncertainties(
-            self.minimizationParameters,
-            self.fitFunction,
-            self.x_data,
-            self.y_data,
-            uncertainty_bounds,
-        )
-        self._warn_large_uncertainties(
-            self.minimizationParameters,
-            self.minimizationParametersUncertainties,
-        )
+        self.get_uncertainties(parameterBounds=uncertainty_bounds)
         self.display_resonator_parameters(
             params=self.minimizationParameters,
             to_markdown=False,
             uncertainties=self.minimizationParametersUncertainties,
         )
+
+    def get_uncertainties(
+        self,
+        use_minimization: bool = True,
+        x_data: ArrayLike | None = None,
+        y_data: ArrayLike | None = None,
+        parameterBounds: ArrayLike | None = None,
+    ) -> np.ndarray:
+        """Recompute and store uncertainties for the current resonator parameters.
+
+        By default, use minimization results when available, otherwise
+        evolutionary results. Input data defaults to the data stored on the
+        model. Derivatives use physical resonator bounds by default, so loaded
+        parameters need not lie within the original fitting bounds. Pass
+        ``parameterBounds`` to use different derivative bounds.
+        """
+        if use_minimization and self.minimizationParameters is not None:
+            parameters = self.minimizationParameters
+            uncertainty_attribute = "minimizationParametersUncertainties"
+        else:
+            parameters = self.evolutionParameters
+            uncertainty_attribute = "evolutionParametersUncertainties"
+
+        if parameters is None:
+            raise ValueError("No resonator parameters are available")
+
+        if x_data is None:
+            x_data = self.x_data
+        if y_data is None:
+            y_data = self.y_data
+        if parameterBounds is None:
+            parameterBounds = [
+                bound
+                for _ in range(self.N_resonators)
+                for bound in ((-np.inf, np.inf), (0.5, np.inf), (0.0, np.inf))
+            ]
+
+        uncertainties = calculate_uncertainties(
+            np.asarray(parameters),
+            self.fitFunction,
+            np.asarray(x_data),
+            np.asarray(y_data),
+            parameterBounds,
+        )
+        setattr(self, uncertainty_attribute, uncertainties)
+        self._warn_large_uncertainties(parameters, uncertainties)
+        return uncertainties
 
     def display_resonator_parameters(
         self,
@@ -731,12 +752,12 @@ class EvolutionaryAlgorithm:
         """Load parameter values and uncertainties from a displayed table.
 
         Accepts the ASCII or Markdown output of
-        ``display_resonator_parameters`` when uncertainties are shown. Header
-        and separator lines are optional. ANSI highlighting, including its
-        visible ``␛`` representation, is ignored.
-        The number of rows must match ``N_resonators``. Printed values have
-        limited precision, so the original fit arrays remain preferable when
-        they are available.
+        ``display_resonator_parameters`` with or without uncertainties.
+        Missing uncertainties default to zero. Header and separator lines are
+        optional. ANSI highlighting, including its visible ``␛``
+        representation, is ignored. The number of rows must match
+        ``N_resonators``. Printed values have limited precision, so the
+        original fit arrays remain preferable when available.
 
         By default the values are stored as minimization results, which are
         selected by the impedance getters. Missing evolutionary parameters and
@@ -745,7 +766,7 @@ class EvolutionaryAlgorithm:
         """
         clean_table = re.sub(r"(?:\x1b|␛)\[[0-9;]*m", "", table)
         number = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
-        value_with_uncertainty = re.compile(rf"\s*({number})\s*±\s*({number})\s*")
+        parameter_cell = re.compile(rf"\s*({number})(?:\s*±\s*({number}))?\s*")
         values = []
         uncertainties = []
 
@@ -763,11 +784,11 @@ class EvolutionaryAlgorithm:
             row_values = []
             row_uncertainties = []
             for cell in cells[1:]:
-                match = value_with_uncertainty.fullmatch(cell)
+                match = parameter_cell.fullmatch(cell)
                 if match is None:
                     raise ValueError(f"Invalid parameter cell: {cell}")
                 row_values.append(float(match[1]))
-                row_uncertainties.append(float(match[2]))
+                row_uncertainties.append(float(match[2]) if match[2] else 0.0)
             values.extend(row_values)
             uncertainties.extend(row_uncertainties)
 
