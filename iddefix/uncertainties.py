@@ -17,7 +17,7 @@ def StackedResiduals(
     fitFunction: FitCallable,
     y: ArrayLike,
 ) -> np.ndarray:
-    """The stacked residuals (real and imaginary parts).
+    """Return real residuals, stacking imaginary residuals for complex data.
 
     This function takes the parameters obtained from the Differential Evolution or
     minimization algorithm and evaluate the stacked residuals at that solution.
@@ -33,16 +33,15 @@ def StackedResiduals(
         residuals: The stacked residuals for a given solution.
     """
 
+    y = np.asarray(y)
     grouped_parameters = iddefix.utils.pars_to_dict(parameters)
     predicted_y = fitFunction(x, grouped_parameters)
 
-    residuals = np.concatenate(
-        [
-            y.real - predicted_y.real,
-            y.imag - predicted_y.imag,
-        ]
-    )
-    return residuals
+    real_residuals = y.real - predicted_y.real
+    if not np.iscomplex(y).any():
+        return real_residuals
+
+    return np.concatenate([real_residuals, y.imag - predicted_y.imag])
 
 
 def build_jacobian(
@@ -50,6 +49,7 @@ def build_jacobian(
     fitFunction: FitCallable,
     x: ArrayLike,
     y: ArrayLike,
+    parameterBounds: ArrayLike | None = None,
 ) -> np.ndarray:
     """Build the Jacobian of the system.
 
@@ -66,15 +66,22 @@ def build_jacobian(
             returns predicted y values (including real and imaginary parts).
         x: Array of x values for the data.
         y: Array of y values for the data (including real and imaginary parts).
+        parameterBounds: Optional (lower, upper) bounds for each parameter.
+            Derivatives at a bound are taken from the allowed side.
 
     Returns:
         jac: The system Jacobian matrix.
     """
 
+    bounds = (-np.inf, np.inf)
+    if parameterBounds is not None:
+        bounds = tuple(np.asarray(parameterBounds, dtype=float).T)
+
     jac = approx_derivative(
         lambda p: StackedResiduals(p, x, fitFunction, y),
         parameters,
         method="3-point",  # central differences (more accurate)
+        bounds=bounds,
         # rel_step=1e-6,             # relative step; tunes accuracy
     )
     return jac
@@ -85,6 +92,7 @@ def get_uncertainties(
     fitFunction: FitCallable,
     x: ArrayLike,
     y: ArrayLike,
+    parameterBounds: ArrayLike | None = None,
 ) -> np.ndarray:
     r"""Compute the parameter uncertainties of the results of the Differential
     Evolution or minimization algorithm.
@@ -97,9 +105,11 @@ def get_uncertainties(
     matrix is obtained by computing the Moore-Penrose inverse, discarding zero
     singular values.
 
-    The uncertainties are defined as the `1 \sigma` standard deviation multiplied
-    by `\xi^2 / (M - N)`, where `M` is the length of `x`, `N` the length of
-    `parameters` and `\xi^2` the reduced chi-squared.
+    The covariance is scaled by the residual sum of squares divided by the
+    residual degrees of freedom (`M - N`), where `M` is the number of real
+    residuals (including imaginary components only for complex input) and
+    `N` is the number of parameters. The returned uncertainties are the
+    square roots of the covariance diagonal.
     It is equivalent to leaving the default option absolute_sigma=False in
     scipy.optimize.curve_fit().
 
@@ -109,12 +119,14 @@ def get_uncertainties(
             returns predicted y values (including real and imaginary parts).
         x: Array of x values for the data.
         y: Array of y values for the data (including real and imaginary parts).
+        parameterBounds: Optional (lower, upper) bounds for each parameter.
+            These keep numerical derivative probes inside the fit domain.
 
     Returns:
         uncertainties: 1 \sigma standard deviation for each of the input parameters.
     """
 
-    jac = build_jacobian(parameters, fitFunction, x, y)
+    jac = build_jacobian(parameters, fitFunction, x, y, parameterBounds)
 
     _, s, VT = svd(jac, full_matrices=False)
     threshold = np.finfo(float).eps * max(jac.shape) * s[0]
