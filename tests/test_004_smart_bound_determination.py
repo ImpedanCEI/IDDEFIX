@@ -5,7 +5,8 @@ from contextlib import nullcontext
 from importlib import import_module
 
 import numpy as np
-from matplotlib.backend_bases import MouseEvent
+import pytest
+from matplotlib.backend_bases import KeyEvent, MouseEvent
 
 import iddefix
 
@@ -74,7 +75,29 @@ def test_smart_bounds_uses_selected_side_for_coupled_modes():
     assert right.parameterBounds[4][0] > left.parameterBounds[4][0]
 
 
+def test_interactive_picker_selects_modes_without_widget_backend(monkeypatch):
+    smart_bounds = import_module("iddefix.smartBoundDetermination")
+    monkeypatch.setattr(smart_bounds.matplotlib, "get_backend", lambda: "agg")
+    monkeypatch.setattr(smart_bounds.plt, "show", lambda **kwargs: None)
+
+    frequency = np.arange(7.0)
+    impedance = np.array([0.0, 1.0, 10.0, 1.0, 8.0, 1.0, 0.0])
+    bounds = iddefix.SmartBoundDetermination(frequency, impedance, interactive=True)
+    figure = bounds._selection_figure
+
+    _click(figure, 2.0, 10.0, button=1)
+    _click(figure, 4.0, 8.0, button=1)
+    event = KeyEvent("key_press_event", figure.canvas, key="enter")
+    figure.canvas.callbacks.process("key_press_event", event)
+
+    np.testing.assert_array_equal(bounds.peaks, [2, 4])
+    assert asyncio.run(bounds.wait_for_selection()) is bounds.parameterBounds
+    smart_bounds.plt.close(figure)
+
+
 def test_widget_picker_allows_zoom_then_right_click_and_undo(monkeypatch):
+    pytest.importorskip("IPython.display")
+    pytest.importorskip("ipywidgets")
     smart_bounds = import_module("iddefix.smartBoundDetermination")
     monkeypatch.setattr(
         smart_bounds.matplotlib,
