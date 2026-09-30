@@ -18,6 +18,17 @@ FitCallable = Callable[[ArrayLike, dict[int, ArrayLike]], ArrayLike]
 from .utils import pars_to_dict
 
 
+def _sum_objective_terms(terms: np.ndarray, predicted_y: np.ndarray) -> float:
+    # np.nansum can make an all-NaN model look like a perfect (zero-error) fit.
+    if (
+        not np.all(np.isfinite(predicted_y))
+        or np.any(np.isnan(terms))
+        or np.any(np.isposinf(terms))
+    ):
+        return float("inf")
+    return float(np.sum(terms))
+
+
 class ObjectiveFunctions:
     def sumOfSquaredError(
         parameters: ArrayLike,
@@ -44,8 +55,9 @@ class ObjectiveFunctions:
 
         grouped_parameters = pars_to_dict(parameters)
         predicted_y = fitFunction(x, grouped_parameters)
-        squared_error = np.nansum(
-            (y.real - predicted_y.real) ** 2 + (y.imag - predicted_y.imag) ** 2
+        squared_error = _sum_objective_terms(
+            (y.real - predicted_y.real) ** 2 + (y.imag - predicted_y.imag) ** 2,
+            predicted_y,
         )
         return squared_error
 
@@ -74,7 +86,9 @@ class ObjectiveFunctions:
 
         grouped_parameters = pars_to_dict(parameters)
         predicted_y = fitFunction(x, grouped_parameters)
-        squared_error = np.nansum((y.real - predicted_y.real) ** 2)
+        squared_error = _sum_objective_terms(
+            (y.real - predicted_y.real) ** 2, predicted_y
+        )
         return squared_error
 
     def sumOfSquaredErrorAbs(
@@ -101,7 +115,9 @@ class ObjectiveFunctions:
 
         grouped_parameters = pars_to_dict(parameters)
         predicted_y = fitFunction(x, grouped_parameters)
-        squared_error = np.nansum((np.abs(y) - np.abs(predicted_y)) ** 2)
+        squared_error = _sum_objective_terms(
+            (np.abs(y) - np.abs(predicted_y)) ** 2, predicted_y
+        )
         return squared_error
 
     def logsumOfSquaredError(
@@ -128,8 +144,9 @@ class ObjectiveFunctions:
         """
         grouped_parameters = pars_to_dict(parameters)
         predicted_y = fitFunction(x, grouped_parameters)
-        log_squared_error = np.nansum(
-            np.log((y.real - predicted_y.real) ** 2 + (y.imag - predicted_y.imag) ** 2)
+        log_squared_error = _sum_objective_terms(
+            np.log((y.real - predicted_y.real) ** 2 + (y.imag - predicted_y.imag) ** 2),
+            predicted_y,
         )
         return log_squared_error
 
@@ -158,7 +175,9 @@ class ObjectiveFunctions:
 
         grouped_parameters = pars_to_dict(parameters)
         predicted_y = fitFunction(x, grouped_parameters)
-        log_squared_error = np.nansum(np.log((y.real - predicted_y.real) ** 2))
+        log_squared_error = _sum_objective_terms(
+            np.log((y.real - predicted_y.real) ** 2), predicted_y
+        )
         return log_squared_error
 
     def logsumOfSquaredErrorAbs(
@@ -189,7 +208,7 @@ class ObjectiveFunctions:
 
         grouped_parameters = pars_to_dict(parameters)
         predicted_y = fitFunction(x, grouped_parameters)
-        log_squared_error = np.nansum(
-            np.log((np.abs(y) - np.abs(predicted_y)) ** 2 + eps)
+        log_squared_error = _sum_objective_terms(
+            np.log((np.abs(y) - np.abs(predicted_y)) ** 2 + eps), predicted_y
         )
         return log_squared_error
