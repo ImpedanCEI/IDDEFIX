@@ -665,34 +665,35 @@ class Impedances:
 
             if Q < 0.5:
                 raise ValueError(
-                    "Quality factor Q must be larger than 0.5."
-                    "The wake is unlikely to be partially decayed"
-                    "for such a low quality factor otherwise."
+                    "Quality factor Q must be at least 0.5 for the partially "
+                    "decayed transverse impedance."
                 )
 
-            A = Rs * omega_r / (Q * np.sqrt(1 - 1 / 4 / Q**2))
             B = omega_r / 2 / Q
             C = omega_r * np.sqrt(1 - 1 / 4 / Q**2)
             T = wake_length / c
+            # A*C and sin(C*T)/C have finite limits at the critical Q = 0.5.
+            AC = Rs * omega_r**2 / Q
+            sin_over_C = T * np.sinc(C * T / np.pi)
 
             zero_index = np.where(frequencies > 0)[0]  # find index of non-zero element
             if zero_index.size < frequencies.size:
                 exp_term = np.exp(-T * (B + 1j * omega[zero_index]))
                 cos_term = np.cos(C * T)
-                sin_term = (B + 1j * omega[zero_index]) / C * np.sin(C * T)
+                sin_term = (B + 1j * omega[zero_index]) * sin_over_C
                 denominator = C**2 + (B + 1j * omega[zero_index]) ** 2
                 Zt = np.zeros_like(frequencies, dtype=complex)  # initialize Zt as 0
                 # calculate all Zt for non-zero frequencies
                 Zt[zero_index] = (
-                    1j * A * C / denominator * (1 - exp_term * (cos_term + sin_term))
+                    1j * AC / denominator * (1 - exp_term * (cos_term + sin_term))
                 )
 
             else:
                 exp_term = np.exp(-T * (B + 1j * omega))
                 cos_term = np.cos(C * T)
-                sin_term = (B + 1j * omega) / C * np.sin(C * T)
+                sin_term = (B + 1j * omega) * sin_over_C
                 denominator = C**2 + (B + 1j * omega) ** 2
-                Zt = 1j * A * C / denominator * (1 - exp_term * (cos_term + sin_term))
+                Zt = 1j * AC / denominator * (1 - exp_term * (cos_term + sin_term))
 
         return Zt
 
