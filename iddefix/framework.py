@@ -275,11 +275,11 @@ class EvolutionaryAlgorithm:
         x_values_data : numpy.ndarray
             Array containing x-values of the data (frequency points).
         y_values_data : numpy.ndarray
-            Array containing y-values of the data (impedance magnitudes).
+            Array containing y-values of the data (real or complex impedance).
         maxiter : int, optional
             Maximum number of iterations for the DE solver. Default is 2000.
         popsize : int, optional
-            Population size for the DE algorithm. Default is 150.
+            Population multiplier per parameter. Default is 150.
         mutation : tuple of float, optional
             Range of mutation factors that control parameter variation.
             Default is (0.1, 0.5).
@@ -809,6 +809,65 @@ class EvolutionaryAlgorithm:
             self.evolutionParameters = parameters
             self.evolutionParametersUncertainties = parameter_uncertainties
         self._warn_large_uncertainties(parameters, parameter_uncertainties)
+
+    def modify_resonator(
+        self,
+        resonator_number: int,
+        Rs: float | None = None,
+        Q: float | None = None,
+        fr: float | None = None,
+    ) -> None:
+        """Overwrite selected parameters of a resonator by its 1-based number.
+
+        ``None`` leaves a parameter unchanged. Both available fit stages are
+        updated; fitted uncertainties are cleared because they describe the
+        parameters before this manual edit. Call ``get_uncertainties`` to
+        estimate uncertainties for the modified model.
+        """
+        if (
+            isinstance(resonator_number, (bool, np.bool_))
+            or not isinstance(resonator_number, (int, np.integer))
+            or not 1 <= resonator_number <= self.N_resonators
+        ):
+            raise ValueError("resonator_number is outside the model")
+        if self.evolutionParameters is None and self.minimizationParameters is None:
+            raise ValueError("Load or fit resonator parameters before modifying a mode")
+
+        changes = {}
+        for offset, (name, value) in enumerate((("Rs", Rs), ("Q", Q), ("fr", fr))):
+            if value is None:
+                continue
+            try:
+                value = float(value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"{name} must be a finite real number") from exc
+            if not np.isfinite(value):
+                raise ValueError(f"{name} must be a finite real number")
+            changes[offset] = value
+
+        if not changes:
+            return
+        if 1 in changes and changes[1] <= 0:
+            raise ValueError("Q must be positive")
+        if 1 in changes and self.wake_length is not None and changes[1] < 0.5:
+            raise ValueError("Q must be at least 0.5 for a partially decayed impedance")
+        if 2 in changes and changes[2] <= 0:
+            raise ValueError("fr must be positive")
+
+        first_parameter = 3 * (resonator_number - 1)
+        for parameter_name, uncertainty_name in (
+            ("evolutionParameters", "evolutionParametersUncertainties"),
+            ("minimizationParameters", "minimizationParametersUncertainties"),
+        ):
+            parameters = getattr(self, parameter_name)
+            if parameters is None:
+                continue
+            parameters = np.asarray(parameters, dtype=float).copy()
+            for offset, value in changes.items():
+                parameters[first_parameter + offset] = value
+            setattr(self, parameter_name, parameters)
+            setattr(self, uncertainty_name, None)
+        self._update_parameter_flags()
 
     def remove_resonator(self, resonator_number: int) -> None:
         """Remove a resonator by its 1-based number in the parameter table.
