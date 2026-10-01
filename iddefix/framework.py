@@ -254,6 +254,7 @@ class EvolutionaryAlgorithm:
         crossover_rate: float = 0.8,
         tol: float = 0.01,
         solver: str = "scipy",
+        **kwargs: Any,
     ) -> tuple[np.ndarray, str]:
         """
         Generates initial parameter estimates using a
@@ -295,6 +296,9 @@ class EvolutionaryAlgorithm:
             - `"pyfde_jade"`: Uses JADE, a self-adaptive DE variant
             (automatically adjusts `mutation` and `crossover_rate`).
             Default is `"scipy"`.
+        **kwargs : Any
+            Additional solver options forwarded by ``run_differential_evolution``.
+            See that method for solver-specific options and documentation links.
 
         Returns
         -------
@@ -326,20 +330,14 @@ class EvolutionaryAlgorithm:
         }
 
         solver_function = solver_functions.get(solver)
-        if solver == "pyfde_jade":
-            mutation, crossover_rate = None, None
-
         if not solver_function:
             raise ValueError(f"Invalid solver name: {solver}")
 
+        solver_options = dict(maxiter=maxiter, popsize=popsize, tol=tol, **kwargs)
+        if solver != "pyfde_jade":
+            solver_options.update(mutation=mutation, crossover_rate=crossover_rate)
         solution, message = solver_function(
-            parameterBounds,
-            objective_function,
-            maxiter=maxiter,
-            popsize=popsize,
-            mutation=mutation,
-            crossover_rate=crossover_rate,
-            tol=tol,
+            parameterBounds, objective_function, **solver_options
         )
 
         return solution, message
@@ -363,13 +361,27 @@ class EvolutionaryAlgorithm:
         Parameters
         ----------
         maxiter : int, optional
-            Maximum number of iterations for the CMA-ES solver. Default is 1000.
+            CMA-ES internal iteration limit. Default is 1000. Pymoo's
+            reported generation count can exceed this value.
         popsize : int, optional
             Population size for the CMA-ES algorithm. Default is 50.
         sigma : float, optional
-            Initial standard deviation for the sampling distribution. Default is 0.1.
-        **kwargs : dict, optional
-            Additional arguments passed to the `pymoo.CMAES` solver.
+            Initial standard deviation for the sampling distribution. Default is 0.6.
+        verbose : bool, optional
+            Show pymoo's progress output instead of IDDEFIX's progress bar.
+        **kwargs : Any
+            Additional options passed to ``pymoo.algorithms.soo.nonconvex.cmaes.CMAES``.
+            For example, ``tolfun``, ``tolx``, ``maxfevals``, ``restarts``,
+            ``restart_from_best``, and ``seed``. IDDEFIX defaults to three
+            restarts and seed 42; a supplied keyword overrides either default.
+            Use ``popsize`` above for the population size. Pymoo's internal
+            stopping and restarts do not make ``maxiter`` a strict outer
+            generation cap.
+
+            Pymoo CMA-ES options are documented at
+            https://pymoo.org/_modules/pymoo/algorithms/soo/nonconvex/cmaes.html.
+            Other CMA-ES options passed through to its underlying strategy
+            depend on the installed pymoo version.
 
         Returns
         -------
@@ -421,6 +433,7 @@ class EvolutionaryAlgorithm:
         crossover_rate: float = 0.8,
         tol: float = 0.01,
         solver: str = "scipy",
+        **kwargs: Any,
     ) -> None:
         """
         Runs the differential evolution (DE) algorithm to estimate optimal
@@ -435,7 +448,7 @@ class EvolutionaryAlgorithm:
         maxiter : int, optional
             Maximum number of iterations for the DE solver. Default is 2000.
         popsize : int, optional
-            Population size for the DE algorithm. Default is 15.
+            Population multiplier per free parameter. Default is 15.
         mutation : tuple of float, optional
             Range of mutation factors controlling parameter variation.
             Default is (0.1, 0.5).
@@ -450,6 +463,20 @@ class EvolutionaryAlgorithm:
             - `"pyfde"`: Uses `pyfde`, an alternative DE implementation.
             - `"pyfde_jade"`: Uses JADE, a self-adaptive DE variant.
             Default is `"scipy"`.
+        **kwargs : Any
+            Additional options for the selected solver. With ``solver="scipy"``,
+            options such as ``strategy``, ``init``, ``atol``, ``workers``,
+            ``seed``, and ``x0`` are passed to
+            ``scipy.optimize.differential_evolution``. IDDEFIX defaults to
+            ``strategy="rand1bin"``, ``workers=-1``, and ``polish=False``;
+            supplied keywords override these defaults. ``popsize`` is a
+            multiplier of the number of free parameters for SciPy.
+
+            With ``solver="pyfde"`` or ``"pyfde_jade"``, constructor options
+            such as ``seed`` are passed to PyFDE. Batch objectives are not
+            supported by the IDDEFIX objective functions. See the solver docs:
+            https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.differential_evolution.html
+            https://pyfde.readthedocs.io/en/latest/tutorial.html
 
         Notes
         -----
@@ -476,9 +503,7 @@ class EvolutionaryAlgorithm:
             crossover_rate=crossover_rate,
             tol=tol,
             solver=solver,
-            # workers=workers,
-            # vectorized=vectorized,
-            # iteration_convergence=iteration_convergence,
+            **kwargs,
         )
 
         self.evolutionParameters = evolutionParameters
