@@ -84,10 +84,11 @@ class Solvers:
     ) -> tuple[np.ndarray, str]:
         """Run SciPy's ``differential_evolution`` to minimize a function.
 
-        All arguments are detailed in the SciPy documentation:
+        Solver options are detailed in the SciPy documentation:
         https://docs.scipy.org/doc/scipy/reference/generated/
-        scipy.optimize.differential_evolution.html. Setting
-        ``workers=-1`` uses all available CPUs. Default parameters for
+        scipy.optimize.differential_evolution.html. IDDEFIX sets
+        ``workers=-1`` by default; supplied keyword options can override
+        this and the other defaults below. Default parameters for
         the DE algorithm are taken from
         https://www.mdpi.com/2227-7390/9/4/427.
 
@@ -103,15 +104,17 @@ class Solvers:
             crossover_rate: Crossover rate for the differential
                 evolution algorithm.
             tol: Tolerance for convergence.
+            **kwargs: Other SciPy differential_evolution options. The
+                wrapper defaults to ``strategy="rand1bin"``,
+                ``init="latinhypercube"``, ``updating="deferred"``,
+                ``workers=-1``, and ``polish=False``.
 
         Returns:
             Tuple ``(solution, message)`` with the best solution and a
             status message.
         """
         pbar = ProgressBarCallback(maxiter, desc="Differential Evolution")
-        result = differential_evolution(
-            minimization_function,
-            parameterBounds,
+        options = dict(
             popsize=popsize,
             tol=tol,
             maxiter=maxiter,
@@ -123,7 +126,10 @@ class Solvers:
             callback=pbar,
             updating="deferred",
             workers=-1,
-            **kwargs,
+        )
+        options.update(kwargs)
+        result = differential_evolution(
+            minimization_function, parameterBounds, **options
         )
         pbar.close()
 
@@ -149,9 +155,12 @@ class Solvers:
             minimization_function: The function to be minimized.
             maxiter: The maximum number of iterations to run the solver for.
             popsize: The population size for the differential evolution algorithm.
-            mutation: A tuple of two floats representing the mutation factors.
+            mutation: Mutation factor (a tuple is averaged).
             crossover_rate: The crossover rate for the differential evolution algorithm.
             tol: The tolerance for convergence.
+            **kwargs: PyFDE ClassicDE constructor options, such as ``seed``.
+                ``batch=True`` is unsupported by the scalar objective function.
+                See https://pyfde.readthedocs.io/en/latest/tutorial.html.
 
         Returns:
             A tuple containing:
@@ -165,12 +174,15 @@ class Solvers:
                 "Please install the pyfde package to use the pyfde solvers."
             )
 
+        if kwargs.get("batch", False):
+            raise ValueError("batch=True requires a batch objective function")
         solver = ClassicDE(
             minimization_function,
             n_dim=len(parameterBounds),
             n_pop=popsize * len(parameterBounds),
             limits=parameterBounds,
             minimize=True,
+            **kwargs,
         )
         solver.cr, solver.f = crossover_rate, np.mean(np.atleast_1d(mutation))
 
@@ -203,6 +215,9 @@ class Solvers:
             maxiter: The maximum number of iterations to run the solver for.
             popsize: The population size for the differential evolution algorithm.
             tol: The tolerance for convergence.
+            **kwargs: PyFDE JADE constructor options, such as ``seed``.
+                ``batch=True`` is unsupported by the scalar objective function.
+                See https://pyfde.readthedocs.io/en/latest/tutorial.html.
 
         Returns:
             A tuple containing:
@@ -217,12 +232,15 @@ class Solvers:
                 "Please install the pyfde package to use the pyfde solvers."
             )
 
+        if kwargs.get("batch", False):
+            raise ValueError("batch=True requires a batch objective function")
         solver = JADE(
             minimization_function,
             n_dim=len(parameterBounds),
             n_pop=popsize * len(parameterBounds),
             limits=parameterBounds,
             minimize=True,
+            **kwargs,
         )
 
         for i in tqdm(range(maxiter)):
@@ -253,9 +271,13 @@ class Solvers:
             parameterBounds: A list of tuples representing the bounds for each parameter.
             minimization_function: The function to be minimized.
             sigma: The initial standard deviation for the CMA-ES algorithm.
-            maxiter: The maximum number of iterations to run the solver for.
-            popsize: The population size for the differential evolution algorithm.
-            tol: The tolerance for convergence.
+            maxiter: The CMA-ES internal iteration limit; the reported pymoo
+                generation count can exceed it.
+            popsize: CMA-ES population size, passed as pymoo's ``pop_size``.
+            verbose: Show pymoo's progress output.
+            **kwargs: Other pymoo CMAES constructor options, such as
+                ``tolfun``, ``tolx``, ``maxfevals``, ``restarts``, and ``seed``.
+                See https://pymoo.org/_modules/pymoo/algorithms/soo/nonconvex/cmaes.html.
 
         Returns:
             A tuple containing:
@@ -297,23 +319,24 @@ class Solvers:
         # Calculate mean of parameter bounds as starting point
         x0 = np.mean(parameterBounds, axis=1)
 
-        solver = CMAES(
+        cmaes_options = dict(
             x0=x0,
             sigma=sigma,
-            popsize=popsize,
+            pop_size=popsize,
             maxiter=maxiter,
             seed=42,
             restarts=3,
             restart_from_best=True,
-            **kwargs,
         )
+        cmaes_options.update(kwargs)
+        solver = CMAES(**cmaes_options)
 
         if not verbose:
             cb = ProgressBarCallback(maxiter, desc="CMA-ES evolution")
             res = minimize(
                 problem,
                 solver,
-                seed=42,
+                seed=cmaes_options["seed"],
                 callback=cb,
                 save_history=True,
             )
@@ -321,7 +344,7 @@ class Solvers:
             res = minimize(
                 problem,
                 solver,
-                seed=42,
+                seed=cmaes_options["seed"],
                 verbose=True,
                 save_history=True,
             )
