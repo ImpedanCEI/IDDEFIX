@@ -21,10 +21,22 @@ def _model(n_resonators=2, **kwargs):
     )
 
 
-def test_loaded_table_evaluates_resonators_with_optional_uncertainties():
+@pytest.mark.parametrize(
+    ("escape_start", "escape_end"),
+    [
+        pytest.param("", "", id="plain"),
+        pytest.param("\x1b[31m", "\x1b[0m", id="ansi"),
+        pytest.param("␛[31m", "␛[0m", id="visible-ansi"),
+    ],
+)
+def test_loaded_table_evaluates_resonators_with_optional_uncertainties(
+    escape_start, escape_end
+):
     model = _model()
     model.load_resonator_parameters(
-        "Resonator | Rs | Q | fres\n1 | 100 | 3 | 1e9\n2 | 200 ± 20 | 5 | 1.5e9"
+        "Resonator | Rs | Q | fres\n"
+        f"1 | {escape_start}100{escape_end} | 3 | 1e9\n"
+        f"2 | {escape_start}200 ± 20{escape_end} | 5 | 1.5e9"
     )
 
     expected = [100.0, 3.0, 1e9, 200.0, 5.0, 1.5e9]

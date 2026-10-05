@@ -83,6 +83,16 @@ def test_loaded_parameters_can_recompute_uncertainties_outside_fit_bounds():
     assert model.parameterBounds == original_bounds
 
 
+def test_loaded_uncertainties_update_warning_flags(capsys):
+    frequency = np.linspace(0.7e9, 1.3e9, 31)
+    model = _model(frequency, np.zeros_like(frequency))
+
+    model.load_resonator_parameters("1 | 100 ± 30 | 3 ± 0.3 | 1e9 ± 1e8")
+
+    np.testing.assert_array_equal(model.flagged_params, [True, False, False])
+    assert "relative uncertainty >= 0.20" in capsys.readouterr().out
+
+
 @pytest.mark.parametrize("vary", ["R", "Q", "both"])
 def test_impedance_envelope_contains_nominal_with_large_errors(vary):
     frequency = np.linspace(0.5e9, 1.5e9, 101)

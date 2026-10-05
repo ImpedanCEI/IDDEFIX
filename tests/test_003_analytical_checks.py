@@ -91,11 +91,20 @@ class TestAnalyticalImpedance:
     # --- DE -------------------------------------------------------------------
 
     def test_DE_model(self):
-        # Just smoke-checks that training completed
+        # The solver and local minimizer both compute and store uncertainties.
         assert self.DE_model is not None
-        assert hasattr(self.DE_model, "minimizationParameters")
-        assert hasattr(self.DE_model, "evolutionParameters")
-        # Optional: ensure warnings didn't include "error"
+        for parameters, uncertainties in (
+            (
+                self.DE_model.evolutionParameters,
+                self.DE_model.evolutionParametersUncertainties,
+            ),
+            (
+                self.DE_model.minimizationParameters,
+                self.DE_model.minimizationParametersUncertainties,
+            ),
+        ):
+            assert uncertainties.shape == parameters.shape
+            assert np.isfinite(uncertainties).all()
         assert "error" not in str(getattr(self.DE_model, "warning", "")).lower()
 
     def test_abs_DE_impedance(self, debug_plot):
@@ -161,8 +170,18 @@ class TestAnalyticalImpedance:
 
     def test_CMAES_model(self):
         assert self.CMAES_model is not None
-        assert hasattr(self.CMAES_model, "minimizationParameters")
-        assert hasattr(self.CMAES_model, "evolutionParameters")
+        for parameters, uncertainties in (
+            (
+                self.CMAES_model.evolutionParameters,
+                self.CMAES_model.evolutionParametersUncertainties,
+            ),
+            (
+                self.CMAES_model.minimizationParameters,
+                self.CMAES_model.minimizationParametersUncertainties,
+            ),
+        ):
+            assert uncertainties.shape == parameters.shape
+            assert np.isfinite(uncertainties).all()
         assert "error" not in str(getattr(self.CMAES_model, "warning", "")).lower()
 
     def test_abs_CMAES_impedance(self, debug_plot):
