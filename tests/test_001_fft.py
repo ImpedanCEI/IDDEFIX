@@ -1,3 +1,8 @@
+"""FFT workflows for converting wake data into impedance spectra.
+
+These tests compare reconstructed wakes and impedances with reference data.
+"""
+
 import sys
 from io import StringIO
 

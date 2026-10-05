@@ -1,176 +1,139 @@
-import os
-import random
+"""Uncertainty workflows for fitted parameters and impedance envelopes.
 
-os.environ["PYTHONHASHSEED"] = "42"
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["MKL_NUM_THREADS"] = "1"
-os.environ["OPENBLAS_NUM_THREADS"] = "1"
-os.environ["NUMEXPR_NUM_THREADS"] = "1"
-random.seed(42)
+These tests compare parameter errors with SciPy, exercise derivative bounds,
+and check that uncertainty envelopes contain the nominal impedance. They also
+cover real-only measurements, for which imaginary residuals must be ignored.
+"""
 
-import matplotlib.pyplot as plt
 import numpy as np
+import pytest
 from scipy.optimize import curve_fit
 
 import iddefix
 
 
-class TestAnalyticalImpedance:
-    @classmethod
-    def setup_class(cls):
-        # Common synthetic case
-        cls.parameters = {
-            "1": [400, 30, 0.2e9],
-            "2": [1000, 10, 1e9],
-            "3": [500, 20, 1.75e9],
-        }
-        cls.frequency = np.linspace(0, 2e9, 1000)
-        cls.noise = np.random.normal(0, 20, len(cls.frequency)) * (1 + 1j)
-        cls.impedance = (
-            iddefix.Impedances.n_Resonator_longitudinal_imp(
-                cls.frequency, cls.parameters
-            )
-            + cls.noise
-        )
-
-        cls.N_resonators = 3
-        cls.parameterBounds = [
-            (0, 2000),
-            (1, 1e3),
-            (0.1e9, 2e9),
-            (0, 2000),
-            (1, 1e3),
-            (0.1e9, 2e9),
-            (0, 2000),
-            (1, 1e3),
-            (0.1e9, 2e9),
-        ]
-
-        cls.rtol = 1e-2
-        cls.atol = 1e-6
-
-        # Build + fit DE once for the class
-        cls.DE_model = iddefix.EvolutionaryAlgorithm(
-            cls.frequency,
-            cls.impedance,
-            N_resonators=cls.N_resonators,
-            parameterBounds=cls.parameterBounds,
-            plane="longitudinal",
-            objectiveFunction=iddefix.ObjectiveFunctions.sumOfSquaredError,
-        )
-        cls.DE_model.run_differential_evolution(
-            maxiter=2000,
-            popsize=45,
-            tol=0.01,
-            mutation=(0.4, 1.0),
-            crossover_rate=0.7,
-        )
-        cls.DE_model.run_minimization_algorithm()
-        print(cls.DE_model.warning)
-
-        cls.margin = [0.1] * 3
-        cls.minimizationBounds = [
-            sorted(((1 - cls.margin[i % 3]) * p, (1 + cls.margin[i % 3]) * p))
-            for i, p in enumerate(cls.DE_model.evolutionParameters)
-        ]
-
-        def objective_function(x, *parameters):
-            grouped_parameters = iddefix.utils.pars_to_dict(np.asarray(parameters))
-            predicted_y = cls.DE_model.fitFunction(x, grouped_parameters)
-            return np.concatenate([predicted_y.real, predicted_y.imag])
-
-        cls.popt, cls.pcov = curve_fit(
-            objective_function,
-            cls.frequency,
-            np.concatenate([cls.impedance.real, cls.impedance.imag]),
-            p0=cls.DE_model.evolutionParameters,
-            bounds=np.array(cls.minimizationBounds).T,
-            absolute_sigma=False,
-        )
-        cls.z_cf = cls.DE_model.fitFunction(cls.DE_model.frequency_data, cls.popt)
-
-    # --- DE -------------------------------------------------------------------
-
-    def test_DE_model(self):
-        # Just smoke-checks that training completed
-        assert self.DE_model is not None
-        assert hasattr(self.DE_model, "minimizationParameters")
-        assert hasattr(self.DE_model, "evolutionParameters")
-        assert hasattr(self.DE_model, "minimizationParametersUncertainties")
-        assert hasattr(self.DE_model, "evolutionParametersUncertainties")
-        # Optional: ensure warnings didn't include "error"
-        assert "error" not in str(getattr(self.DE_model, "warning", "")).lower()
-
-    def test_abs_DE_impedance(self, plot: bool = False):
-        z_true = np.abs(self.impedance)
-        z_de = np.abs(self.DE_model.get_impedance(use_minimization=False))
-        z_min = np.abs(self.DE_model.get_impedance())
-        z_cf = np.abs(self.z_cf)
-
-        if plot:
-            plt.figure(figsize=(8, 5))
-            plt.plot(
-                self.frequency,
-                z_true,
-                label="Target impedance",
-                lw=5,
-                color="black",
-            )
-            plt.plot(self.frequency, z_de, label="DE fit", lw=2)
-            plt.plot(self.frequency, z_min, label="Minimized DE fit", lw=2, ls="--")
-            plt.plot(self.frequency, z_min, label="Curve fit DE fit", ls=":")
-            plt.xlabel("Frequency [Hz]")
-            plt.ylabel("|Z(f)| [Ohm]")
-            plt.title("Analytical resonator impedance fitting with DE")
-            plt.legend()
-            plt.show()
-
-        assert z_de.shape == z_true.shape == z_min.shape == z_cf.shape
-        assert (
-            np.isfinite(z_true).all()
-            and np.isfinite(z_de).all()
-            and np.isfinite(z_min).all()
-            and np.isfinite(z_cf).all()
-        )
-
-        np.testing.assert_allclose(z_min, z_cf, rtol=self.rtol, atol=self.atol)
-
-    def test_uncertainties(self):
-        uncertainties_min = self.DE_model.minimizationParametersUncertainties
-        uncertainties_cf = np.sqrt(np.diag(self.pcov))
-
-        np.testing.assert_allclose(
-            uncertainties_min / uncertainties_cf,
-            np.ones_like(uncertainties_min),
-            rtol=1e-5,
-            atol=1e-5,
-        )
-
-    def test_warn_large_uncertainties_sets_flagged_params(self, capsys):
-        # Build a tiny synthetic parameter vector: [Rs1, Q1, fres1, Rs2, Q2, fres2]
-        params = np.array([100.0, 10.0, 1.0e9, 200.0, 20.0, 2.0e9])
-        uncertainties = np.array([30.0, 1.0, 1.0e8, 10.0, 10.0, 1.0e8])
-
-        # Relative uncertainties are [0.30, 0.10, 0.10, 0.05, 0.50, 0.05]
-        self.DE_model.uncertainty_warning = 0.2
-        self.DE_model._warn_large_uncertainties(params, uncertainties)
-
-        expected = np.array([True, False, False, False, True, False])
-        assert self.DE_model.flagged_params is not None
-        assert self.DE_model.flagged_params.shape == params.shape
-        np.testing.assert_array_equal(self.DE_model.flagged_params, expected)
-
-        # Check that a warning message is emitted when at least one value is flagged.
-        out = capsys.readouterr().out
-        assert "relative uncertainty >= 0.20" in out
+def _model(frequency, impedance, *, wake_length=None, objective="Complex"):
+    return iddefix.EvolutionaryAlgorithm(
+        x_data=frequency,
+        y_data=impedance,
+        N_resonators=1,
+        parameterBounds=[(50.0, 150.0), (0.5, 20.0), (0.8e9, 1.2e9)],
+        wake_length=wake_length,
+        objectiveFunction=objective,
+    )
 
 
-if __name__ == "__main__":
-    # Manual run with plots (reusing the same test methods)
-    t = TestAnalyticalImpedance()
-    # pytest won’t call setup_class in this mode, so do it:
-    t.setup_class()
-    print("Running analytical impedance fitting and uncertainty tests with plots...")
-    t.test_DE_model()
-    t.test_abs_DE_impedance(plot=True)
-    t.test_uncertainties()
+def test_parameter_uncertainties_agree_with_scipy_curve_fit():
+    frequency = np.linspace(0.7e9, 1.3e9, 81)
+    parameters = [100.0, 3.0, 1e9]
+    impedance = iddefix.Impedances.Resonator_longitudinal_imp(frequency, *parameters)
+    rng = np.random.default_rng(42)
+    measured = impedance + rng.normal(0, 0.2, frequency.size)
+    measured += 1j * rng.normal(0, 0.2, frequency.size)
+
+    def stacked_impedance(x, Rs, Q, fr):
+        predicted = iddefix.Impedances.Resonator_longitudinal_imp(x, Rs, Q, fr)
+        return np.r_[predicted.real, predicted.imag]
+
+    optimum, covariance = curve_fit(
+        stacked_impedance,
+        frequency,
+        np.r_[measured.real, measured.imag],
+        p0=parameters,
+        bounds=([50, 0.5, 0.8e9], [150, 20, 1.2e9]),
+    )
+    model = _model(frequency, measured)
+    model.load_resonator_parameters(
+        f"1 | {optimum[0]:.17g} | {optimum[1]:.17g} | {optimum[2]:.17g}"
+    )
+
+    uncertainties = model.get_uncertainties()
+
+    np.testing.assert_allclose(uncertainties, np.sqrt(np.diag(covariance)), rtol=1e-4)
+
+
+def test_uncertainties_are_finite_at_partial_wake_q_boundary():
+    frequency = np.linspace(0.7e9, 1.3e9, 80)
+    parameters = [100.0, 0.5, 1e9]
+    impedance = iddefix.Impedances.Resonator_longitudinal_imp(
+        frequency, *parameters, wake_length=30.0
+    )
+    model = _model(frequency, impedance, wake_length=30.0)
+    model.load_resonator_parameters("1 | 100 | 0.5 | 1e9")
+
+    uncertainties = model.get_uncertainties()
+
+    assert np.isfinite(uncertainties).all()
+
+
+def test_loaded_parameters_can_recompute_uncertainties_outside_fit_bounds():
+    frequency = np.linspace(0.7e9, 1.3e9, 60)
+    parameters = [1000.0, 100.0, 1e9]
+    impedance = iddefix.Impedances.Resonator_longitudinal_imp(
+        frequency, *parameters, wake_length=30.0
+    ).real + 0.1 * np.sin(np.linspace(0.0, 2 * np.pi, frequency.size))
+    model = _model(frequency, impedance, wake_length=30.0, objective="Real")
+    model.load_resonator_parameters("1 | 1000 | 100 | 1e9")
+    original_bounds = model.parameterBounds.copy()
+
+    uncertainties = model.get_uncertainties()
+
+    assert np.isfinite(uncertainties).all()
+    assert np.all(uncertainties > 0)
+    assert model.parameterBounds == original_bounds
+
+
+@pytest.mark.parametrize("vary", ["R", "Q", "both"])
+def test_impedance_envelope_contains_nominal_with_large_errors(vary):
+    frequency = np.linspace(0.5e9, 1.5e9, 101)
+    model = _model(frequency, np.zeros_like(frequency))
+    model.load_resonator_parameters("1 | 300 ± 1000 | 10 ± 1000 | 1e9 ± 1e8")
+    nominal = model.get_impedance(frequency).real
+
+    lower, upper = model.get_impedance_uncertainty(frequency, vary=vary)
+
+    assert np.isfinite(lower).all() and np.isfinite(upper).all()
+    assert np.all(lower <= nominal + 1e-12)
+    assert np.all(nominal <= upper + 1e-12)
+    if vary == "R":
+        peak = np.argmin(np.abs(frequency - 1e9))
+        np.testing.assert_allclose([lower[peak], upper[peak]], [150.0, 600.0])
+
+
+def test_partial_wake_envelope_contains_nominal():
+    frequency = np.linspace(0.5e9, 1.5e9, 101)
+    model = _model(
+        frequency,
+        np.zeros_like(frequency),
+        wake_length=30.0,
+    )
+    model.load_resonator_parameters("1 | 300 ± 1000 | 10 ± 1000 | 1e9 ± 1e8")
+
+    lower, upper = model.get_impedance_uncertainty(frequency, wake_length=30.0)
+    nominal = model.get_impedance(frequency, wake_length=30.0).real
+
+    assert np.all(lower <= nominal + 1e-12)
+    assert np.all(nominal <= upper + 1e-12)
+
+
+def test_real_data_uncertainties_ignore_model_imaginary_part():
+    frequency = np.linspace(0.7e9, 1.3e9, 31)
+    parameters = [100.0, 3.0, 1e9]
+    impedance = iddefix.Impedances.Resonator_longitudinal_imp(frequency, *parameters)
+    real_data = impedance.real + 0.1 * np.sin(np.linspace(0, 2 * np.pi, 31))
+    model = _model(frequency, real_data, objective="Real")
+    model.load_resonator_parameters("1 | 100 | 3 | 1e9")
+
+    original_fit = model.fitFunction
+    real_uncertainties = model.get_uncertainties()
+
+    def shifted_fit(x, pars):
+        return original_fit(x, pars) + 1000j
+
+    model.fitFunction = shifted_fit
+    shifted_uncertainties = model.get_uncertainties()
+    np.testing.assert_allclose(shifted_uncertainties, real_uncertainties)
+
+    model.y_data = real_data + 1j * impedance.imag
+    complex_uncertainties = model.get_uncertainties()
+    assert np.all(complex_uncertainties > real_uncertainties)

@@ -1,4 +1,7 @@
-"""Regression tests for automatic and interactive SmartBounds workflows."""
+"""Automatic and interactive workflows for choosing resonator fit bounds.
+
+The tests cover peak detection, width interpolation, and user selection.
+"""
 
 import asyncio
 from contextlib import nullcontext
