@@ -1,3 +1,8 @@
+"""Wake deconvolution workflows and their sensitivity to sampling choices.
+
+The tests use SPS and optional WAKIS data to check spectral reconstruction.
+"""
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
