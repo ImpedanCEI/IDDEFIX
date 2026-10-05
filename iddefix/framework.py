@@ -1079,9 +1079,9 @@ class EvolutionaryAlgorithm:
         elif self.plane == "transverse" and self.N_resonators > 1:
             wake_data = wak.n_Resonator_transverse_wake(time_data, pars)
         elif self.plane == "longitudinal" and self.N_resonators == 1:
-            wake_data = wak.Resonator_longitudinal_wake(time_data, pars)
+            wake_data = wak.Resonator_longitudinal_wake(time_data, *pars)
         elif self.plane == "transverse" and self.N_resonators == 1:
-            wake_data = wak.Resonator_transverse_wake(time_data, pars)
+            wake_data = wak.Resonator_transverse_wake(time_data, *pars)
 
         if self.wake_data is None:
             self.wake_data = wake_data
@@ -1127,11 +1127,11 @@ class EvolutionaryAlgorithm:
             )
         elif self.plane == "longitudinal" and self.N_resonators == 1:
             wake_potential_data = wak.Resonator_longitudinal_wake_potential(
-                time_data, pars, sigma=sigma
+                time_data, *pars, sigma=sigma
             )
         elif self.plane == "transverse" and self.N_resonators == 1:
             wake_potential_data = wak.Resonator_transverse_wake_potential(
-                time_data, pars, sigma=sigma
+                time_data, *pars, sigma=sigma
             )
 
         return wake_potential_data
