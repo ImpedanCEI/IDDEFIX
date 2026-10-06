@@ -1,7 +1,11 @@
 Theory
 ===
 
-## Resonator formalism
+```{contents}
+:depth: 3
+```
+
+## Longitudinal Resonator formalism
 
 
 The longitudinal impedance of a purely resonant structure can be modeled by an equivalent
@@ -9,42 +13,298 @@ parallel RLC (Resistor, Inductor, Capacitor) resonator circuit.
 
 ### Impedance resonator formula
 
-#### Single:
-\begin{equation}
-        Z_{\parallel}(\omega, R_s, Q, \omega_r) = \frac{R_S}{1+iQ(\frac{\omega_r}{\omega}-\frac{\omega}{\omega_r})}
-\end{equation}
+The longitudinal shunt impedance $R_s$ and impedance $Z_\parallel$ are measured
+in ohms. The fully decayed formula supports $Q>0$, while the finite formula
+currently supports $Q\geq0.5$. For a fully decayed wake, the single-resonator
+impedance is
 
+$$
+Z_{\parallel}(\omega)=
+\frac{R_s}{1+iQ\left(\frac{\omega}{\omega_r}-\frac{\omega_r}{\omega}\right)}.
+$$
 
+For a wake truncated after the length $L$, define
 
-#### Multiple:
+$$
+B=\frac{\omega_r}{2Q}, \qquad
+C=\omega_r\sqrt{1-\frac{1}{4Q^2}}, \qquad
+T=\frac{L}{c}, \qquad
+p=B+i\omega.
+$$
 
-\begin{equation}
- \bar Z_{\parallel}(\omega) = \sum^{N}_{n=1}Z_{\parallel}(\omega, R_{s,n}, Q_n, \omega_{r,n})
-\end{equation}
+For $Q\geq0.5$, its finite Fourier transform is
+
+$$
+Z_{\parallel,T}(\omega)=
+\frac{R_s\omega_r}{Q}
+\frac{i\omega+e^{-pT}\left[-i\omega\cos(CT)
++\left(C^2+Bp\right)\frac{\sin(CT)}{C}\right]}
+{C^2+p^2}.
+$$
+
+At $Q=0.5$, $C=0$ and the finite ratio is evaluated using
+
+$$
+\lim_{C\to0}\frac{\sin(CT)}{C}=T.
+$$
+
+Unlike the fully decayed impedance, the finite transform can be nonzero at
+$\omega=0$.
+
+For multiple resonators, the contributions add linearly:
+
+$$
+\bar Z_{\parallel}(\omega)=
+\sum^{N}_{n=1}Z_{\parallel}(\omega,R_{s,n},Q_n,\omega_{r,n}).
+$$
 
 Both found in the `Impedances` class as the functions `Resonator_longitudinal_imp` and `n_Resonator_longitudinal_imp`.
 
-The three key parameters to characterize a resonator’s impedance: shunt resistance ($R_s$), quality factor ($Q$), and resonant frequency ($f_r = ω_r/2π$ ).
+The three parameters are the shunt impedance $R_s$, quality factor $Q$, and
+resonant frequency $f_r=\omega_r/(2\pi)$.
 
-Equivialently, the wake function can be described by these three parameters.
+Equivalently, the wake function can be described by these three parameters.
 
 ### Wake function resonator formula
 
+The longitudinal wake function supports all $Q>0$ through underdamped,
+critically damped, and overdamped branches. The expression below shows the
+underdamped branch, $Q>0.5$.
+
 #### Single:
 
-\begin{equation}
-W_{||}(t)=R_s \frac{\omega_r}{Q} e^{-\omega_r \frac{t}{2Q}} [\text{cos}(\bar \omega_r t)- \frac{\omega_r}{2Q \bar \omega_r}\text{sin}(\bar \omega_r t)],\qquad t=\mathrm{s/c}
-\end{equation}
+$$
+w_{\parallel}(t)=R_s\frac{\omega_r}{Q}e^{-Bt}
+\left[\cos(Ct)-\frac{B}{C}\sin(Ct)\right].
+$$
 
 #### Multiple:
 
-\begin{equation}
-\bar W_{\parallel}(s) = \sum^{N}_{n=1}W_{\parallel}(s, R_{s,n}, Q_n, \omega_{r,n})
-\end{equation}
+$$
+\bar w_{\parallel}(t)=
+\sum^{N}_{n=1}w_{\parallel}(t,R_{s,n},Q_n,\omega_{r,n}).
+$$
 
 Both found in the `Wakes` class as the functions `Resonator_longitudinal_wake` and `n_Resonator_longitudinal_wake`.
 
-Transverse functions are available as `Resonator_transverse_wake`, `n_Resonator_transverse_wake`, `Resonator_transverse_imp` and `n_Resonator_transverse_imp`.
+### Wake potential resonator formula
+
+The analytical longitudinal wake potential for a Gaussian bunch currently
+supports the underdamped range $Q>0.5$. Let $\sigma$ be the RMS bunch length in
+seconds and define the auxiliary factor
+
+$$
+\mathcal{A}_\sigma(t)=e^{i(Ct-BC\sigma^2)}
+\operatorname{erfc}\left(
+-\frac{t-B\sigma^2+iC\sigma^2}{\sqrt{2}\sigma}
+\right).
+$$
+
+The single-resonator wake potential is
+
+$$
+W_{\parallel}(t)=
+R_sB\,e^{(B^2-C^2)\sigma^2/2-Bt}
+\left[
+\operatorname{Re}\mathcal{A}_\sigma(t)
+-\frac{B}{C}\operatorname{Im}\mathcal{A}_\sigma(t)
+\right].
+$$
+
+For multiple resonators, the contributions add linearly:
+
+$$
+\bar W_{\parallel}(t)=
+\sum^{N}_{n=1}W_{\parallel}(t,R_{s,n},Q_n,\omega_{r,n},\sigma).
+$$
+
+These formulas are implemented by `Resonator_longitudinal_wake_potential` and
+`n_Resonator_longitudinal_wake_potential`.
+
+## Transverse Resonator formalism
+
+The transverse shunt impedance $R_s$ and impedance $Z_\perp$ are measured in
+ohms per metre. The fully decayed formula supports $Q>0$, while the finite
+formula currently supports $Q\geq0.5$. For a fully decayed wake, the
+single-resonator impedance is
+
+$$
+Z_\perp(\omega)=
+\frac{\omega_r}{\omega}
+\frac{R_s}{1+iQ\left(\frac{\omega}{\omega_r}-\frac{\omega_r}{\omega}\right)}.
+$$
+
+Using the definitions of $B$, $C$, $T$, and $p$ above, the finite transverse
+impedance for $Q\geq0.5$ is
+
+$$
+Z_{\perp,T}(\omega)=
+\frac{iR_s\omega_r^2}{Q\left(C^2+p^2\right)}
+\left[
+1-e^{-pT}\left(\cos(CT)+p\frac{\sin(CT)}{C}\right)
+\right].
+$$
+
+At $Q=0.5$, the same limit $\sin(CT)/C\to T$ keeps this expression finite.
+IDDEFIX defines the transverse impedance as zero at $\omega=0$. For multiple
+resonators,
+
+$$
+\bar Z_\perp(\omega)=
+\sum^{N}_{n=1}Z_\perp(\omega,R_{s,n},Q_n,\omega_{r,n}).
+$$
+
+These formulas are implemented by `Resonator_transverse_imp` and
+`n_Resonator_transverse_imp`.
+
+### Wake function resonator formula
+
+The transverse wake function supports all $Q>0$ through underdamped,
+critically damped, and overdamped branches. For the underdamped range $Q>0.5$,
+the single-resonator expression is
+
+$$
+w_\perp(t)=
+R_s\frac{\omega_r^2}{QC}e^{-Bt}\sin(Ct).
+$$
+
+For multiple resonators,
+
+$$
+\bar w_\perp(t)=
+\sum^{N}_{n=1}w_\perp(t,R_{s,n},Q_n,\omega_{r,n}).
+$$
+
+These formulas are implemented by `Resonator_transverse_wake` and
+`n_Resonator_transverse_wake`.
+
+### Wake potential resonator formula
+
+The analytical transverse wake potential for a Gaussian bunch currently
+supports the underdamped range $Q>0.5$. Using the same auxiliary factor
+$\mathcal{A}_\sigma(t)$ defined above, the single-resonator wake potential is
+
+$$
+W_\perp(t)=
+R_s\frac{\omega_rB}{C}
+e^{(B^2-C^2)\sigma^2/2-Bt}
+\operatorname{Im}\mathcal{A}_\sigma(t).
+$$
+
+For multiple resonators,
+
+$$
+\bar W_\perp(t)=
+\sum^{N}_{n=1}W_\perp(t,R_{s,n},Q_n,\omega_{r,n},\sigma).
+$$
+
+These formulas are implemented by `Resonator_transverse_wake_potential` and
+`n_Resonator_transverse_wake_potential`.
+
+## Relations between wake, wake potential, and impedance
+
+Let $u$ denote either the longitudinal plane $\parallel$ or the transverse
+plane $\perp$, and define
+
+$$
+\kappa_\parallel=1, \qquad \kappa_\perp=i.
+$$
+
+```{important}
+**Conventions when exchanging wake data**
+
+IDDEFIX uses $t>0$ behind the source, lowercase $w$ for the point-charge
+wake function, and uppercase $W$ for the bunch wake potential. Its
+longitudinal wake is positive for energy loss, while a positive transverse
+wake gives a positive kick for a positive source offset. Check all three
+conventions before importing data:
+
+- **Xsuite/Xwakes:** the resonator signs and the time-domain convention agree
+  with IDDEFIX. Xwakes also provides the beam coordinate $\zeta$, for which
+  $t=-\zeta/(\beta c)$; trailing particles therefore have $\zeta<0$.
+- **PyHEADTAIL:** trailing particles have $\Delta t<0$. With
+  $t=-\Delta t$, the conversion is
+  $w_\parallel^{\mathrm{IDDEFIX}}(t)=w_\parallel^{\mathrm{PyHEADTAIL}}(-t)$
+  and
+  $w_\perp^{\mathrm{IDDEFIX}}(t)=-w_\perp^{\mathrm{PyHEADTAIL}}(-t)$.
+- **CST:** exported wake data are bunch wake potentials $W$, so they must be
+  deconvolved to recover a point-charge impedance. Check the sign and the
+  transverse offset normalization recorded by the selected CST result before
+  importing it.
+- **Wakis:** wake data are also bunch wake potentials. Wakis uses $s>0$
+  behind the source and
+  $Z_\parallel=-\widetilde W_\parallel/(v\widetilde\lambda)$,
+  whereas IDDEFIX uses the positive longitudinal transform. Therefore,
+  negate a Wakis longitudinal wake potential before using the IDDEFIX
+  deconvolution convention. Both use the factor $i$ for the transverse
+  impedance. Wakis `Zx` and `Zy` describe the simulated source offset in
+  ohms; divide a dipolar result by that offset before fitting it in IDDEFIX
+  as an impedance in ohms per metre. The same normalization is required for
+  an offset-dependent CST transverse result.
+
+See the [Xwakes wakefield definitions](https://xsuite.readthedocs.io/en/doc-theme/xwakes.html#wakefield-definitions),
+[PyHEADTAIL wake implementations](https://github.com/PyCOMPLETE/PyHEADTAIL/blob/539408fceaf250cea5f4c838bcce5035ba19ed80/PyHEADTAIL/impedances/wakes.py),
+[CST Wakefield Solver example](https://indico.cern.ch/event/1466612/contributions/6449147/attachments/3090656/5474622/CST%20tutorial%20SPS%20wire%20scanners.pdf),
+and the [Wakis physics guide](https://wakis.readthedocs.io/physicsguide.html#from-wake-to-impedance)
+for the native definitions.
+```
+
+With $\omega=2\pi f$, the IDDEFIX convention relates impedance and wake through
+
+$$
+Z_u(\omega)=
+\kappa_u\mathcal{F}\!\left\{w_u\right\}(\omega)=
+\kappa_u\int_{-\infty}^{\infty}w_u(t)e^{-i\omega t}\,dt.
+$$
+
+The Fourier transform is evaluated numerically by `compute_fft`; the transverse
+convention requires the additional factor $i$. The transverse relation applies
+at nonzero frequency because IDDEFIX defines $Z_\perp(0)=0$. Since the wakes
+are causal, a wake truncated at $T$ gives
+
+$$
+Z_{u,T}(\omega)=
+\kappa_u\int_0^T w_u(t)e^{-i\omega t}\,dt.
+$$
+
+For either plane, the wake potential is the convolution of the wake function
+with the normalized Gaussian bunch profile
+
+$$
+\lambda_\sigma(t)=
+\frac{1}{\sqrt{2\pi}\sigma}
+e^{-t^2/(2\sigma^2)},
+$$
+
+so that
+
+$$
+W_u(t)=
+\left(w_u*\lambda_\sigma\right)(t)=
+\int_{-\infty}^{\infty}
+w_u(t-\tau)\lambda_\sigma(\tau)\,d\tau.
+$$
+
+This convolution is implemented by `compute_convolution`. The convolution
+theorem gives
+
+$$
+\mathcal{F}\!\left\{W_u\right\}(\omega)=
+\frac{Z_u(\omega)}{\kappa_u}
+\mathcal{F}\!\left\{\lambda_\sigma\right\}(\omega).
+$$
+
+Consequently, deconvolution of a wake potential recovers the impedance through
+
+$$
+Z_u(\omega)=
+\kappa_u
+\frac{\mathcal{F}\!\left\{W_u\right\}(\omega)}
+{\mathcal{F}\!\left\{\lambda_\sigma\right\}(\omega)}.
+$$
+
+This deconvolution is implemented by `compute_deconvolution`; the transverse
+result again requires the factor $i$.
 
 ## Fitting Resonators with Differential Evolution
 
