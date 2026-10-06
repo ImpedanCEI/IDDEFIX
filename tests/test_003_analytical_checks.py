@@ -328,6 +328,11 @@ def _wake_fft_and_analytical_impedance(plane, count, finite):
         full = model.get_impedance(frequency)
         finite_effect = np.linalg.norm(analytical[useful_band] - full[useful_band])
         assert finite_effect / np.linalg.norm(full[useful_band]) > 0.1
+        if plane == "longitudinal":
+            # The DC value = area of the truncated wake is generally nonzero.
+            # (unless it is truncated at n\pi exactly)
+            assert analytical[0] != 0
+            np.testing.assert_allclose(fft_impedance[0], analytical[0], rtol=1e-5)
 
     return (
         frequency[useful_band],
