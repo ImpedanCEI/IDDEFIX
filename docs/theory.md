@@ -321,7 +321,7 @@ $$
         \textbf{x}_i = [x_{i,1},x_{i,2},...,x_{i,D}], \qquad i=1,2,...,N
 $$
 
-where $D$ is the dimensionality of the roblem. Each variable $x_{i,j}$ is to be initialized by some stochastic process like a uniform distribution or by some sampling that tries to maximize coverage of the available parameter space. `SciPy` uses Latin Hypercube sampling to maximize coverage and avoid clustering. In either case, boundary constraints of the variable are needed:
+where $D$ is the dimensionality of the problem. Each variable $x_{i,j}$ is to be initialized by some stochastic process like a uniform distribution or by some sampling that tries to maximize coverage of the available parameter space. `SciPy` uses Latin Hypercube sampling to maximize coverage and avoid clustering. In either case, boundary constraints of the variable are needed:
 
 $$
         x_{j}^{min} \leq x_{j}\leq x_{j}^{max}
