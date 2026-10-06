@@ -491,11 +491,11 @@ class Impedances:
             (https://cds.cern.ch/record/192684/files/198812060.pdf) and can
             be used for any real positive value of `Q`.
 
-            The partially decayed formula uses the formula derived in
-            (Joly, S. thesis)
+            The partially decayed formula is the finite Fourier transform of
+            the longitudinal wake for `Q >= 0.5`.
 
             The fully decayed formula sets the impedance value to zero at zero
-            frequency.
+            frequency. A finite wake can have a nonzero value there.
 
             Units for this formula are:
                 Rs: Ohm
@@ -550,7 +550,7 @@ class Impedances:
                     "decayed longitudinal impedance."
                 )
 
-            # New formula continuous at Q=>0.5
+            # The formula remains finite at the critical value Q = 0.5.
             B = omega_r / 2 / Q
             C = omega_r * np.sqrt(1 - 1 / 4 / Q**2)
             T = wake_length / c
