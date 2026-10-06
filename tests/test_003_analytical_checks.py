@@ -283,12 +283,10 @@ def _assert_complex_spectrum_matches(actual, reference, tolerance=1e-3):
 
 
 def _fft_of_wake(times, wake, plane):
-    # compute_fft integrates over distance. Divide by c for a time-domain
-    # transform, then restore the phase of midpoint samples at t=dt/2.
+    # compute_fft integrates over distance. Divide by c for a time-domain transform.
     frequency, impedance = iddefix.compute_fft(
         times, wake / c_light, fmax=1.9e9, samples=190
     )
-    impedance *= np.exp(-1j * np.pi * frequency * (times[1] - times[0]))
     if plane == "transverse":
         impedance *= 1j
     return frequency, impedance

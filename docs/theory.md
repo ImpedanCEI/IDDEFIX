@@ -210,6 +210,91 @@ $$
 \kappa_\parallel=1, \qquad \kappa_\perp=i.
 $$
 
+### Wake and impedance
+
+With $\omega=2\pi f$, the IDDEFIX convention relates impedance and wake through
+
+$$
+Z_u(\omega)=
+\kappa_u\mathcal{F}\!\left\{w_u\right\}(\omega)=
+\kappa_u\int_{-\infty}^{\infty}w_u(t)e^{-i\omega t}\,dt.
+$$
+
+#### Numerical FFT
+
+The Fourier transform is evaluated numerically by `compute_fft`. For evenly
+spaced samples $t_n=t_0+n\Delta t$, it computes
+
+$$
+Z^{\mathrm{FFT}}(f_k)=
+\Delta s\,e^{-2\pi i f_k t_0}
+\sum_{n=0}^{N-1}x_n e^{-2\pi i f_k n\Delta t},
+\qquad \Delta s=c\Delta t.
+$$
+
+The factor $\Delta s$ normalizes NumPy's unnormalized FFT as an integral over
+distance. Therefore, when $x_n$ contains a wake sampled as a function of time,
+pass $x_n=w_u(t_n)/c$ to approximate the time integral above. The phase factor
+$e^{-2\pi i f_k t_0}$ restores the physical origin of the samples because
+`numpy.fft.fft` treats the first array element as if it occurred at $t=0$.
+
+#### Finite wakes
+
+The transverse convention requires the additional factor $i$. The transverse
+relation applies at nonzero frequency because IDDEFIX defines $Z_\perp(0)=0$.
+Since the wakes are causal, a wake truncated at $T$ gives
+
+$$
+Z_{u,T}(\omega)=
+\kappa_u\int_0^T w_u(t)e^{-i\omega t}\,dt.
+$$
+
+### Wake potential and convolution
+
+For either plane, the wake potential is the convolution of the wake function
+with the normalized Gaussian bunch profile
+
+$$
+\lambda_\sigma(t)=
+\frac{1}{\sqrt{2\pi}\sigma}
+e^{-t^2/(2\sigma^2)},
+$$
+
+so that
+
+$$
+W_u(t)=
+\left(w_u*\lambda_\sigma\right)(t)=
+\int_{-\infty}^{\infty}
+w_u(t-\tau)\lambda_\sigma(\tau)\,d\tau.
+$$
+
+This convolution is implemented by `compute_convolution`. The convolution
+theorem gives
+
+$$
+\mathcal{F}\!\left\{W_u\right\}(\omega)=
+\frac{Z_u(\omega)}{\kappa_u}
+\mathcal{F}\!\left\{\lambda_\sigma\right\}(\omega).
+$$
+
+### Impedance from wake-potential deconvolution
+
+Consequently, deconvolution of a wake potential recovers the impedance through
+
+$$
+Z_u(\omega)=
+\kappa_u
+\frac{\mathcal{F}\!\left\{W_u\right\}(\omega)}
+{\mathcal{F}\!\left\{\lambda_\sigma\right\}(\omega)}.
+$$
+
+Because `compute_deconvolution` builds a Gaussian profile containing a `1/c`
+factor, pass `W_u / c` to recover the normalization above; multiply the
+transverse result by $i$.
+
+### Sign and coordinate conventions
+
 ```{important}
 **Conventions when exchanging wake data**
 
@@ -248,64 +333,6 @@ See the [Xwakes wakefield definitions](https://xsuite.readthedocs.io/en/doc-them
 and the [Wakis physics guide](https://wakis.readthedocs.io/physicsguide.html#from-wake-to-impedance)
 for the native definitions.
 ```
-
-With $\omega=2\pi f$, the IDDEFIX convention relates impedance and wake through
-
-$$
-Z_u(\omega)=
-\kappa_u\mathcal{F}\!\left\{w_u\right\}(\omega)=
-\kappa_u\int_{-\infty}^{\infty}w_u(t)e^{-i\omega t}\,dt.
-$$
-
-The Fourier transform is evaluated numerically by `compute_fft`; the transverse
-convention requires the additional factor $i$. The transverse relation applies
-at nonzero frequency because IDDEFIX defines $Z_\perp(0)=0$. Since the wakes
-are causal, a wake truncated at $T$ gives
-
-$$
-Z_{u,T}(\omega)=
-\kappa_u\int_0^T w_u(t)e^{-i\omega t}\,dt.
-$$
-
-For either plane, the wake potential is the convolution of the wake function
-with the normalized Gaussian bunch profile
-
-$$
-\lambda_\sigma(t)=
-\frac{1}{\sqrt{2\pi}\sigma}
-e^{-t^2/(2\sigma^2)},
-$$
-
-so that
-
-$$
-W_u(t)=
-\left(w_u*\lambda_\sigma\right)(t)=
-\int_{-\infty}^{\infty}
-w_u(t-\tau)\lambda_\sigma(\tau)\,d\tau.
-$$
-
-This convolution is implemented by `compute_convolution`. The convolution
-theorem gives
-
-$$
-\mathcal{F}\!\left\{W_u\right\}(\omega)=
-\frac{Z_u(\omega)}{\kappa_u}
-\mathcal{F}\!\left\{\lambda_\sigma\right\}(\omega).
-$$
-
-Consequently, deconvolution of a wake potential recovers the impedance through
-
-$$
-Z_u(\omega)=
-\kappa_u
-\frac{\mathcal{F}\!\left\{W_u\right\}(\omega)}
-{\mathcal{F}\!\left\{\lambda_\sigma\right\}(\omega)}.
-$$
-
-Because `compute_deconvolution` builds a Gaussian profile containing a `1/c`
-factor, pass `W_u / c` to recover the normalization above; multiply the
-transverse result by $i$.
 
 ## Fitting Resonators with Differential Evolution
 
