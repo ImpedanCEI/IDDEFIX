@@ -416,6 +416,53 @@ def test_partial_critical_longitudinal_wake_fft_matches_impedance(debug_plot):
 
 
 @pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
+def test_partial_overdamped_wake_fft_matches_impedance(plane, debug_plot):
+    """The finite transform supports the overdamped resonator branch."""
+    model = _loaded_resonators(plane, [(100, 0.3, 1e9)])
+    wake_length = 0.12
+    step = (wake_length / c_light) / 4200
+    times = (np.arange(4200) + 0.5) * step
+    frequency, transformed = _fft_of_wake(times, model.get_wake(times), plane)
+    useful_band = (frequency > 0.15e9) & (frequency < 1.8e9)
+    analytical = model.get_impedance(frequency, wake_length=wake_length)
+    full = model.get_impedance(frequency)
+    finite_effect = np.linalg.norm(analytical[useful_band] - full[useful_band])
+    assert finite_effect / np.linalg.norm(full[useful_band]) > 0.1
+    debug_plot(
+        frequency[useful_band],
+        transformed[useful_band],
+        analytical[useful_band],
+        title=f"Partial overdamped {plane} wake FFT",
+        xlabel="Frequency [Hz]",
+        ylabel="Z(f)",
+        expected_label="Analytical impedance",
+    )
+    _assert_complex_spectrum_matches(transformed[useful_band], analytical[useful_band])
+
+
+@pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
+@pytest.mark.parametrize("Q", [0.3, 0.5, 2.0])
+def test_partial_impedance_converges_to_full_impedance(plane, Q, debug_plot):
+    """A sufficiently long finite wake reproduces the fully decayed impedance."""
+    frequency = np.linspace(0, 2e9, 201)
+    model = _loaded_resonators(plane, [(100, Q, 1e9)])
+
+    partial = model.get_impedance(frequency, wake_length=30.0)
+    full = model.get_impedance(frequency)
+
+    debug_plot(
+        frequency,
+        partial,
+        full,
+        title=f"Long finite {plane} impedance at Q={Q}",
+        xlabel="Frequency [Hz]",
+        ylabel="Z(f)",
+        expected_label="Fully decayed impedance",
+    )
+    np.testing.assert_allclose(partial, full, rtol=1e-12, atol=1e-12)
+
+
+@pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
 @pytest.mark.parametrize("count", [1, 2])
 def test_analytical_wake_potential_deconvolves_to_impedance(plane, count, debug_plot):
     """Deconvolution of the Gaussian wake potential recovers full impedance."""
