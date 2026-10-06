@@ -367,3 +367,72 @@ $\mathbf{f(\cdot)}$ is the **objective function** to be minimized.
 * A maximum number of generations or function evaluations
 * Convergence tolerance (e.g., minimal change in the best solution across generations)
 * Achieving a target fitness value
+
+## Fitting Resonators with CMA-ES
+
+The Covariance Matrix Adaptation Evolution Strategy (CMA-ES) is a stochastic,
+derivative-free optimizer for continuous, nonlinear problems. Instead of
+mutating individual parameter vectors independently, it learns a multivariate
+normal search distribution from the best candidates in each generation. This
+allows the search to adapt to correlations between resonator parameters such
+as $R_s$, $Q$, and $f_r$.
+
+For generation $g$, candidate parameter vectors are sampled as
+
+$$
+\mathbf{x}^{(g)}_k=
+\mathbf{m}^{(g)}+\sigma^{(g)}
+\mathcal{N}\!\left(\mathbf{0},\mathbf{C}^{(g)}\right),
+\qquad k=1,\ldots,\lambda,
+$$
+
+where $\mathbf{m}^{(g)}$ is the distribution mean, $\sigma^{(g)}$ is the
+global step size, $\mathbf{C}^{(g)}$ is the covariance matrix, and $\lambda$
+is the population size. After evaluating the objective function, CMA-ES uses a
+weighted combination of the best $\mu$ candidates to update the mean:
+
+$$
+\mathbf{m}^{(g+1)}=
+\sum_{k=1}^{\mu}a_k\mathbf{x}^{(g)}_{k:\lambda},
+\qquad
+\sum_{k=1}^{\mu}a_k=1,
+$$
+
+where $\mathbf{x}^{(g)}_{k:\lambda}$ denotes the candidate with rank $k$ and
+$a_k>0$ are recombination weights. The covariance matrix expands along
+successful search directions and contracts along unsuccessful ones, while the
+step-size update controls the overall search radius.
+
+### IDDEFIX implementation
+
+IDDEFIX runs the [pymoo CMA-ES implementation](https://pymoo.org/algorithms/soo/cmaes.html)
+through `EvolutionaryAlgorithm.run_cmaes`. The fitted vector contains the
+triplet $(R_s,Q,f_r)$ for each resonator. The initial mean is the midpoint of
+each parameter bound. Pymoo normalizes bounded variables by default, so
+`sigma` normally describes the initial search width in the normalized search
+space rather than in ohms, hertz, or physical $Q$ units.
+
+The main arguments are:
+
+- `sigma`: initial global standard deviation.
+- `popsize`: number $\lambda$ of candidates sampled per generation.
+- `maxiter`: internal CMA-ES iteration limit.
+- `verbose`: select pymoo output or the IDDEFIX progress bar.
+
+Additional keyword arguments are passed to pymoo's `CMAES` constructor. Useful
+options include `tolfun`, `tolx`, `maxfevals`, `restarts`,
+`restart_from_best`, `incpopsize`, `bipop`, and `seed`. IDDEFIX defaults to
+three restarts from the best solution and seed 42; supplied keywords override
+these defaults.
+
+```{important}
+`maxiter` is not a strict limit on pymoo's reported generation count. CMA-ES
+has its own convergence criteria, and enabled restarts create additional runs
+whose generations are included in `res.algorithm.n_gen`. Use `maxfevals` for a
+direct limit on objective-function evaluations, or set `restarts=0` when a
+single CMA-ES run is required.
+```
+
+The optimized parameters are stored in `evolutionParameters`. As with a DE
+fit, `run_minimization_algorithm` can subsequently refine this solution with a
+local minimizer.
