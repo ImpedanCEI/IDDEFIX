@@ -70,6 +70,7 @@ def compute_fft(
     Notes
     -----
     - The time array (`data_time`) is assumed to be evenly spaced.
+    - The phase of the transform accounts for the first sample time.
     - The spatial sampling interval `ds` is computed based on the time step and
       the speed of light in vacuum.
     - The Fourier transform is computed using the `numpy.fft` module, and the
@@ -95,6 +96,7 @@ def compute_fft(
     mask = np.logical_and(f >= 0, f < fmax)
     Z = Z[mask] * ds
     f = f[mask]
+    Z *= np.exp(-2j * np.pi * f * data_time[0])
 
     return f, Z
 
