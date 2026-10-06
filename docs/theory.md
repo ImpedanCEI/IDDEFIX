@@ -303,8 +303,9 @@ Z_u(\omega)=
 {\mathcal{F}\!\left\{\lambda_\sigma\right\}(\omega)}.
 $$
 
-This deconvolution is implemented by `compute_deconvolution`; the transverse
-result again requires the factor $i$.
+Because `compute_deconvolution` builds a Gaussian profile containing a `1/c`
+factor, pass `W_u / c` to recover the normalization above; multiply the
+transverse result by $i$.
 
 ## Fitting Resonators with Differential Evolution
 
