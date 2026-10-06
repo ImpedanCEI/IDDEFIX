@@ -3,7 +3,7 @@
 The tests compare fitted spectra with a target and follow resonator wakes through
 the library's FFT, Gaussian convolution, deconvolution, and inverse transform.
 Both planes, one or several resonators, and full or finite wake lengths are
-covered. The known finite longitudinal mismatch is tracked as a strict xfail.
+covered.
 
 Run ``pytest tests/test_003_analytical_checks.py --debug-plots`` to display the
 values compared by each numerical assertion.
@@ -328,6 +328,11 @@ def _wake_fft_and_analytical_impedance(plane, count, finite):
         full = model.get_impedance(frequency)
         finite_effect = np.linalg.norm(analytical[useful_band] - full[useful_band])
         assert finite_effect / np.linalg.norm(full[useful_band]) > 0.1
+        if plane == "longitudinal":
+            # The DC value = area of the truncated wake is generally nonzero.
+            # (unless it is truncated at n\pi exactly)
+            assert analytical[0] != 0
+            np.testing.assert_allclose(fft_impedance[0], analytical[0], rtol=1e-5)
 
     return (
         frequency[useful_band],
@@ -373,14 +378,9 @@ def test_partial_transverse_wake_fft_matches_impedance(count, debug_plot):
     _assert_complex_spectrum_matches(transformed, analytical)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Finite longitudinal formula differs from the truncated-wake FFT "
-    "for a material truncation (see example 008).",
-)
 @pytest.mark.parametrize("count", [1, 2])
 def test_partial_longitudinal_wake_fft_matches_impedance(count, debug_plot):
-    """Track the finite longitudinal formula's known spectral discrepancy."""
+    """The longitudinal formula agrees with the FFT of its truncated wake."""
     frequency, transformed, analytical = _wake_fft_and_analytical_impedance(
         "longitudinal", count, finite=True
     )
@@ -394,6 +394,27 @@ def test_partial_longitudinal_wake_fft_matches_impedance(count, debug_plot):
         expected_label="Analytical impedance",
     )
     _assert_complex_spectrum_matches(transformed, analytical)
+
+
+def test_partial_critical_longitudinal_wake_fft_matches_impedance(debug_plot):
+    """The finite longitudinal transform remains valid at critical damping."""
+    model = _loaded_resonators("longitudinal", [(100, 0.5, 1e9)])
+    wake_length = 0.03
+    step = (wake_length / c_light) / 4200
+    times = (np.arange(4200) + 0.5) * step
+    frequency, transformed = _fft_of_wake(times, model.get_wake(times), "longitudinal")
+    useful_band = (frequency > 0.15e9) & (frequency < 1.8e9)
+    analytical = model.get_impedance(frequency, wake_length=wake_length)
+    debug_plot(
+        frequency[useful_band],
+        transformed[useful_band],
+        analytical[useful_band],
+        title="Partial critical longitudinal wake FFT",
+        xlabel="Frequency [Hz]",
+        ylabel="Z(f)",
+        expected_label="Analytical impedance",
+    )
+    _assert_complex_spectrum_matches(transformed[useful_band], analytical[useful_band])
 
 
 @pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
@@ -490,14 +511,9 @@ def test_partial_transverse_potential_deconvolves_to_impedance(count, debug_plot
     _assert_complex_spectrum_matches(recovered, analytical)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Finite longitudinal formula differs from deconvolution of the "
-    "truncated wake potential (see example 008).",
-)
 @pytest.mark.parametrize("count", [1, 2])
 def test_partial_longitudinal_potential_deconvolves_to_impedance(count, debug_plot):
-    """Track the same discrepancy after convolution and deconvolution."""
+    """Convolution then deconvolution preserves finite longitudinal impedance."""
     frequency, recovered, analytical = _partial_potential_and_analytical_impedance(
         "longitudinal", count
     )

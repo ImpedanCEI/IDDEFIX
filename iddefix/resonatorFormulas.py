@@ -11,6 +11,7 @@ from typing import Sequence
 import numpy as np
 import numpy.typing as npt
 from scipy import special as sp
+from scipy.constants import c
 
 from .utils import pars_to_dict
 
@@ -490,14 +491,14 @@ class Impedances:
             (https://cds.cern.ch/record/192684/files/198812060.pdf) and can
             be used for any real positive value of `Q`.
 
-            The partially decayed formula uses the formula derived in
-            (Joly, S. thesis not published yet!)
+            The partially decayed formula is the finite Fourier transform of
+            the longitudinal wake for `Q >= 0.5`.
 
-            Moreover, it sets the impedance value to zero for zero frequencies
-            in both cases.
+            The fully decayed formula sets the impedance value to zero at zero
+            frequency. A finite wake can have a nonzero value there.
 
             Units for this formula are:
-                Rs: Ohm/m
+                Rs: Ohm
                 Q: dimensionless
                 resonant_frequency: Hz
                 wake_length: m
@@ -542,39 +543,27 @@ class Impedances:
             # Partially decayed wake
             omega = 2 * np.pi * frequencies
             omega_r = 2 * np.pi * resonant_frequency
-            c = 299792458.0  # speed of light in vacuum
 
             if Q < 0.5:
                 raise ValueError(
-                    "Quality factor Q must be larger than 0.5."
-                    "The wake is unlikely to be partially decayed"
-                    "for such a low quality factor otherwise."
+                    "Quality factor Q must be at least 0.5 for the partially "
+                    "decayed longitudinal impedance."
                 )
 
+            # The formula remains finite at the critical value Q = 0.5.
             B = omega_r / 2 / Q
             C = omega_r * np.sqrt(1 - 1 / 4 / Q**2)
             T = wake_length / c
-
-            zero_index = np.where(frequencies > 0)[0]  # find index of non-zero element
-            if zero_index.size < frequencies.size:
-                # A = Rs * omega_r / 2 / Q
-                A = (
-                    Rs * omega[zero_index] / 2 / Q
-                )  # correct scaling to fit with usual formula
-                exp_term = np.exp(-(B - 1j * (C - omega[zero_index])) * T)
-                numerator = A * (1 - exp_term)
-                denominator = B - 1j * (C - omega[zero_index])
-                Zl = np.zeros_like(frequencies, dtype=complex)  # initialize Zl as 0
-                # calculate all Zl for non-zero frequencies
-                Zl[zero_index] = numerator / denominator
-
-            else:
-                # A = Rs * omega_r / 2 / Q
-                A = Rs * omega / 2 / Q  # correct scaling to fit with usual formula
-                exp_term = np.exp(-(B - 1j * (C - omega)) * T)
-                numerator = A * (1 - exp_term)
-                denominator = B - 1j * (C - omega)
-                Zl = numerator / denominator
+            s = B + 1j * omega
+            exp_term = np.exp(-s * T)
+            cos_term = np.cos(C * T)
+            # sin(C*T)/C has the finite limit T at the critical Q = 0.5.
+            sin_over_C = T * np.sinc(C * T / np.pi)
+            numerator = 1j * omega + exp_term * (
+                -1j * omega * cos_term + C**2 * sin_over_C + B * s * sin_over_C
+            )
+            denominator = C**2 + s**2
+            Zl = Rs * omega_r / Q * numerator / denominator
 
         return Zl
 
@@ -610,7 +599,7 @@ class Impedances:
             be used for any real positive value of `Q`.
 
             The partially decayed formula uses the formula derived in
-            (Joly, S. thesis not published yet!)
+            (Joly, S. thesis)
 
             Moreover, it sets the impedance value to zero for zero frequencies
             in both cases.
@@ -661,7 +650,6 @@ class Impedances:
             # Partially decayed wake
             omega = 2 * np.pi * frequencies
             omega_r = 2 * np.pi * resonant_frequency
-            c = 299792458.0  # speed of light in vacuum
 
             if Q < 0.5:
                 raise ValueError(
