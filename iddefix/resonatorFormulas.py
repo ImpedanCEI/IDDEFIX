@@ -552,7 +552,7 @@ class Impedances:
                 numerator = (
                     1j * omega
                     - 1j * omega * decay_cosh
-                    + (-(D**2) + B * s) * decay_sinh_over_D
+                    + (omega_r**2 + 1j * B * omega) * decay_sinh_over_D
                 )
                 denominator = (slow_rate + 1j * omega) * (fast_rate + 1j * omega)
             else:
@@ -604,8 +604,9 @@ class Impedances:
             The partially decayed formula is the finite Fourier transform of
             the transverse wake and supports any real positive value of `Q`.
 
-            The fully decayed formula sets the impedance value to zero at zero
-            frequency. A finite wake can have a nonzero value there.
+            At zero frequency, the fully decayed impedance has the analytical
+            value ``1j * Rs / Q``. The partially decayed value is the finite
+            transverse wake area multiplied by ``1j`` and is generally nonzero.
 
             Units for this formula are:
                 Rs: Ohm/m
@@ -615,15 +616,12 @@ class Impedances:
         """
         if wake_length is None:
             # Fully decayed wake
-            positive = frequencies > 0
-            Zt = np.zeros_like(frequencies, dtype=complex)
-            selected_frequencies = frequencies[positive]
-            Zt[positive] = (
+            Zt = (
                 Rs
                 * resonant_frequency**2
                 / (
-                    selected_frequencies * resonant_frequency
-                    + 1j * Q * (selected_frequencies**2 - resonant_frequency**2)
+                    frequencies * resonant_frequency
+                    + 1j * Q * (frequencies**2 - resonant_frequency**2)
                 )
             )
 
@@ -635,45 +633,31 @@ class Impedances:
             B = omega_r / 2 / Q
             T = wake_length / c
             AC = Rs * omega_r**2 / Q
-            positive = frequencies > 0
-            selected_omega = omega[positive]
             if Q < 0.5:
                 D = omega_r * np.sqrt(1 / 4 / Q**2 - 1)
                 fast_rate = B + D
                 slow_rate = omega_r**2 / fast_rate
                 slow_decay = np.exp(-slow_rate * T)
                 fast_to_slow = np.exp(-2 * D * T)
-                phase = np.exp(-1j * selected_omega * T)
+                phase = np.exp(-1j * omega * T)
                 decay_cosh = phase * slow_decay * (1 + fast_to_slow) / 2
                 decay_sinh_over_D = (
                     phase * slow_decay * (-np.expm1(-2 * D * T)) / (2 * D)
                 )
-                selected_s = B + 1j * selected_omega
-                denominator = (slow_rate + 1j * selected_omega) * (
-                    fast_rate + 1j * selected_omega
-                )
-                selected_impedance = (
-                    1j
-                    * AC
-                    / denominator
-                    * (1 - decay_cosh - selected_s * decay_sinh_over_D)
-                )
+                s = B + 1j * omega
+                denominator = (slow_rate + 1j * omega) * (fast_rate + 1j * omega)
+                Zt = 1j * AC / denominator * (1 - decay_cosh - s * decay_sinh_over_D)
 
             else:
                 C = omega_r * np.sqrt(1 - 1 / 4 / Q**2)
                 # A*C and sin(C*T)/C have finite limits at the critical Q = 0.5.
                 sin_over_C = T * np.sinc(C * T / np.pi)
-                selected_s = B + 1j * selected_omega
-                exp_term = np.exp(-T * selected_s)
+                s = B + 1j * omega
+                exp_term = np.exp(-T * s)
                 cos_term = np.cos(C * T)
-                sin_term = selected_s * sin_over_C
-                denominator = C**2 + selected_s**2
-                selected_impedance = (
-                    1j * AC / denominator * (1 - exp_term * (cos_term + sin_term))
-                )
-
-            Zt = np.zeros_like(frequencies, dtype=complex)
-            Zt[positive] = selected_impedance
+                sin_term = s * sin_over_C
+                denominator = C**2 + s**2
+                Zt = 1j * AC / denominator * (1 - exp_term * (cos_term + sin_term))
 
         return Zt
 
