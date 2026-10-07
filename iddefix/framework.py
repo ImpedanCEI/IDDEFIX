@@ -650,7 +650,7 @@ class EvolutionaryAlgorithm:
             parameterBounds = [
                 bound
                 for _ in range(self.N_resonators)
-                for bound in ((-np.inf, np.inf), (0.5, np.inf), (0.0, np.inf))
+                for bound in ((-np.inf, np.inf), (0.0, np.inf), (0.0, np.inf))
             ]
 
         uncertainties = calculate_uncertainties(
@@ -874,8 +874,6 @@ class EvolutionaryAlgorithm:
             return
         if 1 in changes and changes[1] <= 0:
             raise ValueError("Q must be positive")
-        if 1 in changes and self.wake_length is not None and changes[1] < 0.5:
-            raise ValueError("Q must be at least 0.5 for a partially decayed impedance")
         if 2 in changes and changes[2] <= 0:
             raise ValueError("fr must be positive")
 
@@ -939,7 +937,7 @@ class EvolutionaryAlgorithm:
         ``uncertainty`` may be one value for all three parameters or a
         sequence of three values in ``(Rs, Q, fres)`` order. The new mode is
         appended to both result stages when both are present. Without explicit
-        ``parameter_bounds``, its fit bounds are open apart from Q >= 0.5 and
+        ``parameter_bounds``, its fit bounds are open apart from Q > 0 and
         fres >= 0; supply finite bounds before running another fit.
         """
         if self.evolutionParameters is None and self.minimizationParameters is None:
@@ -949,12 +947,12 @@ class EvolutionaryAlgorithm:
         new_uncertainties = np.broadcast_to(
             np.asarray(uncertainty, dtype=float), (3,)
         ).copy()
-        if Q < 0.5 or fres <= 0:
-            raise ValueError("Q must be at least 0.5 and fres must be positive")
+        if Q <= 0 or fres <= 0:
+            raise ValueError("Q and fres must be positive")
         if np.any(new_uncertainties < 0):
             raise ValueError("uncertainties must be non-negative")
         if parameter_bounds is None:
-            new_bounds = [(-np.inf, np.inf), (0.5, np.inf), (0.0, np.inf)]
+            new_bounds = [(-np.inf, np.inf), (0.0, np.inf), (0.0, np.inf)]
         else:
             if len(parameter_bounds) != 3:
                 raise ValueError("parameter_bounds must contain three pairs")
@@ -1216,7 +1214,7 @@ class EvolutionaryAlgorithm:
         ``vary`` selects Rs, Q, or both. The selected parameters vary by up to
         ``n_sigma`` fitted standard deviations, limited to a multiplicative
         range between ``value / max_factor`` and ``value * max_factor``.
-        Varied Q stays at or above 0.5, and resonant frequencies stay fixed.
+        Varied Q stays positive, and resonant frequencies stay fixed.
         Fitting search bounds are not used. These are sensitivity scenarios,
         not confidence intervals.
 
@@ -1283,7 +1281,7 @@ class EvolutionaryAlgorithm:
             rs_values = capped_limits(rs, rs_sigma) if vary != "q" else (rs,)
             if vary in ("q", "both"):
                 q_lower, q_upper = capped_limits(q, q_sigma)
-                q_lower = max(q_lower, 0.5)
+                q_lower = max(q_lower, np.nextafter(0.0, 1.0))
                 if wake_length is None:
                     q_values = (q_lower, q_upper)
                 else:

@@ -142,7 +142,7 @@ def test_widget_picker_allows_zoom_then_right_click_and_undo(monkeypatch):
     smart_bounds.plt.close(figure)
 
 
-def test_smart_bounds_keeps_q_above_resonator_minimum():
+def test_smart_bounds_allows_overdamped_q_bounds():
     frequency = np.array([0.0, 10.0, 1000.0, 2000.0])
     impedance = np.array([10.0, 11.0, 10.0, 0.0])
 
@@ -151,4 +151,19 @@ def test_smart_bounds_keeps_q_above_resonator_minimum():
     )
 
     assert bounds.N_resonators == 1
-    assert bounds.parameterBounds[1][0] == 0.5
+    estimated_q = frequency[bounds.peaks[0]] / (2 * bounds.upper_lower_bounds[0])
+    assert 0 < bounds.parameterBounds[1][0] < 0.5
+    assert bounds.parameterBounds[1][0] == pytest.approx(estimated_q * 0.5)
+
+
+def test_smart_bounds_uses_q_one_fallback_when_crossing_is_missing():
+    frequency = np.array([0.0, 1.0, 2.0])
+    impedance = np.array([9.0, 10.0, 9.0])
+
+    bounds = iddefix.SmartBoundDetermination(
+        frequency, impedance, minimum_peak_height=1.0
+    )
+
+    assert bounds.N_resonators == 1
+    assert bounds.upper_lower_bounds[0] == 0.0
+    assert bounds.parameterBounds[1] == (0.5, 5.0)

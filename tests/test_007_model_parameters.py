@@ -122,12 +122,14 @@ def test_invalid_edits_leave_parameters_unchanged():
     np.testing.assert_allclose(model.minimizationParameters, [0, 0.3, 1e9])
 
 
-def test_partial_transverse_model_accepts_q_half_and_remains_finite():
+def test_partial_transverse_model_accepts_overdamped_q_and_remains_finite():
     model = _model(n_resonators=1, plane="transverse", wake_length=5.0)
     model.load_resonator_parameters("1 | 0.1 | 2 | 1e9")
 
-    with pytest.raises(ValueError, match="at least 0.5"):
-        model.modify_resonator(1, Q=0.3)
+    model.modify_resonator(1, Q=0.3)
+    overdamped = model.get_impedance_from_fitFunction()
+    assert np.isfinite(overdamped).all()
+
     model.modify_resonator(1, Q=0.5)
 
     critical = model.get_impedance_from_fitFunction()

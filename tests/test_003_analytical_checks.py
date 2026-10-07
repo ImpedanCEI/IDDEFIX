@@ -22,6 +22,7 @@ random.seed(42)
 import numpy as np
 import pytest
 from scipy.constants import c as c_light
+from scipy.integrate import quad
 
 import iddefix
 
@@ -326,11 +327,10 @@ def _wake_fft_and_analytical_impedance(plane, count, finite):
         full = model.get_impedance(frequency)
         finite_effect = np.linalg.norm(analytical[useful_band] - full[useful_band])
         assert finite_effect / np.linalg.norm(full[useful_band]) > 0.1
-        if plane == "longitudinal":
-            # The DC value = area of the truncated wake is generally nonzero.
-            # (unless it is truncated at n\pi exactly)
-            assert analytical[0] != 0
-            np.testing.assert_allclose(fft_impedance[0], analytical[0], rtol=1e-5)
+        # The DC value is the truncated wake area (multiplied by 1j in the
+        # transverse plane) and is generally nonzero.
+        assert analytical[0] != 0
+        np.testing.assert_allclose(fft_impedance[0], analytical[0], rtol=1e-5)
 
     return (
         frequency[useful_band],
@@ -413,6 +413,133 @@ def test_partial_critical_longitudinal_wake_fft_matches_impedance(debug_plot):
         expected_label="Analytical impedance",
     )
     _assert_complex_spectrum_matches(transformed[useful_band], analytical[useful_band])
+
+
+@pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
+def test_partial_overdamped_wake_fft_matches_impedance(plane, debug_plot):
+    """The finite transform supports the overdamped resonator branch."""
+    model = _loaded_resonators(plane, [(100, 0.3, 1e9)])
+    wake_length = 0.12
+    step = (wake_length / c_light) / 4200
+    times = (np.arange(4200) + 0.5) * step
+    frequency, transformed = _fft_of_wake(times, model.get_wake(times), plane)
+    useful_band = (frequency > 0.15e9) & (frequency < 1.8e9)
+    analytical = model.get_impedance(frequency, wake_length=wake_length)
+    full = model.get_impedance(frequency)
+    finite_effect = np.linalg.norm(analytical[useful_band] - full[useful_band])
+    assert finite_effect / np.linalg.norm(full[useful_band]) > 0.1
+    debug_plot(
+        frequency[useful_band],
+        transformed[useful_band],
+        analytical[useful_band],
+        title=f"Partial overdamped {plane} wake FFT",
+        xlabel="Frequency [Hz]",
+        ylabel="Z(f)",
+        expected_label="Analytical impedance",
+    )
+    _assert_complex_spectrum_matches(transformed[useful_band], analytical[useful_band])
+
+
+@pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
+@pytest.mark.parametrize("Q", [0.3, 0.5, 2.0])
+def test_partial_impedance_converges_to_full_impedance(plane, Q, debug_plot):
+    """A sufficiently long finite wake reproduces the fully decayed impedance."""
+    frequency = np.linspace(0, 2e9, 201)
+    model = _loaded_resonators(plane, [(100, Q, 1e9)])
+
+    partial = model.get_impedance(frequency, wake_length=30.0)
+    full = model.get_impedance(frequency)
+
+    debug_plot(
+        frequency,
+        partial,
+        full,
+        title=f"Long finite {plane} impedance at Q={Q}",
+        xlabel="Frequency [Hz]",
+        ylabel="Z(f)",
+        expected_label="Fully decayed impedance",
+    )
+    np.testing.assert_allclose(partial, full, rtol=1e-12, atol=1e-12)
+
+
+@pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
+def test_partial_impedance_is_continuous_at_critical_damping(plane):
+    """The finite transform is continuous across Q=0.5."""
+    frequency = np.linspace(0, 2e9, 201)
+    wake_length = 0.12
+    critical = _loaded_resonators(plane, [(100, 0.5, 1e9)]).get_impedance(
+        frequency, wake_length=wake_length
+    )
+
+    for Q in (0.5 - 1e-7, 0.5 + 1e-7):
+        neighboring = _loaded_resonators(plane, [(100, Q, 1e9)]).get_impedance(
+            frequency, wake_length=wake_length
+        )
+        np.testing.assert_allclose(neighboring, critical, rtol=1e-6, atol=1e-6)
+
+
+@pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
+def test_partial_impedance_remains_finite_at_low_q(plane):
+    """The overdamped finite transform remains finite at Q=1e-4."""
+    frequency = np.linspace(0, 2e9, 201)
+    impedance = _loaded_resonators(plane, [(100, 1e-4, 1e9)]).get_impedance(
+        frequency, wake_length=0.12
+    )
+
+    assert np.isfinite(impedance).all()
+
+
+@pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
+def test_zero_wake_length_has_zero_partial_impedance(plane):
+    """A zero-duration wake has a zero finite Fourier transform."""
+    frequency = np.linspace(0, 2e9, 201)
+    impedance = _loaded_resonators(plane, [(100, 0.3, 1e9)]).get_impedance(
+        frequency, wake_length=0.0
+    )
+
+    np.testing.assert_allclose(impedance, 0.0, atol=1e-12)
+
+
+@pytest.mark.parametrize("Q", [0.3, 0.5, 2.0])
+def test_transverse_dc_matches_analytical_values(Q):
+    """Transverse DC values follow the full and truncated wake transforms."""
+    Rs = 100
+    resonant_frequency = 1e9
+    wake_length = 0.12
+    model = _loaded_resonators("transverse", [(Rs, Q, resonant_frequency)])
+
+    full_dc = model.get_impedance(np.array([0.0]))[0]
+    partial_dc = model.get_impedance(np.array([0.0]), wake_length=wake_length)[0]
+    duration = wake_length / c_light
+    wake_area = quad(lambda time: model.get_wake(np.array([time]))[0], 0.0, duration)[0]
+
+    np.testing.assert_allclose(full_dc, 1j * Rs / Q, rtol=1e-14)
+    np.testing.assert_allclose(partial_dc, 1j * wake_area, rtol=1e-12)
+
+
+def test_low_q_longitudinal_dc_avoids_subtractive_cancellation():
+    """The finite longitudinal DC value stays accurate at extremely low Q."""
+    Rs = 100
+    Q = 1e-10
+    resonant_frequency = 1e9
+    wake_length = 0.12
+    impedance = iddefix.Impedances.Resonator_longitudinal_imp(
+        np.array([0.0]), Rs, Q, resonant_frequency, wake_length=wake_length
+    )
+
+    omega_r = 2 * np.pi * resonant_frequency
+    B = omega_r / (2 * Q)
+    D = omega_r * np.sqrt(1 / (4 * Q**2) - 1)
+    slow_rate = omega_r**2 / (B + D)
+    duration = wake_length / c_light
+    expected_dc = (
+        Rs
+        * omega_r
+        / (2 * Q * D)
+        * np.exp(-slow_rate * duration)
+        * (-np.expm1(-2 * D * duration))
+    )
+    np.testing.assert_allclose(impedance[0], expected_dc, rtol=1e-14)
 
 
 @pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
