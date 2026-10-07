@@ -74,12 +74,8 @@ $$
 C^2=-D^2, \quad \cos(CT)=\cosh(DT), \quad \sin(CT)/C=\sinh(DT)/D
 $$
 
-The implementation
-combines the hyperbolic terms with $e^{-BT}$ through the positive decay rates
-$B-D$ and $B+D$ to avoid numerical overflow.
-
-Unlike the fully decayed impedance, the finite transform can be nonzero at
-$\omega=0$ due to the truncation ripples from the windowing.
+The implementation combines the hyperbolic terms with $e^{-BT}$ through the
+positive decay rates $B-D$ and $B+D$ to avoid numerical overflow.
 
 For multiple resonators, the contributions add linearly:
 
@@ -185,10 +181,7 @@ Z_{\perp,T}(\omega)=
 \right].
 $$
 
-It is also evaluated using the stable decay-rate form.
-
-IDDEFIX defines the transverse impedance as zero at $\omega=0$. For multiple
-resonators,
+It is also evaluated using the stable decay-rate form. For multiple resonators,
 
 $$
 \bar Z_\perp(\omega)=
@@ -197,6 +190,49 @@ $$
 
 These formulas are implemented by `Resonator_transverse_imp` and
 `n_Resonator_transverse_imp`.
+
+### Behavior around zero frequency
+
+The apparent singularities in the fully decayed formulas are removable. With
+$x=\omega/\omega_r$ and the Fourier convention used here, their low-frequency
+behavior is
+
+$$
+Z_\parallel(\omega)=\frac{iR_s}{Q}x+R_s\mathcal{O}(x^2),
+\qquad
+Z_\perp(\omega)=\frac{iR_s}{Q}+\frac{R_s}{Q^2}x+R_s\mathcal{O}(x^2).
+$$
+
+Consequently, their analytical DC values are
+
+$$
+Z_\parallel(0)=0,
+\qquad
+Z_\perp(0)=\frac{iR_s}{Q}.
+$$
+
+Truncating a wake at time $T$ changes its area. The finite longitudinal DC
+value is the truncation boundary term
+
+$$
+Z_{\parallel,T}(0)=\frac{R_s\omega_r}{Q}
+\begin{cases}
+e^{-BT}\dfrac{\sin(CT)}{C}, & Q>0.5, \\
+Te^{-BT}, & Q=0.5, \\
+e^{-BT}\dfrac{\sinh(DT)}{D}, & 0<Q<0.5.
+\end{cases}
+$$
+
+It is generally nonzero and real, but converges to zero as $T\to\infty$. The
+finite transverse DC value is generally nonzero and imaginary,
+
+$$
+Z_{\perp,T}(0)=i\int_0^T W_\perp(t)\,dt,
+$$
+
+and converges to $iR_s/Q$ as $T\to\infty$. At $T=0$, both finite transforms
+vanish. The nonzero finite longitudinal value and the associated impedance
+ripples are both consequences of the abrupt wake truncation.
 
 ### Wake function resonator formula
 
