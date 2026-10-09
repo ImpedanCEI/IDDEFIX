@@ -99,6 +99,38 @@ def test_edit_add_and_remove_update_the_evaluated_model():
     )
 
 
+@pytest.mark.parametrize(
+    ("fit_function", "plane"),
+    [
+        ("impedance", "longitudinal"),
+        ("impedance", "transverse"),
+        ("wake", "longitudinal"),
+        ("wake potential", "longitudinal"),
+    ],
+)
+def test_resonator_components_sum_to_total_model(fit_function, plane):
+    x_data = (
+        np.linspace(0.5e9, 1.5e9, 61)
+        if fit_function == "impedance"
+        else np.linspace(0.0, 10e-9, 61)
+    )
+    model = iddefix.EvolutionaryAlgorithm(
+        x_data=x_data,
+        y_data=np.zeros_like(x_data),
+        N_resonators=2,
+        parameterBounds=[(0.0, 1000.0), (0.5, 10.0), (0.1e9, 2e9)] * 2,
+        fitFunction=fit_function,
+        plane=plane,
+        sigma=1e-10,
+    )
+    model.load_resonator_parameters("1 | 100 | 3 | 1e9\n2 | 200 | 5 | 1.5e9")
+
+    components = model.get_model_components()
+    total_model = model.fitFunction(x_data, model.minimizationParameters)
+
+    np.testing.assert_allclose(components.sum(axis=0), total_model)
+
+
 def test_invalid_edits_leave_parameters_unchanged():
     model = _model(n_resonators=1)
     with pytest.raises(ValueError, match="Load or fit"):

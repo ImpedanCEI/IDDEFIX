@@ -45,7 +45,7 @@ def test_smart_bounds_detects_modes_and_respects_height():
     assert len(bounds.parameterBounds) == 3
 
 
-def test_smart_bounds_interpolation_preserves_real_fwhm():
+def test_smart_bounds_interpolation_uses_exact_longitudinal_crossing():
     frequency = np.linspace(5.0, 15.0, 101)
     impedance = 10.0 / (1.0 + (frequency - 10.0) ** 2)
     bounds = iddefix.SmartBoundDetermination(
@@ -60,7 +60,9 @@ def test_smart_bounds_interpolation_preserves_real_fwhm():
     assert len(bounds.analysis_frequency_data) == 1001
     np.testing.assert_array_equal(bounds.frequency_data, frequency)
     assert bounds.N_resonators == 1
-    np.testing.assert_allclose(bounds.parameterBounds[1], [5.0, 5.0])
+    crossing = bounds.crossing_frequencies[0]
+    expected_q = crossing * 10.0 / abs(crossing**2 - 10.0**2)
+    np.testing.assert_allclose(bounds.parameterBounds[1], [expected_q, expected_q])
 
 
 def test_smart_bounds_uses_selected_side_for_coupled_modes():
@@ -151,7 +153,9 @@ def test_smart_bounds_allows_overdamped_q_bounds():
     )
 
     assert bounds.N_resonators == 1
-    estimated_q = frequency[bounds.peaks[0]] / (2 * bounds.upper_lower_bounds[0])
+    peak_frequency = frequency[bounds.peaks[0]]
+    crossing = bounds.crossing_frequencies[0]
+    estimated_q = crossing * peak_frequency / abs(crossing**2 - peak_frequency**2)
     assert 0 < bounds.parameterBounds[1][0] < 0.5
     assert bounds.parameterBounds[1][0] == pytest.approx(estimated_q * 0.5)
 
@@ -167,3 +171,66 @@ def test_smart_bounds_uses_q_one_fallback_when_crossing_is_missing():
     assert bounds.N_resonators == 1
     assert bounds.upper_lower_bounds[0] == 0.0
     assert bounds.parameterBounds[1] == (0.5, 5.0)
+
+
+def test_frequency_bounds_scale_with_estimated_q():
+    frequency = np.linspace(1e6, 2e9, 50001)
+    widths = []
+
+    for expected_q in (2.0, 10.0):
+        impedance = iddefix.Impedances.Resonator_longitudinal_imp(
+            frequency, 100.0, expected_q, 0.8e9
+        )
+        bounds = iddefix.SmartBoundDetermination(
+            frequency,
+            impedance.real,
+            minimum_peak_height=50.0,
+            impedance_type="real",
+        )
+        fres_min, fres_max = bounds.parameterBounds[2]
+        widths.append(fres_max - fres_min)
+
+    assert widths[0] > widths[1]
+
+
+@pytest.mark.parametrize("q_side", ["left", "right"])
+def test_transverse_real_bounds_recover_resonator_parameters(q_side):
+    frequency = np.linspace(1e6, 2e9, 50001)
+    expected = np.array([4e6, 0.5, 0.8e9])
+    impedance = iddefix.Impedances.Resonator_transverse_imp(frequency, *expected)
+
+    bounds = iddefix.SmartBoundDetermination(
+        frequency,
+        impedance.real,
+        minimum_peak_height=1e5,
+        Rs_bounds=[1.0, 1.0],
+        Q_bounds=[1.0, 1.0],
+        fres_bounds=[0.0, 0.0],
+        impedance_type="real",
+        plane="transverse",
+        q_side=q_side,
+    )
+
+    np.testing.assert_allclose(bounds.parameterEstimates, expected, rtol=3e-4)
+
+
+def test_add_transverse_peak_uses_supplied_q_without_crossing():
+    frequency = np.linspace(1e6, 2e9, 50001)
+    expected = np.array([4e6, 2.0, 0.8e9])
+    impedance = iddefix.Impedances.Resonator_transverse_imp(frequency, *expected)
+    peak_frequency = frequency[np.argmax(impedance.real)]
+
+    bounds = iddefix.SmartBoundDetermination(
+        frequency,
+        impedance.real,
+        minimum_peak_height=impedance.real.max() + 1.0,
+        Rs_bounds=[1.0, 1.0],
+        Q_bounds=[1.0, 1.0],
+        fres_bounds=[0.0, 0.0],
+        impedance_type="real",
+        plane="transverse",
+    )
+    bounds.add_peak(peak_frequency, Q=expected[1])
+
+    assert np.isnan(bounds.crossing_frequencies[0])
+    np.testing.assert_allclose(bounds.parameterEstimates, expected, rtol=1e-4)
