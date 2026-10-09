@@ -14,6 +14,8 @@ import numpy as np
 import numpy.typing as npt
 from scipy.signal import find_peaks
 
+from .resonatorFormulas import Impedances as imp
+
 ArrayLike = npt.ArrayLike
 ParameterBounds = list[tuple[float, float]]
 
@@ -27,13 +29,14 @@ class SmartBoundDetermination:
         threshold: float | None = None,
         distance: float | None = None,
         prominence: float | None = None,
-        Rs_bounds: list[float] = [0.8, 10],
+        Rs_bounds: list[float] = [0.1, 10],
         Q_bounds: list[float] = [0.5, 5],
-        fres_bounds: list[float] = [-0.01e9, +0.01e9],
+        fres_bounds: list[float] = [-1.0, 1.0],
         samples: int | None = None,
         q_side: str | list[str] = "auto",
         impedance_type: str = "absolute",
         interactive: bool = False,
+        plane: str = "longitudinal",
     ) -> None:
         """
         Automatically determines parameter bounds for resonance fitting
@@ -65,11 +68,12 @@ class SmartBoundDetermination:
             `scipy.signal.find_peaks`.
             Default is None.
         Rs_bounds : list, optional
-            Scaling factors [min, max] for Rs bounds. Default is [0.8, 10].
+            Scaling factors [min, max] for Rs bounds. Default is [0.1, 10].
         Q_bounds : list, optional
             Scaling factors [min, max] for Q bounds. Default is [0.5, 5].
         fres_bounds : list, optional
-            Offset bounds [min, max] for frequency in Hz. Default is [-0.01e9, 0.01e9].
+            Lower and upper factors multiplying the estimated resonator
+            half-width ``fres / (2 * Q)``. Default is [-1, 1].
         samples : int, optional
             Number of equally spaced frequency samples used for peak finding and
             Q estimation. If None, use the input samples. Interpolation is linear
@@ -93,7 +97,10 @@ class SmartBoundDetermination:
             prompt. Clicks are mapped to the nearest analysis sample. In a
             widget notebook, await ``wait_for_selection()`` before using bounds.
             Peak-finding settings are ignored when enabled. Default is False.
-
+        plane : {"longitudinal", "transverse"}, optional
+            Impedance plane used to convert each detected peak and crossing
+            into estimates of Rs, Q, and fres. Transverse estimation currently
+            supports real impedance only. Default is "longitudinal".
         Attributes
         ----------
         peaks : numpy.ndarray or None
@@ -101,33 +108,46 @@ class SmartBoundDetermination:
         analysis_frequency_data, analysis_impedance_data : numpy.ndarray
             Frequency grid and impedance used for peak finding. These equal the
             inputs when ``samples`` is None.
-        peaks_height : numpy.ndarray or None
-            Heights of the detected peaks.
+        peaks_height : dict or None
+            Peak properties containing the detected heights under
+            ``"peak_heights"``.
         minus_3dB_points : numpy.ndarray or None
             Crossing levels for each detected peak. For real impedance these
             are the half-maximum levels (the name is kept for compatibility).
         upper_lower_bounds : numpy.ndarray or None
             One-sided width to the selected crossing for each peak.
+        crossing_frequencies : numpy.ndarray or None
+            Interpolated frequency of the selected crossing for each peak.
         q_sides_used : list[str]
             Crossing side used for each peak's Q estimate.
-        Nres : int or None
+        N_resonators : int or None
             Number of detected resonators.
         parameterBounds : list of tuples
             Computed parameter bounds in the format:
             [(Rs_min, Rs_max), (Q_min, Q_max), (fres_min, fres_max), ...].
             None until an interactive selection is finished.
+        parameterEstimates : list of float or None
+            Initial resonator estimates in the same flattened order as the
+            bounds: [Rs_1, Q_1, fres_1, Rs_2, Q_2, fres_2, ...]. None until an
+            interactive selection is finished.
 
         Methods
         -------
         find(frequency_data=None, impedance_data=None, minimum_peak_height=None,
             threshold=None, distance=None, prominence=None, samples=None,
-            q_side=None, impedance_type=None, interactive=None)
+            q_side=None, impedance_type=None, interactive=None, plane=None)
             Detects impedance peaks and determines fitting parameter bounds
             automatically or from interactive selections.
 
-        inspect()
+        inspect(show_bounds=False, show_components=False)
             Plots the impedance data and highlights detected resonance peaks
-            along with their selected crossing levels and widths.
+            along with their selected crossing levels, bounds, and estimated
+            resonator components.
+
+        add_peak(frequency, q_side=None, Q=None)
+            Adds a peak at the nearest analysis frequency and recomputes all
+            estimates and bounds. A supplied Q estimate skips the crossing
+            calculation for that peak.
 
         to_table(to_markdown=False)
             Displays resonance parameters in an ASCII or Markdown-formatted table.
@@ -139,25 +159,11 @@ class SmartBoundDetermination:
         - Computed parameter bounds are stored in `self.parameterBounds`.
         - The `inspect()` method visualizes peak detection results.
         - The `to_table()` method prints a structured table of parameter ranges.
-
-        Returns
-        -------
-        parameterBounds : list of tuples
-            A list of parameter bounds for fitting. Each resonance contributes
-            three sets of bounds:
-            - `(Rs_min, Rs_max)`: Bounds for resistance Rs.
-            - `(Q_min, Q_max)`: Bounds for quality factor Q.
-            - `(freq_min, freq_max)`: Bounds for the resonant frequency.
-
-        Notes
-        -----
-        - Automatic peak finding uses `scipy.signal.find_peaks`.
-        - The selected crossing width is used to estimate initial Q factors.
-        - The detected peaks and their heights are stored in instance attributes
-        `self.peaks` and `self.peaks_height`, respectively.
-        - The number of detected resonances is stored in `self.Nres`.
+        - Detection runs during construction. The public `find()` method remains
+          available for legacy workflows that explicitly recompute the bounds.
         """
 
+        # Input data and estimation settings
         self.frequency_data = frequency_data
         self.impedance_data = impedance_data
         self.minimum_peak_height = minimum_peak_height
@@ -171,23 +177,30 @@ class SmartBoundDetermination:
         self.q_side = q_side
         self.impedance_type = impedance_type
         self.interactive = interactive
+        self.plane = plane
 
+        # Results populated by peak detection and bound estimation
         self.peaks = None
         self.peaks_height = None
         self.minus_3dB_points = None
         self.upper_lower_bounds = None
+        self.crossing_frequencies = None
         self.N_resonators = None
         self.analysis_frequency_data = None
         self.analysis_impedance_data = None
         self.q_sides_used = None
+        # Interactive selection state
         self._selection_done = asyncio.Event()
         self._selection_figure = None
         self._selection_done_button = None
         self._selection_pick_button = None
         self._selection_undo_button = None
         self._selection_cancelled = False
+        self._peak_q_estimates = {}
 
-        self.parameterBounds = self.find()
+        # Run the initial peak search
+        self.parameterEstimates = None
+        self.parameterBounds = self._find()
 
     def find(
         self,
@@ -201,101 +214,75 @@ class SmartBoundDetermination:
         q_side: str | list[str] | None = None,
         impedance_type: str | None = None,
         interactive: bool | None = None,
+        plane: str | None = None,
     ) -> ParameterBounds | None:
-        """
-        Identifies peaks in the impedance data and determines the bounds
-        for fitting parameters based on the detected peaks.
+        """Recompute bounds; retained for compatibility with legacy workflows."""
+        return self._find(
+            frequency_data=frequency_data,
+            impedance_data=impedance_data,
+            minimum_peak_height=minimum_peak_height,
+            threshold=threshold,
+            distance=distance,
+            prominence=prominence,
+            samples=samples,
+            q_side=q_side,
+            impedance_type=impedance_type,
+            interactive=interactive,
+            plane=plane,
+        )
 
-        This function uses `scipy.signal.find_peaks` to locate peaks
-        in the impedance data and then calculates bounds for
-        fitting parameters, including resistance (Rs), quality factor (Q),
-        and resonant frequency.
+    def _find(
+        self,
+        frequency_data: ArrayLike | None = None,
+        impedance_data: ArrayLike | None = None,
+        minimum_peak_height: float | None = None,
+        threshold: float | None = None,
+        distance: float | None = None,
+        prominence: float | None = None,
+        samples: int | None = None,
+        q_side: str | list[str] | None = None,
+        impedance_type: str | None = None,
+        interactive: bool | None = None,
+        plane: str | None = None,
+    ) -> ParameterBounds | None:
+        """Detect peaks and update the stored parameter estimates and bounds."""
 
-        Parameters
-        ----------
-        frequency_data : numpy.ndarray, optional
-            Array containing the frequency data in Hz.
-            If None, the instance attribute `self.frequency_data` is used.
-        impedance_data : numpy.ndarray, optional
-            Array containing the impedance data in Ohms.
-            If None, the instance attribute `self.impedance_data` is used.
-        minimum_peak_height : float or numpy.ndarray or 2-item list, optional
-            Minimum peak height for the peak-finding algorithm.
-            * If numpy.ndarray, it should have the same length as impedance_data
-            * If 2-item list, specifies the [min, max] of peak heights
-            An array is interpolated with the impedance when ``samples`` is set.
-        threshold : float, optional
-            Required vertical distance between a peak and its neighboring values
-            to be considered a peak. Passed to `scipy.signal.find_peaks`.
-            Default is None.
-        distance : float, optional
-            Required minimum horizontal distance (in indices) between peaks.
-            Passed to `scipy.signal.find_peaks`. Default is None.
-        prominence : float, optional
-            Required prominence of peaks. The prominence measures how much a peak
-            stands out compared to its surrounding values. Passed to
-            `scipy.signal.find_peaks`.
-            Default is None.
-        samples : int, optional
-            Number of samples on a linearly interpolated frequency grid. Defaults
-            to the value supplied to the constructor.
-        q_side : str or list of str, optional
-            Use the left or right crossing for Q estimation. "auto" uses
-            the nearest crossing; a list selects a side for each detected peak.
-            If that side has no crossing, the Q estimate defaults to 1;
-            this is not a lower bound. Defaults to the value supplied to the
-            constructor.
-        impedance_type : {"absolute", "real"}, optional
-            Choose the crossing level for Q estimation. Defaults to the
-            value supplied to the constructor.
-        interactive : bool, optional
-            Select resonances on the plot instead of using peak finding.
-            In ipympl, enable Pick, click peaks, click Done, and await
-            ``wait_for_selection()`` before using the bounds. Desktop plots
-            use Enter; inline plots prompt for frequencies in Hz.
+        # Resolve call-specific overrides against the stored configuration
+        frequency_data = (
+            self.frequency_data if frequency_data is None else frequency_data
+        )
+        impedance_data = (
+            self.impedance_data if impedance_data is None else impedance_data
+        )
+        minimum_peak_height = (
+            self.minimum_peak_height
+            if minimum_peak_height is None
+            else minimum_peak_height
+        )
+        threshold = self.threshold if threshold is None else threshold
+        distance = self.distance if distance is None else distance
+        prominence = self.prominence if prominence is None else prominence
+        samples = self.samples if samples is None else samples
+        q_side = self.q_side if q_side is None else q_side
+        impedance_type = (
+            self.impedance_type if impedance_type is None else impedance_type
+        )
+        interactive = self.interactive if interactive is None else interactive
+        plane = self.plane if plane is None else plane
 
-        Returns
-        -------
-        parameterBounds : list of tuples or None
-            A list of parameter bounds for fitting. Each resonance contributes
-            three sets of bounds:
-            - `(Rs_min, Rs_max)`: Bounds for resistance Rs.
-            - `(Q_min, Q_max)`: Bounds for quality factor Q.
-            - `(freq_min, freq_max)`: Bounds for the resonant frequency.
-            None while interactive selection is pending.
+        # Validate and store the impedance interpretation
+        if plane not in ("longitudinal", "transverse"):
+            raise ValueError("plane must be 'longitudinal' or 'transverse'")
+        self.plane = plane
+        self.impedance_type = impedance_type
+        if plane == "transverse" and impedance_type == "absolute":
+            print(
+                "[!] Warning: Transverse SmartBounds estimation is derived "
+                "for real impedance. Absolute impedance may give inconclusive "
+                "bounds; use impedance_type='real' instead."
+            )
 
-        Notes
-        -----
-        - Automatic peak finding uses `scipy.signal.find_peaks`.
-        - The selected crossing width is used to estimate initial Q factors.
-        - The detected peaks and their heights are stored in instance attributes
-        `self.peaks` and `self.peaks_height`, respectively.
-        - The number of detected resonances is stored in `self.Nres`.
-
-        """
-
-        # Use instance attributes if no arguments are provided
-        if frequency_data is None:
-            frequency_data = self.frequency_data
-        if impedance_data is None:
-            impedance_data = self.impedance_data
-        if minimum_peak_height is None:
-            minimum_peak_height = self.minimum_peak_height
-        if threshold is None:
-            threshold = self.threshold
-        if distance is None:
-            distance = self.distance
-        if prominence is None:
-            prominence = self.prominence
-        if samples is None:
-            samples = self.samples
-        if q_side is None:
-            q_side = self.q_side
-        if impedance_type is None:
-            impedance_type = self.impedance_type
-        if interactive is None:
-            interactive = self.interactive
-
+        # Build the analysis grid used for both peaks and crossings
         frequency_data = np.asarray(frequency_data)
         impedance_data = np.asarray(impedance_data)
         if samples is not None:
@@ -305,26 +292,31 @@ class SmartBoundDetermination:
             analysis_impedance_data = np.interp(
                 analysis_frequency_data, frequency_data, impedance_data
             )
-            if isinstance(minimum_peak_height, np.ndarray):
-                if minimum_peak_height.shape == frequency_data.shape:
-                    minimum_peak_height = np.interp(
-                        analysis_frequency_data,
-                        frequency_data,
-                        minimum_peak_height,
-                    )
+            if (
+                isinstance(minimum_peak_height, np.ndarray)
+                and minimum_peak_height.shape == frequency_data.shape
+            ):
+                minimum_peak_height = np.interp(
+                    analysis_frequency_data,
+                    frequency_data,
+                    minimum_peak_height,
+                )
         else:
             analysis_frequency_data = frequency_data
             analysis_impedance_data = impedance_data
 
         self.analysis_frequency_data = analysis_frequency_data
         self.analysis_impedance_data = analysis_impedance_data
+        self._peak_q_estimates = {}
 
+        # Select peaks interactively or with scipy.signal.find_peaks
         if interactive:
             self.peaks = None
+            self.parameterEstimates = None
             self.parameterBounds = None
             self._selection_done.clear()
             self._selection_cancelled = False
-            self._start_interactive_selection(q_side, impedance_type)
+            self._start_interactive_selection(q_side, impedance_type, plane)
             return self.parameterBounds
 
         peaks, _ = find_peaks(
@@ -334,28 +326,17 @@ class SmartBoundDetermination:
             distance=distance,
             prominence=prominence,
         )
-        return self._bounds_from_peaks(peaks, q_side, impedance_type)
+        return self._bounds_from_peaks(peaks, q_side, impedance_type, plane)
 
     def _bounds_from_peaks(
         self,
         peaks: np.ndarray,
         q_side: str | list[str],
         impedance_type: str,
+        plane: str,
     ) -> ParameterBounds:
         """Estimate parameter bounds from selected analysis-grid peaks."""
-        analysis_frequency_data = self.analysis_frequency_data
-        analysis_impedance_data = self.analysis_impedance_data
-        peaks_height = {"peak_heights": analysis_impedance_data[peaks]}
-
-        fallback_resonator_q = 1.0
-        positive_q_floor = np.finfo(float).eps
-        Nres = len(peaks)
-        initial_Qs = np.zeros(Nres)
-        self.minus_3dB_points = np.zeros(Nres)
-        self.upper_lower_bounds = np.zeros(Nres)
-        self.q_sides_used = []
-        sides = [q_side] * Nres if isinstance(q_side, str) else q_side
-
+        # Set the crossing level appropriate to the supplied impedance data
         if impedance_type == "absolute":
             crossing_fraction = np.sqrt(1 / 2)
         elif impedance_type == "real":
@@ -363,102 +344,270 @@ class SmartBoundDetermination:
         else:
             raise ValueError("impedance_type must be 'absolute' or 'real'")
 
-        for i, (peak, height) in enumerate(zip(peaks, peaks_height["peak_heights"])):
+        peak_heights = self.analysis_impedance_data[peaks]
+        sides = [q_side] * len(peaks) if isinstance(q_side, str) else q_side
+        positive_q_floor = np.finfo(float).eps
+
+        # Collect metadata and flattened fit parameters in peak order
+        crossing_levels = []
+        crossing_widths = []
+        crossing_frequencies = []
+        sides_used = []
+        parameter_estimates = []
+        parameter_bounds = []
+
+        # Estimate one resonator and its bounds from each selected peak
+        for i, (peak, height) in enumerate(zip(peaks, peak_heights)):
+            peak_frequency = self.analysis_frequency_data[peak]
             crossing_level = height * crossing_fraction
-            self.minus_3dB_points[i] = crossing_level
-            idx_crossings = np.argwhere(
-                np.diff(np.sign(analysis_impedance_data - crossing_level))
-            ).flatten()
+            supplied_q = self._peak_q_estimates.get(peak)
 
-            if len(idx_crossings) == 0:
-                # A truncated resonance may not cross its selected level in the
-                # supplied spectrum. Keep it in the fit with a conservative
-                # fallback estimate rather than dropping it.
-                upper_lower_bound = 0.0
-                selected_side = sides[i]
+            if supplied_q is not None:
+                # No crossing belongs to a peak whose Q was supplied explicitly.
+                crossing_frequency = np.nan
+                crossing_width = np.nan
+                selected_side = "estimate"
+                estimated_q = supplied_q
             else:
-                # Locate crossings within their bracketing samples. Using the
-                # left sample directly can give zero width when it is the peak.
-                left_frequency = analysis_frequency_data[idx_crossings]
-                right_frequency = analysis_frequency_data[idx_crossings + 1]
-                left_impedance = analysis_impedance_data[idx_crossings]
-                right_impedance = analysis_impedance_data[idx_crossings + 1]
-                crossing_frequency = left_frequency + (
-                    (crossing_level - left_impedance)
-                    * (right_frequency - left_frequency)
-                    / (right_impedance - left_impedance)
+                crossing_frequency, crossing_width, selected_side = (
+                    self._find_peak_crossing(peak, crossing_level, sides[i])
                 )
-                peak_frequency = analysis_frequency_data[peak]
-                left_crossings = crossing_frequency[crossing_frequency < peak_frequency]
-                right_crossings = crossing_frequency[
-                    crossing_frequency > peak_frequency
-                ]
-                left_width = (
-                    peak_frequency - left_crossings[-1]
-                    if len(left_crossings)
-                    else np.inf
+
+                if crossing_width <= 0.0:
+                    # Keep truncated peaks in the fit even when the requested
+                    # crossing is outside the supplied frequency range.
+                    estimated_q = 1.0
+                elif plane == "longitudinal":
+                    estimated_q = (
+                        crossing_frequency
+                        * peak_frequency
+                        / abs(crossing_frequency**2 - peak_frequency**2)
+                    )
+                else:  # transverse estimate to Q based on width
+                    estimated_q = peak_frequency / (2 * crossing_width)
+
+            estimated_q = max(positive_q_floor, estimated_q)
+            estimated_rs = height
+            estimated_fres = peak_frequency
+
+            # Only the transverse real part has a supported peak-shift correction.
+            if (
+                plane == "transverse"
+                and impedance_type == "real"
+                and peak_frequency > 0.0
+            ):
+                estimated_rs, estimated_q, estimated_fres = (
+                    self._estimate_transverse_parameters(
+                        peak_frequency,
+                        height,
+                        estimated_q,
+                        crossing_frequency,
+                        supplied_q,
+                    )
                 )
-                right_width = (
-                    right_crossings[0] - peak_frequency
-                    if len(right_crossings)
-                    else np.inf
-                )
-                selected_side = sides[i]
-                if selected_side == "auto":
-                    selected_side = "left" if left_width <= right_width else "right"
-                if selected_side == "left":
-                    upper_lower_bound = left_width
-                elif selected_side == "right":
-                    upper_lower_bound = right_width
-                else:
-                    raise ValueError("q_side must be 'auto', 'left', or 'right'")
-                if not np.isfinite(upper_lower_bound):
-                    upper_lower_bound = 0.0
-            self.upper_lower_bounds[i] = upper_lower_bound
-            self.q_sides_used.append(selected_side)
 
-            if upper_lower_bound <= 0.0:
-                estimated_Q = fallback_resonator_q
-            else:
-                estimated_Q = analysis_frequency_data[peak] / (upper_lower_bound * 2)
-
-            initial_Qs[i] = max(positive_q_floor, estimated_Q)
-
-        parameterBounds = []
-
-        for i in range(Nres):
-            # Add the fixed bounds
-            Rs_bounds = (
-                peaks_height["peak_heights"][i] * self.Rs_bounds[0],
-                peaks_height["peak_heights"][i] * self.Rs_bounds[1],
+            rs_bounds = (
+                estimated_rs * self.Rs_bounds[0],
+                estimated_rs * self.Rs_bounds[1],
             )
-            Q_bounds = (
-                max(positive_q_floor, initial_Qs[i] * self.Q_bounds[0]),
-                initial_Qs[i] * self.Q_bounds[1],
+            q_bounds = (
+                max(positive_q_floor, estimated_q * self.Q_bounds[0]),
+                estimated_q * self.Q_bounds[1],
             )
+            # Frequency factors scale with the estimated resonator Q
+            estimated_frequency_width = estimated_fres / (2 * estimated_q)
             freq_bounds = (
-                analysis_frequency_data[peaks[i]] + self.fres_bounds[0],
-                analysis_frequency_data[peaks[i]] + self.fres_bounds[1],
+                max(
+                    positive_q_floor,
+                    estimated_fres + self.fres_bounds[0] * estimated_frequency_width,
+                ),
+                estimated_fres + self.fres_bounds[1] * estimated_frequency_width,
             )
 
-            if peaks_height["peak_heights"][i] < 0:
-                Rs_bounds = (
-                    Rs_bounds[1],
-                    Rs_bounds[0],
-                )  # Swap for negative peaks
-            parameterBounds.extend([Rs_bounds, Q_bounds, freq_bounds])
+            if estimated_rs < 0:
+                rs_bounds = (rs_bounds[1], rs_bounds[0])
 
-        # Store peaks and peaks_height as instance attributes
+            crossing_levels.append(crossing_level)
+            crossing_widths.append(crossing_width)
+            crossing_frequencies.append(crossing_frequency)
+            sides_used.append(selected_side)
+            parameter_estimates.extend([estimated_rs, estimated_q, estimated_fres])
+            parameter_bounds.extend([rs_bounds, q_bounds, freq_bounds])
+
         self.peaks = peaks
-        self.peaks_height = peaks_height
-        self.N_resonators = len(parameterBounds) / 3
-        self.parameterBounds = parameterBounds
-        return parameterBounds
+        self.peaks_height = {"peak_heights": peak_heights}
+        self.minus_3dB_points = np.asarray(crossing_levels)
+        self.upper_lower_bounds = np.asarray(crossing_widths)
+        self.crossing_frequencies = np.asarray(crossing_frequencies)
+        self.q_sides_used = sides_used
+        self.N_resonators = len(peaks)
+        self.parameterEstimates = parameter_estimates
+        self.parameterBounds = parameter_bounds
+        return parameter_bounds
+
+    def _find_peak_crossing(
+        self,
+        peak: int,
+        crossing_level: float,
+        selected_side: str,
+    ) -> tuple[float, float, str]:
+        """Return the selected crossing frequency, width, and side for a peak."""
+        frequency_data = self.analysis_frequency_data
+        impedance_data = self.analysis_impedance_data
+        crossing_indices = np.argwhere(
+            np.diff(np.sign(impedance_data - crossing_level))
+        ).flatten()
+
+        if len(crossing_indices) == 0:
+            return np.nan, 0.0, selected_side
+
+        # Interpolate within each bracketing pair instead of using the nearest
+        # sample, which can otherwise produce a zero width at the peak.
+        left_frequency = frequency_data[crossing_indices]
+        right_frequency = frequency_data[crossing_indices + 1]
+        left_impedance = impedance_data[crossing_indices]
+        right_impedance = impedance_data[crossing_indices + 1]
+        crossing_frequencies = left_frequency + (
+            (crossing_level - left_impedance)
+            * (right_frequency - left_frequency)
+            / (right_impedance - left_impedance)
+        )
+
+        peak_frequency = frequency_data[peak]
+        left_crossings = crossing_frequencies[crossing_frequencies < peak_frequency]
+        right_crossings = crossing_frequencies[crossing_frequencies > peak_frequency]
+        left_width = (
+            peak_frequency - left_crossings[-1] if len(left_crossings) else np.inf
+        )
+        right_width = (
+            right_crossings[0] - peak_frequency if len(right_crossings) else np.inf
+        )
+
+        # Auto chooses the closest available crossing on either side.
+        if selected_side == "auto":
+            selected_side = "left" if left_width <= right_width else "right"
+        if selected_side == "left":
+            crossing_frequency = left_crossings[-1] if len(left_crossings) else np.nan
+            crossing_width = left_width
+        elif selected_side == "right":
+            crossing_frequency = right_crossings[0] if len(right_crossings) else np.nan
+            crossing_width = right_width
+        else:
+            raise ValueError("q_side must be 'auto', 'left', or 'right'")
+
+        if not np.isfinite(crossing_width):
+            return np.nan, 0.0, selected_side
+        return crossing_frequency, crossing_width, selected_side
+
+    @staticmethod
+    def _estimate_transverse_parameters(
+        peak_frequency: float,
+        peak_height: float,
+        estimated_q: float,
+        crossing_frequency: float,
+        supplied_q: float | None,
+    ) -> tuple[float, float, float]:
+        """Convert a transverse real-impedance peak to Rs, Q, and fres.
+
+        The dimensionless peak location is recovered either from the selected
+        crossing or directly from a supplied Q estimate.
+        """
+        # Invert the transverse peak condition to locate the peak from Q.
+        if supplied_q is not None:
+            q_squared = supplied_q**2
+            eta_peak = (
+                2 * q_squared - 1 + np.sqrt(16 * q_squared**2 - 4 * q_squared + 1)
+            ) / (6 * q_squared)
+        elif np.isfinite(crossing_frequency):
+            crossing_ratio = crossing_frequency / peak_frequency
+            numerator = 4 * crossing_ratio - crossing_ratio**2 - 1
+            denominator = crossing_ratio**4 - 3 * crossing_ratio**2 + 4 * crossing_ratio
+            eta_squared = numerator / denominator if denominator != 0.0 else np.nan
+            eta_peak = (
+                np.sqrt(eta_squared)
+                if np.isfinite(eta_squared) and eta_squared > 0.0
+                else np.nan
+            )
+        else:
+            return peak_height, estimated_q, peak_frequency
+
+        # Leave the peak estimate unchanged if the correction is not physical.
+        if not np.isfinite(eta_peak) or not 0.0 < eta_peak < 1.0:
+            return peak_height, estimated_q, peak_frequency
+
+        if supplied_q is None:
+            estimated_q = np.sqrt(eta_peak / ((1 - eta_peak) * (1 + 3 * eta_peak)))
+        estimated_fres = peak_frequency / np.sqrt(eta_peak)
+        estimated_rs = (
+            peak_height * 2 * np.sqrt(eta_peak) * (1 + eta_peak) / (1 + 3 * eta_peak)
+        )
+        return estimated_rs, estimated_q, estimated_fres
+
+    def add_peak(
+        self,
+        frequency: float,
+        q_side: str | None = None,
+        Q: float | None = None,
+    ):
+        """Add a peak at the nearest analysis frequency and recompute bounds.
+
+        Existing peaks retain their selected crossing sides. The new peak uses
+        the configured ``q_side`` when it is a single value, otherwise ``auto``;
+        pass ``q_side`` to override that choice. If ``Q`` is supplied, it is
+        used as the quality-factor estimate and the crossing calculation is
+        skipped for the new peak.
+        """
+        # Peak additions require a completed automatic or interactive search
+        if self.peaks is None or self.parameterBounds is None:
+            raise RuntimeError("Finish interactive peak selection before adding a peak")
+
+        # A supplied Q replaces the crossing-based estimate for this peak
+        if Q is not None:
+            try:
+                Q = float(Q)
+            except (TypeError, ValueError) as error:
+                raise ValueError("Q must be a finite positive value") from error
+            if not np.isfinite(Q) or Q <= 0.0:
+                raise ValueError("Q must be a finite positive value")
+
+        frequency = float(frequency)
+        frequency_data = self.analysis_frequency_data
+        if frequency < frequency_data[0] or frequency > frequency_data[-1]:
+            raise ValueError("frequency is outside the analysis frequency range")
+
+        peak = int(np.abs(frequency_data - frequency).argmin())
+        if peak in self.peaks:
+            raise ValueError("A peak already exists at this analysis frequency")
+
+        selected_side = q_side
+        if selected_side is None:
+            selected_side = self.q_side if isinstance(self.q_side, str) else "auto"
+        if selected_side not in ("auto", "left", "right"):
+            raise ValueError("q_side must be 'auto', 'left', or 'right'")
+
+        # Preserve earlier choices while inserting the new peak in frequency order
+        previous_sides = dict(zip(self.peaks, self.q_sides_used))
+        peaks = np.sort(np.append(self.peaks, peak)).astype(int)
+        sides = [
+            selected_side if index == peak else previous_sides[index] for index in peaks
+        ]
+        if Q is not None:
+            self._peak_q_estimates[peak] = Q
+        self._bounds_from_peaks(
+            peaks,
+            sides,
+            self.impedance_type,
+            self.plane,
+        )
 
     def _start_interactive_selection(
-        self, q_side: str | list[str], impedance_type: str
+        self,
+        q_side: str | list[str],
+        impedance_type: str,
+        plane: str,
     ) -> None:
         """Pick peaks with controls suited to the active Matplotlib backend."""
+        # Set up the selection plot for the active Matplotlib backend
         frequency_data = self.analysis_frequency_data
         impedance_data = self.analysis_impedance_data
         backend = matplotlib.get_backend().lower()
@@ -474,6 +623,7 @@ class SmartBoundDetermination:
         status_label = None
         pick_button = None
 
+        # Shared selection callbacks
         def update_selection() -> None:
             peaks = np.array(sorted(selected_indices), dtype=int)
             markers.set_data(frequency_data[peaks], impedance_data[peaks])
@@ -504,7 +654,7 @@ class SmartBoundDetermination:
                     status_label.value = "Select at least one peak before clicking Done"
                 return
             peaks = np.array(sorted(selected_indices), dtype=int)
-            self._bounds_from_peaks(peaks, q_side, impedance_type)
+            self._bounds_from_peaks(peaks, q_side, impedance_type, plane)
             self._selection_done.set()
             if self._selection_done_button is not None:
                 self._selection_done_button.disabled = True
@@ -546,6 +696,7 @@ class SmartBoundDetermination:
         self._selection_pick_button = None
         self._selection_undo_button = None
 
+        # Inline backends use a text prompt because the displayed plot is static
         if is_inline:
             ax.set_title("Enter peak frequencies in Hz at the prompt")
             plt.show()
@@ -558,6 +709,7 @@ class SmartBoundDetermination:
             finish_selection()
             return
 
+        # Widget backends provide explicit pick, undo, and done controls
         fig.canvas.mpl_connect("button_press_event", on_click)
         if is_widget:
             try:
@@ -602,6 +754,7 @@ class SmartBoundDetermination:
             display(widgets.VBox([status_label, controls]))
             return
 
+        # Desktop backends use mouse and keyboard events directly
         ax.set_title("Left-click peaks; right-click to undo; press Enter")
         fig.canvas.mpl_connect("key_press_event", on_key)
         plt.show(block=False)
@@ -614,51 +767,163 @@ class SmartBoundDetermination:
             raise RuntimeError("Interactive selection was closed before completion")
         return self.parameterBounds
 
-    def inspect(self) -> None:
+    def get_impedance_components(
+        self,
+        frequency_data: ArrayLike | None = None,
+    ) -> np.ndarray:
+        """Return one estimated impedance array per detected resonance."""
+        if self.parameterEstimates is None:
+            raise RuntimeError("Finish peak selection before evaluating the model")
+        if frequency_data is None:
+            frequency_data = self.analysis_frequency_data
+        frequency_data = np.asarray(frequency_data)
+
+        fit_function = (
+            imp.n_Resonator_longitudinal_imp
+            if self.plane == "longitudinal"
+            else imp.n_Resonator_transverse_imp
+        )
+        return np.asarray(
+            [
+                fit_function(frequency_data, resonator_parameters)
+                for resonator_parameters in np.asarray(self.parameterEstimates).reshape(
+                    -1, 3
+                )
+            ]
+        )
+
+    def inspect(
+        self,
+        show_bounds: bool = False,
+        show_components: bool = False,
+    ) -> None:
+        """Plot detected peaks, bounds, and estimated resonator components."""
+        # Input trace and optional component data
         plt.figure()
-        plt.plot(self.analysis_frequency_data, self.analysis_impedance_data)
+        plt.plot(
+            self.analysis_frequency_data,
+            self.analysis_impedance_data,
+            "-",
+            color="tab:blue" if show_components else None,
+            linewidth=2.0 if show_components else None,
+            label="Input data" if show_components else None,
+        )
 
         if self.peaks is not None:
+            color_map = (
+                plt.get_cmap("turbo", max(len(self.peaks), 1))
+                if show_bounds or show_components
+                else None
+            )
+            components = (
+                self.get_impedance_components()
+                if show_components and len(self.peaks) > 0
+                else None
+            )
+            component_values = np.real if self.impedance_type == "real" else np.abs
+            resonance_handles = []
+            # Peak, crossing, and frequency-bound annotations
             for i, (peak, minus_3dB_point, upper_lower_bound) in enumerate(
                 zip(self.peaks, self.minus_3dB_points, self.upper_lower_bounds)
             ):
-                plt.plot(
+                color = color_map(i) if show_bounds or show_components else None
+                peak_handle = plt.plot(
                     self.analysis_frequency_data[peak],
                     self.analysis_impedance_data[peak],
                     "x",
-                    color="black",
-                )
-                plt.vlines(
-                    self.analysis_frequency_data[peak],
-                    ymin=minus_3dB_point,
-                    ymax=self.analysis_impedance_data[peak],
-                    color="r",
-                    linestyle="--",
-                )
-                plt.hlines(
-                    minus_3dB_point,
-                    xmin=(
-                        self.analysis_frequency_data[peak] - upper_lower_bound
-                        if self.q_sides_used[i] == "left"
-                        else self.analysis_frequency_data[peak]
-                    ),
-                    xmax=(
-                        self.analysis_frequency_data[peak] + upper_lower_bound
-                        if self.q_sides_used[i] == "right"
-                        else self.analysis_frequency_data[peak]
-                    ),
-                    color="g",
-                    linestyle="--",
-                )
+                    color=color if show_bounds or show_components else "black",
+                    label=f"#{i + 1}" if show_bounds and not show_components else None,
+                )[0]
+                if show_bounds and not show_components:
+                    resonance_handles.append(peak_handle)
+                if np.isfinite(self.crossing_frequencies[i]):
+                    plt.vlines(
+                        self.analysis_frequency_data[peak],
+                        ymin=minus_3dB_point,
+                        ymax=self.analysis_impedance_data[peak],
+                        color=color if show_bounds or show_components else "r",
+                        linestyle="--",
+                    )
+                    plt.hlines(
+                        minus_3dB_point,
+                        xmin=(
+                            self.analysis_frequency_data[peak] - upper_lower_bound
+                            if self.q_sides_used[i] == "left"
+                            else self.analysis_frequency_data[peak]
+                        ),
+                        xmax=(
+                            self.analysis_frequency_data[peak] + upper_lower_bound
+                            if self.q_sides_used[i] == "right"
+                            else self.analysis_frequency_data[peak]
+                        ),
+                        color=color if show_bounds or show_components else "g",
+                        linestyle="--",
+                    )
+                if show_bounds and np.isfinite(self.crossing_frequencies[i]):
+                    plt.plot(
+                        self.crossing_frequencies[i],
+                        minus_3dB_point,
+                        marker="o",
+                        markerfacecolor="none",
+                        color=color,
+                    )
                 plt.text(
                     self.analysis_frequency_data[peak],
                     self.analysis_impedance_data[peak],
                     f"#{i + 1}",
                     fontsize=9,
+                    color="black",
                 )
+
+                if (
+                    show_bounds
+                    and self.parameterEstimates is not None
+                    and self.parameterBounds is not None
+                ):
+                    estimated_fres = self.parameterEstimates[3 * i + 2]
+                    fres_bounds = self.parameterBounds[3 * i + 2]
+                    plt.axvspan(
+                        fres_bounds[0],
+                        fres_bounds[1],
+                        color=color,
+                        alpha=0.15,
+                        zorder=0,
+                    )
+                    plt.axvline(
+                        estimated_fres,
+                        color=color,
+                        linestyle="-.",
+                    )
+                if components is not None:
+                    component_handle = plt.plot(
+                        self.analysis_frequency_data,
+                        component_values(components[i]),
+                        color=color,
+                        linewidth=1.2,
+                        linestyle=":",
+                        alpha=0.7,
+                        label=f"Resonator {i + 1}",
+                    )[0]
+                    resonance_handles.append(component_handle)
+            # Sum the same components to show the complete estimated model
+            if components is not None:
+                plt.plot(
+                    self.analysis_frequency_data,
+                    component_values(components.sum(axis=0)),
+                    color="black",
+                    linewidth=1.2,
+                    linestyle=":",
+                    alpha=0.8,
+                    label="Total model",
+                )
+        # Axes and legend
         plt.xlabel("Frequency [Hz]")
         plt.ylabel("Impedance [Ohm]")
         plt.title("Smart Bound Determination")
+        if show_components and self.peaks is not None and len(self.peaks) > 0:
+            plt.legend(ncol=3, frameon=False)
+        elif show_bounds and self.peaks is not None and len(self.peaks) > 0:
+            plt.legend(handles=resonance_handles, title="Resonator")
         plt.show()
 
         return None
