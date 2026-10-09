@@ -89,8 +89,11 @@ class EvolutionaryAlgorithm:
         Attributes
         ----------
         fitFunction : callable
-            Partial function used to compute impedance based on the chosen model
-            (`imp.Resonator_longitudinal_imp`, `imp.n_Resonator_longitudinal_imp`, etc.).
+            Function used to evaluate the selected impedance, wake, or
+            wake-potential model.
+        fitFunctionType : str
+            Selected model domain: ``"impedance"``, ``"wake"``, or
+            ``"wake potential"``.
         evolutionParameters : dict or None
             Stores parameters of the evolutionary optimization algorithm.
         minimizationParameters : numpy.ndarray or None
@@ -143,6 +146,7 @@ class EvolutionaryAlgorithm:
         self.wake_length = wake_length
         self.plane = plane
         self.sigma = sigma
+        self.fitFunctionType = "impedance"
 
         self.time_data = None
         self.wake_data = None
@@ -189,6 +193,7 @@ class EvolutionaryAlgorithm:
                 self.objectiveFunction = obj.sumOfSquaredError
 
         if fitFunction == "wake" or fitFunction == "wake function":
+            self.fitFunctionType = "wake"
             if plane == "longitudinal":
                 self.fitFunction = wak.n_Resonator_longitudinal_wake
             elif plane == "transverse":
@@ -199,6 +204,7 @@ class EvolutionaryAlgorithm:
             self.wake_data = y_data
 
         elif fitFunction == "wake potential":
+            self.fitFunctionType = "wake potential"
             if self.sigma is None:
                 print("[!] sigma not specified, using the default sigma=1e-10 s")
                 self.sigma = 1e-10
@@ -1168,6 +1174,156 @@ class EvolutionaryAlgorithm:
             )
 
         return impedance_data
+
+    def get_model_components(
+        self,
+        x_data: ArrayLike | None = None,
+        use_minimization: bool = True,
+    ) -> np.ndarray:
+        """Return one fitted model contribution per resonator.
+
+        Each contribution is evaluated independently with the configured
+        impedance, wake, or wake-potential ``fitFunction``.
+        """
+        if x_data is None:
+            x_data = self.x_data
+        x_data = np.asarray(x_data)
+
+        if use_minimization and self.minimizationParameters is not None:
+            parameters = self.minimizationParameters
+        else:
+            parameters = self.evolutionParameters
+        if parameters is None:
+            raise ValueError("No resonator parameters are available")
+
+        return np.asarray(
+            [
+                self.fitFunction(x_data, resonator_parameters)
+                for resonator_parameters in np.asarray(parameters).reshape(-1, 3)
+            ]
+        )
+
+    def plot_model_components(
+        self,
+        x_data: ArrayLike | None = None,
+        y_data: ArrayLike | None = None,
+        use_minimization: bool = True,
+        cmap: str = "turbo",
+        figsize: tuple[float, float] | None = None,
+        dpi: float | None = None,
+        input_data_kwargs: dict[str, Any] | None = None,
+        component_kwargs: dict[str, Any] | None = None,
+        total_model_kwargs: dict[str, Any] | None = None,
+        **subplot_kwargs: Any,
+    ):
+        """Plot input data, individual resonators, and the total model.
+
+        ``input_data_kwargs``, ``component_kwargs``, and
+        ``total_model_kwargs`` override the default line styles. Remaining
+        keyword arguments are forwarded to ``matplotlib.pyplot.subplots``.
+        """
+        import matplotlib.pyplot as plt
+
+        if x_data is None:
+            x_data = self.x_data
+        x_data = np.asarray(x_data)
+        if y_data is None and np.array_equal(x_data, self.x_data):
+            y_data = self.y_data
+        if y_data is not None:
+            y_data = np.asarray(y_data)
+            if y_data.shape != x_data.shape:
+                raise ValueError("x_data and y_data must have the same shape")
+
+        components = self.get_model_components(
+            x_data,
+            use_minimization=use_minimization,
+        )
+        if use_minimization and self.minimizationParameters is not None:
+            parameters = self.minimizationParameters
+        else:
+            parameters = self.evolutionParameters
+        total_model = self.fitFunction(x_data, parameters)
+        colors = plt.get_cmap(cmap, max(len(components), 1))
+
+        if self.fitFunctionType == "impedance":
+            figure_options = {
+                "figsize": (10, 7) if figsize is None else figsize,
+                "sharex": True,
+                **subplot_kwargs,
+            }
+            if dpi is not None:
+                figure_options["dpi"] = dpi
+            fig, axes = plt.subplots(2, 1, **figure_options)
+            units = r"[$\Omega$]" if self.plane == "longitudinal" else r"[$\Omega$/m]"
+            panels = (
+                (axes[0], np.real, r"Real part $\Re(Z)$ " + units, "red"),
+                (axes[1], np.imag, r"Imaginary part $\Im(Z)$ " + units, "blue"),
+            )
+            xlabel = "Frequency [Hz]"
+        else:
+            figure_options = {
+                "figsize": (10, 5) if figsize is None else figsize,
+                **subplot_kwargs,
+            }
+            if dpi is not None:
+                figure_options["dpi"] = dpi
+            fig, axis = plt.subplots(**figure_options)
+            axes = np.asarray([axis])
+            ylabel = "Wake" if self.fitFunctionType == "wake" else "Wake potential"
+            units = "[V/C/m]"
+            panels = ((axis, np.real, ylabel + " " + units, "red"),)
+            xlabel = "Time [s]"
+
+        for axis, values, ylabel, input_color in panels:
+            if y_data is not None:
+                input_style = {
+                    "linestyle": "-",
+                    "color": input_color,
+                    "linewidth": 2.0,
+                    "label": "Input data",
+                }
+                input_style.update(input_data_kwargs or {})
+                axis.plot(
+                    x_data,
+                    values(y_data),
+                    **input_style,
+                )
+
+            total_style = {
+                "linestyle": "--",
+                "color": "black",
+                "linewidth": 2.0,
+                "alpha": 0.8,
+                "label": "Total model",
+            }
+            total_style.update(total_model_kwargs or {})
+            axis.plot(
+                x_data,
+                values(total_model),
+                **total_style,
+            )
+            for index, component in enumerate(components):
+                component_style = {
+                    "linestyle": "-",
+                    "color": colors(index),
+                    "linewidth": 1.5,
+                    "alpha": 0.7,
+                    "label": f"Resonator {index + 1}",
+                }
+                component_style.update(component_kwargs or {})
+                axis.plot(
+                    x_data,
+                    values(component),
+                    **component_style,
+                )
+            axis.set_ylabel(ylabel)
+
+        axes[-1].set_xlabel(xlabel)
+        axes[0].legend(ncol=3, frameon=False)
+        axes[-1].legend(ncol=3, frameon=False)
+        fig.tight_layout()
+        plt.show()
+        return fig, axes
 
     def get_impedance_uncertainty(
         self,
