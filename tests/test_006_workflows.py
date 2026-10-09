@@ -48,14 +48,15 @@ def test_named_objective_matches_its_impedance_residual(resonance, objective):
 @pytest.mark.parametrize("solver", ["de", "cmaes"])
 def test_solver_fits_complex_impedance_with_public_options(resonance, solver, capsys):
     frequency, parameters, target, bounds = resonance
+    initial = np.array([bounds[0][0], bounds[1][1], bounds[2][0]])
     model = iddefix.EvolutionaryAlgorithm(
         frequency,
         target,
         N_resonators=1,
         parameterBounds=bounds,
+        parameterEstimates=initial,
         objectiveFunction="Complex",
     )
-    initial = np.array([bounds[0][0], bounds[1][1], bounds[2][0]])
     initial_loss = model.objectiveFunction(
         initial, model.fitFunction, frequency, target
     )

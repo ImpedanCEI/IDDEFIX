@@ -40,6 +40,7 @@ class EvolutionaryAlgorithm:
         wake_length: float | None = None,
         sigma: float | None = None,
         uncertainty_warning: float = 0.2,
+        parameterEstimates: ArrayLike | None = None,
     ) -> None:
         """
         Implements an evolutionary algorithm for fitting impedance models to data.
@@ -80,6 +81,10 @@ class EvolutionaryAlgorithm:
             Threshold for relative uncertainty warning. Default is 0.2 -->20%
             If any parameter has a relative uncertainty (sigma/value) above this
             threshold, a warning is printed after optimization.
+        parameterEstimates : array-like, optional
+            Initial parameter vector in the same flattened order as
+            ``parameterBounds``. The value is stored unchanged. Individual
+            solver calls can override it with ``x0``.
 
         Attributes
         ----------
@@ -133,6 +138,7 @@ class EvolutionaryAlgorithm:
 
         self.N_resonators = N_resonators
         self.parameterBounds = parameterBounds
+        self.parameterEstimates = parameterEstimates
         self.objectiveFunction = objectiveFunction
         self.wake_length = wake_length
         self.plane = plane
@@ -241,7 +247,7 @@ class EvolutionaryAlgorithm:
         self.x_data = self.x_data[mask]
         self.y_data = self.y_data[mask]
 
-    def generate_Initial_Parameters(
+    def _solve_differential_evolution(
         self,
         parameterBounds: ParameterBounds,
         objectiveFunction: ObjectiveCallable,
@@ -256,64 +262,7 @@ class EvolutionaryAlgorithm:
         solver: str = "scipy",
         **kwargs: Any,
     ) -> tuple[np.ndarray, str]:
-        """
-        Generates initial parameter estimates using a
-        Differential Evolution (DE) solver.
-
-        This function applies a DE optimization method to identify
-        suitable initial parameters for resonance fitting.
-        These parameters can be further refined using local minimization.
-
-        Parameters
-        ----------
-        parameterBounds : list of tuple
-            A list of (min, max) bounds for each parameter.
-        objectiveFunction : callable
-            The objective function to minimize. It should accept parameters,
-            a fitting function, x-data, and y-data.
-        fitFunction : callable
-            The fitting function that models the impedance response.
-        x_values_data : numpy.ndarray
-            Array containing x-values of the data (frequency points).
-        y_values_data : numpy.ndarray
-            Array containing y-values of the data (real or complex impedance).
-        maxiter : int, optional
-            Maximum number of iterations for the DE solver. Default is 2000.
-        popsize : int, optional
-            Population multiplier per parameter. Default is 150.
-        mutation : tuple of float, optional
-            Range of mutation factors that control parameter variation.
-            Default is (0.1, 0.5).
-        crossover_rate : float, optional
-            Probability of recombining individuals in the DE algorithm.
-            Default is 0.8.
-        tol : float, optional
-            Convergence tolerance for stopping criteria. Default is 0.01.
-        solver : str, optional
-            The solver to use for differential evolution. Available options:
-            - `"scipy"`: Uses SciPy's built-in DE solver.
-            - `"pyfde"`: Uses `pyfde`, an alternative DE implementation.
-            - `"pyfde_jade"`: Uses JADE, a self-adaptive DE variant
-            (automatically adjusts `mutation` and `crossover_rate`).
-            Default is `"scipy"`.
-        **kwargs : Any
-            Additional solver options forwarded by ``run_differential_evolution``.
-            See that method for solver-specific options and documentation links.
-
-        Returns
-        -------
-        tuple
-            - **solution** : numpy.ndarray
-                Optimized parameter estimates found by the DE solver.
-            - **message** : str
-                Solver status message.
-
-        Notes
-        -----
-        - Calls the appropriate solver function based on the `solver` argument.
-        - If `solver='pyfde_jade'`, mutation and crossover rates are automatically adjusted.
-        - The result can be used as an initial guess for further optimization.
-        """
+        """Prepare the objective and dispatch it to the selected DE backend."""
 
         objective_function = partial(
             objectiveFunction,
@@ -342,12 +291,116 @@ class EvolutionaryAlgorithm:
 
         return solution, message
 
+    def run_differential_evolution(
+        self,
+        maxiter: int = 2000,
+        popsize: int = 15,
+        mutation: tuple[float, float] = (0.1, 0.5),
+        crossover_rate: float = 0.8,
+        tol: float = 0.01,
+        solver: str = "scipy",
+        x0: ArrayLike | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """
+        Runs the differential evolution (DE) algorithm to estimate optimal
+        resonance parameters.
+
+        This function applies a global optimization technique using a DE solver
+        to determine the best-fitting parameters for the given impedance data.
+        The results can later be refined using a local minimization algorithm.
+
+        Parameters
+        ----------
+        maxiter : int, optional
+            Maximum number of iterations for the DE solver. Default is 2000.
+        popsize : int, optional
+            Population multiplier per free parameter. Default is 15.
+        mutation : tuple of float, optional
+            Range of mutation factors controlling parameter variation.
+            Default is (0.1, 0.5).
+        crossover_rate : float, optional
+            Probability of recombining individuals in the DE algorithm.
+            Default is 0.8.
+        tol : float, optional
+            Convergence tolerance for stopping criteria. Default is 0.01.
+        solver : str, optional
+            Specifies the DE solver to use. Valid options are:
+            - `"scipy"`: Uses SciPy's built-in DE solver.
+            - `"pyfde"`: Uses `pyfde`, an alternative DE implementation.
+            - `"pyfde_jade"`: Uses JADE, a self-adaptive DE variant.
+            Default is `"scipy"`.
+        x0 : array-like, optional
+            Initial parameter vector for SciPy differential evolution. Defaults
+            to ``parameterEstimates`` stored on the model. PyFDE backends do not
+            currently support an explicit initial vector. If both are ``None``,
+            SciPy uses its configured population initializer.
+        **kwargs : Any
+            Additional options for the selected solver. With ``solver="scipy"``,
+            options such as ``strategy``, ``init``, ``atol``, ``workers``, and
+            ``seed`` are passed to
+            ``scipy.optimize.differential_evolution``. IDDEFIX defaults to
+            ``strategy="rand1bin"``, ``workers=-1``, and ``polish=False``;
+            supplied keywords override these defaults. ``popsize`` is a
+            multiplier of the number of free parameters for SciPy.
+
+            With ``solver="pyfde"`` or ``"pyfde_jade"``, constructor options
+            such as ``seed`` are passed to PyFDE. Batch objectives are not
+            supported by the IDDEFIX objective functions. See the solver docs:
+            https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.differential_evolution.html
+            https://pyfde.readthedocs.io/en/latest/tutorial.html
+
+        Notes
+        -----
+        - Uses `_solve_differential_evolution()` to dispatch the selected
+          differential evolution backend.
+        - The optimized parameters are stored in `self.evolutionParameters`.
+        - Calls `self.display_resonator_parameters()` to present the estimated
+          parameters.
+
+        Returns
+        -------
+        None
+            The optimized parameters are stored in `self.evolutionParameters`.
+        """
+        solver_options = dict(kwargs)
+        if solver == "scipy":
+            solver_options["x0"] = self.parameterEstimates if x0 is None else x0
+
+        evolutionParameters, warning = self._solve_differential_evolution(
+            self.parameterBounds,
+            self.objectiveFunction,
+            self.fitFunction,
+            self.x_data,
+            self.y_data,
+            maxiter=maxiter,
+            popsize=popsize,
+            mutation=mutation,
+            crossover_rate=crossover_rate,
+            tol=tol,
+            solver=solver,
+            **solver_options,
+        )
+
+        self.evolutionParameters = evolutionParameters
+        self.get_uncertainties(
+            use_minimization=False, parameterBounds=self.parameterBounds
+        )
+
+        self.warning = warning
+        self.display_resonator_parameters(
+            params=self.evolutionParameters,
+            to_markdown=False,
+            uncertainties=self.evolutionParametersUncertainties,
+        )
+
     def run_cmaes(
         self,
         maxiter: int = 1000,
         popsize: int = 50,
         sigma: float = 0.6,
         verbose: bool = False,
+        x0: ArrayLike | None = None,
         **kwargs: Any,
     ) -> Any:
         """
@@ -369,14 +422,17 @@ class EvolutionaryAlgorithm:
             Initial standard deviation for the sampling distribution. Default is 0.6.
         verbose : bool, optional
             Show pymoo's progress output instead of IDDEFIX's progress bar.
+        x0 : array-like, optional
+            Initial parameter vector. Defaults to ``parameterEstimates`` stored
+            on the model. If both are ``None``, CMA-ES uses the bounds midpoint.
         **kwargs : Any
             Additional options passed to ``pymoo.algorithms.soo.nonconvex.cmaes.CMAES``.
             For example, ``tolfun``, ``tolx``, ``maxfevals``, ``restarts``,
             ``restart_from_best``, and ``seed``. IDDEFIX defaults to three
-            restarts and seed 42; a supplied keyword overrides either default.
-            Use ``popsize`` above for the population size. Pymoo's internal
-            stopping and restarts do not make ``maxiter`` a strict outer
-            generation cap.
+            restarts and seed 42; a supplied keyword overrides these defaults.
+            Use ``popsize`` above for the population size. Pymoo's
+            internal stopping and restarts do not make ``maxiter`` a strict
+            outer generation cap.
 
             Pymoo CMA-ES options are documented at
             https://pymoo.org/_modules/pymoo/algorithms/soo/nonconvex/cmaes.html.
@@ -409,6 +465,7 @@ class EvolutionaryAlgorithm:
             maxiter=maxiter,
             popsize=popsize,
             verbose=verbose,
+            x0=self.parameterEstimates if x0 is None else x0,
             **kwargs,
         )
 
@@ -425,99 +482,6 @@ class EvolutionaryAlgorithm:
 
         return res
 
-    def run_differential_evolution(
-        self,
-        maxiter: int = 2000,
-        popsize: int = 15,
-        mutation: tuple[float, float] = (0.1, 0.5),
-        crossover_rate: float = 0.8,
-        tol: float = 0.01,
-        solver: str = "scipy",
-        **kwargs: Any,
-    ) -> None:
-        """
-        Runs the differential evolution (DE) algorithm to estimate optimal
-        resonance parameters.
-
-        This function applies a global optimization technique using a DE solver
-        to determine the best-fitting parameters for the given impedance data.
-        The results can later be refined using a local minimization algorithm.
-
-        Parameters
-        ----------
-        maxiter : int, optional
-            Maximum number of iterations for the DE solver. Default is 2000.
-        popsize : int, optional
-            Population multiplier per free parameter. Default is 15.
-        mutation : tuple of float, optional
-            Range of mutation factors controlling parameter variation.
-            Default is (0.1, 0.5).
-        crossover_rate : float, optional
-            Probability of recombining individuals in the DE algorithm.
-            Default is 0.8.
-        tol : float, optional
-            Convergence tolerance for stopping criteria. Default is 0.01.
-        solver : str, optional
-            Specifies the DE solver to use. Valid options are:
-            - `"scipy"`: Uses SciPy's built-in DE solver.
-            - `"pyfde"`: Uses `pyfde`, an alternative DE implementation.
-            - `"pyfde_jade"`: Uses JADE, a self-adaptive DE variant.
-            Default is `"scipy"`.
-        **kwargs : Any
-            Additional options for the selected solver. With ``solver="scipy"``,
-            options such as ``strategy``, ``init``, ``atol``, ``workers``,
-            ``seed``, and ``x0`` are passed to
-            ``scipy.optimize.differential_evolution``. IDDEFIX defaults to
-            ``strategy="rand1bin"``, ``workers=-1``, and ``polish=False``;
-            supplied keywords override these defaults. ``popsize`` is a
-            multiplier of the number of free parameters for SciPy.
-
-            With ``solver="pyfde"`` or ``"pyfde_jade"``, constructor options
-            such as ``seed`` are passed to PyFDE. Batch objectives are not
-            supported by the IDDEFIX objective functions. See the solver docs:
-            https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.differential_evolution.html
-            https://pyfde.readthedocs.io/en/latest/tutorial.html
-
-        Notes
-        -----
-        - Uses `generate_Initial_Parameters()` to perform the differential
-          evolution process.
-        - The optimized parameters are stored in `self.evolutionParameters`.
-        - Calls `self.display_resonator_parameters()` to present the estimated
-          parameters.
-
-        Returns
-        -------
-        None
-            The optimized parameters are stored in `self.evolutionParameters`.
-        """
-        evolutionParameters, warning = self.generate_Initial_Parameters(
-            self.parameterBounds,
-            self.objectiveFunction,
-            self.fitFunction,
-            self.x_data,
-            self.y_data,
-            maxiter=maxiter,
-            popsize=popsize,
-            mutation=mutation,
-            crossover_rate=crossover_rate,
-            tol=tol,
-            solver=solver,
-            **kwargs,
-        )
-
-        self.evolutionParameters = evolutionParameters
-        self.get_uncertainties(
-            use_minimization=False, parameterBounds=self.parameterBounds
-        )
-
-        self.warning = warning
-        self.display_resonator_parameters(
-            params=self.evolutionParameters,
-            to_markdown=False,
-            uncertainties=self.evolutionParametersUncertainties,
-        )
-
     def run_minimization_algorithm(
         self,
         margin: float | Sequence[float] = [0.1, 0.1, 0.1],
@@ -529,7 +493,8 @@ class EvolutionaryAlgorithm:
         This function refines the parameters obtained from the Differential
         Evolution (DE) algorithm by using a local optimization method.
         If the DE algorithm has not been run, it directly minimizes the
-        objective function using initial parameter bounds.
+        objective function from ``parameterEstimates``, falling back to the
+        midpoint of ``parameterBounds`` when no estimate is available.
 
         Each parameter is allowed to vary within a specified margin, where:
         - Rs values use `margin[0]`
@@ -550,7 +515,7 @@ class EvolutionaryAlgorithm:
         - The optimization is constrained within `minimizationBounds`, which
         are computed using `margin` and the current `evolutionParameters`.
         - If the DE algorithm has not been run, the function initializes parameters
-        using `self.parameterBounds` and minimizes the objective function.
+          from `self.parameterEstimates` or the midpoint of `self.parameterBounds`.
         - The minimization results are stored in `self.minimizationParameters`.
         - Calls `self.display_resonator_parameters()` to display the refined parameters.
 
@@ -591,9 +556,14 @@ class EvolutionaryAlgorithm:
             )
         else:
             print("Differential Evolution algorithm not run, minimization only")
+            initial_parameters = (
+                np.mean(self.parameterBounds, axis=1)
+                if self.parameterEstimates is None
+                else self.parameterEstimates
+            )
             minimizationParameters = minimize(
                 objective_function,
-                x0=np.mean(self.parameterBounds, axis=1),
+                x0=initial_parameters,
                 bounds=self.parameterBounds,
                 method=method,
                 tol=1,
