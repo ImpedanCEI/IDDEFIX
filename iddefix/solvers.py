@@ -10,9 +10,11 @@ Created on Sat Dec  5 16:33:41 2020
 from typing import Any, Callable
 
 import numpy as np
+import numpy.typing as npt
 from scipy.optimize import differential_evolution
 from tqdm import tqdm
 
+ArrayLike = npt.ArrayLike
 ParameterBounds = list[tuple[float, float]]
 MinimizationFunction = Callable[[np.ndarray], float]
 
@@ -80,6 +82,7 @@ class Solvers:
         mutation: tuple[float, float] = (0.1, 0.5),
         crossover_rate: float = 0.8,
         tol: float = 0.01,
+        x0: ArrayLike | None = None,
         **kwargs,
     ) -> tuple[np.ndarray, str]:
         """Run SciPy's ``differential_evolution`` to minimize a function.
@@ -104,6 +107,8 @@ class Solvers:
             crossover_rate: Crossover rate for the differential
                 evolution algorithm.
             tol: Tolerance for convergence.
+            x0: Initial parameter vector inserted into the population. If None,
+                SciPy uses only the configured population initializer.
             **kwargs: Other SciPy differential_evolution options. The
                 wrapper defaults to ``strategy="rand1bin"``,
                 ``init="latinhypercube"``, ``updating="deferred"``,
@@ -128,6 +133,8 @@ class Solvers:
             workers=-1,
         )
         options.update(kwargs)
+        if x0 is not None:
+            options["x0"] = x0
         result = differential_evolution(
             minimization_function, parameterBounds, **options
         )
@@ -262,6 +269,7 @@ class Solvers:
         maxiter: int | None = None,  # default: 100 + 150 * (N+3)**2 // popsize**0.5
         popsize: int | None = None,  # defaul: 4 + int(3 * np.log(len(parameterBounds)))
         verbose: bool = False,
+        x0: ArrayLike | None = None,
         **kwargs,
     ) -> tuple[np.ndarray, str, Any]:
         """
@@ -275,8 +283,10 @@ class Solvers:
                 generation count can exceed it.
             popsize: CMA-ES population size, passed as pymoo's ``pop_size``.
             verbose: Show pymoo's progress output.
-            **kwargs: Other pymoo CMAES constructor options, such as
-                ``tolfun``, ``tolx``, ``maxfevals``, ``restarts``, and ``seed``.
+            x0: Initial parameter vector. If None, use the midpoint of each
+                parameter bound.
+            **kwargs: Other pymoo CMAES constructor options, such as ``tolfun``,
+                ``tolx``, ``maxfevals``, ``restarts``, and ``seed``.
                 See https://pymoo.org/_modules/pymoo/algorithms/soo/nonconvex/cmaes.html.
 
         Returns:
@@ -316,8 +326,10 @@ class Solvers:
             xu=[bound[1] for bound in parameterBounds],
         )
 
-        # Calculate mean of parameter bounds as starting point
-        x0 = np.mean(parameterBounds, axis=1)
+        if x0 is None:
+            x0 = np.mean(parameterBounds, axis=1)
+        else:
+            x0 = np.asarray(x0, dtype=float)
 
         cmaes_options = dict(
             x0=x0,
