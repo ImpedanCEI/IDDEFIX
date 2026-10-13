@@ -867,6 +867,11 @@ class EvolutionaryAlgorithm:
                 parameters[first_parameter + offset] = value
             setattr(self, parameter_name, parameters)
             setattr(self, uncertainty_name, None)
+        if self.parameterEstimates is not None:
+            estimates = np.asarray(self.parameterEstimates, dtype=float).copy()
+            for offset, value in changes.items():
+                estimates[first_parameter + offset] = value
+            self.parameterEstimates = estimates
         self._update_parameter_flags()
 
     def remove_resonator(self, resonator_number: int) -> None:
@@ -891,6 +896,8 @@ class EvolutionaryAlgorithm:
             values = getattr(self, name)
             if values is not None:
                 setattr(self, name, np.delete(values, indices))
+        if self.parameterEstimates is not None:
+            self.parameterEstimates = np.delete(self.parameterEstimates, indices)
 
         first_bound = 3 * (resonator_number - 1)
         self.parameterBounds = [
@@ -954,6 +961,10 @@ class EvolutionaryAlgorithm:
                 self,
                 uncertainty_name,
                 np.concatenate((uncertainties, new_uncertainties)),
+            )
+        if self.parameterEstimates is not None:
+            self.parameterEstimates = np.concatenate(
+                (self.parameterEstimates, new_parameters)
             )
 
         self.parameterBounds = [*self.parameterBounds, *new_bounds]
@@ -1271,7 +1282,7 @@ class EvolutionaryAlgorithm:
             fig, axis = plt.subplots(**figure_options)
             axes = np.asarray([axis])
             ylabel = "Wake" if self.fitFunctionType == "wake" else "Wake potential"
-            units = "[V/C/m]"
+            units = "[V/C]" if self.plane == "longitudinal" else "[V/C/m]"
             panels = ((axis, np.real, ylabel + " " + units, "red"),)
             xlabel = "Time [s]"
 

@@ -1,11 +1,8 @@
-# This workflow runs on pull requests and nightly
+# Run tests for every pull request
 name: pull_request_CPU_py3.12
 
 on:
-  # Run tests for every pull request targeting main
   pull_request:
-    branches:
-      - main
     types: [opened, synchronize, reopened]
 
 jobs:
