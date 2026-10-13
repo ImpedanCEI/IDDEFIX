@@ -553,8 +553,10 @@ class SmartBoundDetermination:
         if supplied_q is not None:
             q_squared = supplied_q**2
             eta_peak = (
-                2 * q_squared - 1 + np.sqrt(16 * q_squared**2 - 4 * q_squared + 1)
-            ) / (6 * q_squared)
+                2
+                * q_squared
+                / (np.sqrt(16 * q_squared**2 - 4 * q_squared + 1) + 1 - 2 * q_squared)
+            )
         elif np.isfinite(crossing_frequency):
             crossing_ratio = crossing_frequency / peak_frequency
             numerator = 4 * crossing_ratio - crossing_ratio**2 - 1
