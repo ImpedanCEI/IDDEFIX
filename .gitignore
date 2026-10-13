@@ -5,9 +5,10 @@
 
 # Tests png
 ###########
-examples/data/*.png
-tests/*.png
 notes/*
+*.pdf
+*.png
+*.svg
 
 # Compiled source #
 ###################
