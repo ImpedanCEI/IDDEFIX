@@ -1,13 +1,18 @@
 # SmartBounds parameter estimation
 
 SmartBounds estimates the shunt impedance $R_s$, quality factor $Q$, and
-resonant frequency $f_r$ from the peak of an impedance trace.
+resonant frequency $f_r$ from peaks in an impedance trace, then turns those
+estimates into fitting bounds.
 
-The formulas below apply to one isolated, fully decayed resonator. For
-overlapping resonators, a varying background, or a finite wake, they should be
-used as initial estimates with sufficiently wide fitting bounds.
+The peak-and-crossing formulas below apply to one isolated, fully decayed
+resonator. For overlapping resonators or a varying background, use them as
+initial estimates with sufficiently wide fitting bounds. For a finite wake,
+SmartBounds can additionally correct the $R_s$ estimate when its length is
+known.
 
-## Longitudinal impedance
+## Parameter estimation
+
+### Longitudinal impedance
 
 The fully decayed longitudinal impedance is
 
@@ -21,7 +26,7 @@ $$
 
 SmartBounds can use either $\Re(Z_\parallel)$ or $|Z_\parallel|$.
 
-### Using $\Re(Z_\parallel)$
+#### Using $\Re(Z_\parallel)$
 
 Let the selected peak be $(f_{\mathrm{peak}},A_{\mathrm{peak}})$, where
 
@@ -54,7 +59,7 @@ Q=
 {|f_{\mathrm{crossing}}^2-f_{\mathrm{peak}}^2|}.
 $$
 
-### Using $|Z_\parallel|$
+#### Using $|Z_\parallel|$
 
 Let the selected peak be $(f_{\mathrm{peak}},A_{\mathrm{peak}})$, where
 
@@ -88,7 +93,7 @@ $$
 
 The sign of $R_s$ cannot be determined from $|Z_\parallel|$ alone.
 
-## Transverse impedance
+### Transverse impedance
 
 The fully decayed transverse impedance is
 
@@ -105,7 +110,7 @@ The factor $f_r/f$ shifts the maximum of $\Re(Z_\perp)$ away from $f_r$ and
 changes its amplitude. Therefore, the longitudinal relations
 $f_r=f_{\mathrm{peak}}$ and $R_s=A_{\mathrm{peak}}$ do not apply.
 
-### Using $\Re(Z_\perp)$
+#### Using $\Re(Z_\perp)$
 
 Let the selected peak be $(f_{\mathrm{peak}},A_{\mathrm{peak}})$, where
 
@@ -193,7 +198,20 @@ f_r=
 \frac{f_{\mathrm{peak}}}{\sqrt{\eta_{\mathrm{peak}}}}.
 $$
 
-### Why $|Z_\perp|$ is not recommended
+If a $Q$ estimate is supplied when adding a peak, SmartBounds skips the
+crossing calculation. For transverse real impedance, it instead obtains the
+peak-location factor directly from that $Q$:
+
+$$
+\eta_{\mathrm{peak}}=
+\frac{2Q^2-1+\sqrt{16Q^4-4Q^2+1}}{6Q^2}.
+$$
+
+It then uses the same $R_s$ and $f_r$ relations above. A peak with neither a
+crossing nor a supplied $Q$ uses the fallback $Q=1$ without a transverse
+peak-shift correction.
+
+#### Why $|Z_\perp|$ is not recommended
 
 The absolute transverse impedance does not provide a reliable general-purpose
 peak estimate. For
@@ -212,6 +230,39 @@ SmartBounds warns that the estimates may be inconclusive and recommends
 `impedance_type="real"`. The absolute trace retains the legacy approximate
 bounds for backward compatibility.
 :::
+
+## Finite-wake correction
+
+When the input impedance comes from a wake truncated after length $L$,
+SmartBounds first estimates $R_s$, $Q$, and $f_r$ with the fully decayed rules
+above. It then corrects $R_s$ using the fraction of the wake envelope
+accumulated over $T=L/c$, where $c$ is the speed of light and
+$\omega_r=2\pi f_r$.
+The effective decay rate is
+
+$$
+B_{\mathrm{eff}}=
+\begin{cases}
+\dfrac{\omega_r}{2Q}, & Q\geq 0.5,\\[8pt]
+\dfrac{\omega_r}{2Q}-\omega_r\sqrt{\dfrac{1}{4Q^2}-1},
+& 0<Q<0.5.
+\end{cases}
+$$
+
+For $Q<0.5$, $B_{\mathrm{eff}}$ is the slower of the two overdamped decay
+rates. With $R_{s,\infty}$ denoting the initial fully decayed estimate, the
+finite-wake estimate is
+
+$$
+R_{s,T}=\frac{R_{s,\infty}}{1-\exp(-B_{\mathrm{eff}}T)}.
+$$
+
+This envelope-based factor is an approximation to the peak-height correction:
+oscillatory boundary terms can also affect the finite-wake impedance peak.
+The correction applies to longitudinal $\Re(Z)$ or $|Z|$ and transverse
+$\Re(Z)$; it is not applied to transverse $|Z|$. The estimates of $Q$ and
+$f_r$ are not corrected for the finite wake, even though a short wake may
+change the peak position and width.
 
 ## Constructing fitting bounds
 
@@ -265,6 +316,10 @@ resonators therefore receive wider frequency intervals automatically. The
 lower bound is kept positive with machine epsilon $\varepsilon$, but the
 interval is not clipped to the frequency range of the input data.
 
+## How to use SmartBounds
+
+### Create the bounds
+
 For transverse real impedance, a typical setup is:
 
 ```python
@@ -276,6 +331,15 @@ bounds = iddefix.SmartBoundDetermination(
 )
 ```
 
+For longitudinal impedance, use `plane="longitudinal"` and choose
+`impedance_type="real"` for $\Re(Z)$ or `"absolute"` for $|Z|$. If the input
+impedance comes from a finite wake, also pass `wake_length=L` in meters. This
+applies the $R_s$ correction described above; leaving it out uses the fully
+decayed estimates. Set peak-finding options such as `minimum_peak_height` when
+needed for the trace.
+
+### Inspect the estimates
+
 The standard `inspect()` plot shows the detected peaks and crossings. Calling
 `inspect(show_bounds=True)` also shows each estimated $f_r$ and its
 frequency-bound interval. In this view, each resonator uses one color for all
@@ -285,7 +349,10 @@ confirm that these features represent the intended resonator.
 `inspect(show_components=True)` also plots each estimated resonator and their
 total model. For numerical access, `bounds.get_impedance_components()` returns
 one complex impedance array per resonator on the analysis frequency grid; pass
-a frequency array to evaluate the components on another grid.
+a frequency array to evaluate the components on another grid. When
+`wake_length` is set, the components use the finite-wake impedance formula.
+
+### Adjust the detected peaks
 
 If automatic detection misses a peak, add it by frequency and let SmartBounds
 recompute all peak metadata, estimates, and bounds:
@@ -308,17 +375,9 @@ bounds.add_peak(peak_frequency, Q=Q_estimate)
 For this peak, SmartBounds skips the crossing calculation and uses the supplied
 $Q$ to determine the $Q$ and frequency bounds. For a transverse real
 impedance, it also uses this $Q$ to correct the shift between the selected peak
-frequency and the estimated resonant frequency. It obtains the peak-location
-factor directly from the supplied value:
+frequency and the estimated resonant frequency using the formula above.
 
-$$
-\eta_{\mathrm{peak}}=
-\frac{2Q^2-1+\sqrt{16Q^4-4Q^2+1}}{6Q^2}.
-$$
-
-It then applies the same $R_s$ and $f_r$ relations given above. A peak with
-no crossing and no supplied $Q$ instead uses the fallback $Q=1$ without a
-transverse peak-shift correction.
+### Use the estimates in a fit
 
 The corresponding central estimates are available independently of the search
 bounds:
