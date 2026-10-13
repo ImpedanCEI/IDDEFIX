@@ -12,6 +12,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
+from scipy.constants import c
 from scipy.signal import find_peaks
 
 from .resonatorFormulas import Impedances as imp
@@ -37,6 +38,7 @@ class SmartBoundDetermination:
         impedance_type: str = "absolute",
         interactive: bool = False,
         plane: str = "longitudinal",
+        wake_length: float | None = None,
     ) -> None:
         """
         Automatically determines parameter bounds for resonance fitting
@@ -130,12 +132,15 @@ class SmartBoundDetermination:
             Initial resonator estimates in the same flattened order as the
             bounds: [Rs_1, Q_1, fres_1, Rs_2, Q_2, fres_2, ...]. None until an
             interactive selection is finished.
+        wake_length : float or None
+            Finite wake length in meters, or None for fully decayed estimates.
 
         Methods
         -------
         find(frequency_data=None, impedance_data=None, minimum_peak_height=None,
             threshold=None, distance=None, prominence=None, samples=None,
-            q_side=None, impedance_type=None, interactive=None, plane=None)
+            q_side=None, impedance_type=None, interactive=None, plane=None,
+            wake_length=None)
             Detects impedance peaks and determines fitting parameter bounds
             automatically or from interactive selections.
 
@@ -178,6 +183,7 @@ class SmartBoundDetermination:
         self.impedance_type = impedance_type
         self.interactive = interactive
         self.plane = plane
+        self.wake_length = wake_length
 
         # Results populated by peak detection and bound estimation
         self.peaks = None
@@ -215,6 +221,7 @@ class SmartBoundDetermination:
         impedance_type: str | None = None,
         interactive: bool | None = None,
         plane: str | None = None,
+        wake_length: float | None = None,
     ) -> ParameterBounds | None:
         """Recompute bounds; retained for compatibility with legacy workflows."""
         return self._find(
@@ -229,6 +236,7 @@ class SmartBoundDetermination:
             impedance_type=impedance_type,
             interactive=interactive,
             plane=plane,
+            wake_length=wake_length,
         )
 
     def _find(
@@ -244,6 +252,7 @@ class SmartBoundDetermination:
         impedance_type: str | None = None,
         interactive: bool | None = None,
         plane: str | None = None,
+        wake_length: float | None = None,
     ) -> ParameterBounds | None:
         """Detect peaks and update the stored parameter estimates and bounds."""
 
@@ -269,12 +278,18 @@ class SmartBoundDetermination:
         )
         interactive = self.interactive if interactive is None else interactive
         plane = self.plane if plane is None else plane
+        wake_length = self.wake_length if wake_length is None else wake_length
 
         # Validate and store the impedance interpretation
         if plane not in ("longitudinal", "transverse"):
             raise ValueError("plane must be 'longitudinal' or 'transverse'")
         self.plane = plane
         self.impedance_type = impedance_type
+        if wake_length is not None and (
+            not np.isfinite(wake_length) or wake_length <= 0.0
+        ):
+            raise ValueError("wake_length must be a finite positive value")
+        self.wake_length = wake_length
         if plane == "transverse" and impedance_type == "absolute":
             print(
                 "[!] Warning: Transverse SmartBounds estimation is derived "
@@ -404,6 +419,16 @@ class SmartBoundDetermination:
                         crossing_frequency,
                         supplied_q,
                     )
+                )
+
+            # Account for truncated wake effects on the estimated Rs
+            if self.wake_length is not None and (
+                plane == "longitudinal" or impedance_type == "real"
+            ):
+                estimated_rs = self._wake_length_correction(
+                    estimated_rs,
+                    estimated_q,
+                    estimated_fres,
                 )
 
             rs_bounds = (
@@ -542,6 +567,31 @@ class SmartBoundDetermination:
             peak_height * 2 * np.sqrt(eta_peak) * (1 + eta_peak) / (1 + 3 * eta_peak)
         )
         return estimated_rs, estimated_q, estimated_fres
+
+    def _wake_length_correction(
+        self,
+        estimated_rs: float,
+        estimated_q: float,
+        estimated_fres: float,
+    ) -> float:
+        """Scale Rs by the effective decay accumulated over the wake length."""
+        omega_r = 2 * np.pi * estimated_fres
+        if estimated_q >= 0.5:
+            decay_rate = omega_r / (2 * estimated_q)
+        else:
+            # Algebraically B - sqrt(B² - omega_r²), without cancellation.
+            decay_rate = (
+                2 * omega_r * estimated_q / (1 + np.sqrt(1 - 4 * estimated_q**2))
+            )
+
+        factor = -np.expm1(-decay_rate * self.wake_length / c)
+        if factor == 0.0:
+            print(
+                "[!] Warning: Finite-wake Rs correction vanishes; "
+                "using the fully decayed estimate."
+            )
+            return estimated_rs
+        return estimated_rs / factor
 
     def add_peak(
         self,
@@ -771,7 +821,10 @@ class SmartBoundDetermination:
         self,
         frequency_data: ArrayLike | None = None,
     ) -> np.ndarray:
-        """Return one estimated impedance array per detected resonance."""
+        """Return one estimated impedance array per detected resonance.
+
+        Uses the finite-wake formula when ``wake_length`` is set.
+        """
         if self.parameterEstimates is None:
             raise RuntimeError("Finish peak selection before evaluating the model")
         if frequency_data is None:
@@ -786,6 +839,12 @@ class SmartBoundDetermination:
         return np.asarray(
             [
                 fit_function(frequency_data, resonator_parameters)
+                if self.wake_length is None
+                else fit_function(
+                    frequency_data,
+                    resonator_parameters,
+                    wake_length=self.wake_length,
+                )
                 for resonator_parameters in np.asarray(self.parameterEstimates).reshape(
                     -1, 3
                 )
