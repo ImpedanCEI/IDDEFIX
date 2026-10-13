@@ -33,7 +33,7 @@ jobs:
         run: |
           pip install .
           pip install wakis
-          pip install pytest pytest-cov
+          pip install pytest pytest-cov ipywidgets
 
       - name: Print installed packages
         run: conda list
