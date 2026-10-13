@@ -22,6 +22,7 @@ from .solvers import Solvers
 from .uncertainties import get_uncertainties as calculate_uncertainties
 from .utils import compute_fft
 
+# type-checking aliases
 ArrayLike = npt.ArrayLike
 ParameterBounds = list[tuple[float, float]]
 ObjectiveCallable = Callable[..., float]

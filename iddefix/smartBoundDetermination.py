@@ -95,14 +95,18 @@ class SmartBoundDetermination:
             ipympl notebook backend, zoom or pan first, then enable Pick and
             click each peak. Use Undo to remove the last pick and Done
             to finish. With a desktop backend, press Enter to
-            finish; with an inline backend, enter frequencies in Hz at the
-            prompt. Clicks are mapped to the nearest analysis sample. In a
-            widget notebook, await ``wait_for_selection()`` before using bounds.
-            Peak-finding settings are ignored when enabled. Default is False.
+            finish. Inline backends cannot receive clicks, so they warn and
+            use automatic peak detection instead. Clicks are mapped to the
+            nearest analysis sample. Peak-finding settings are ignored during
+            interactive selection. Default is False.
         plane : {"longitudinal", "transverse"}, optional
             Impedance plane used to convert each detected peak and crossing
             into estimates of Rs, Q, and fres. Transverse estimation currently
             supports real impedance only. Default is "longitudinal".
+        wake_length : float, optional
+            Length in meters of the wake used to calculate the input impedance.
+            Corrects the Rs estimate with the effective wake-envelope decay
+            factor. Q and fres retain their fully decayed estimates.
         Attributes
         ----------
         peaks : numpy.ndarray or None
@@ -325,6 +329,14 @@ class SmartBoundDetermination:
         self._peak_q_estimates = {}
 
         # Select peaks interactively or with scipy.signal.find_peaks
+        if interactive and "inline" in matplotlib.get_backend().lower():
+            print(
+                "[!] Warning: Interactive peak selection is unavailable with an "
+                "inline Matplotlib backend. Use %matplotlib widget or "
+                "%matplotlib ipympl (install ipympl first); using automatic "
+                "peak detection instead."
+            )
+            interactive = False
         if interactive:
             self.peaks = None
             self.parameterEstimates = None
@@ -662,7 +674,6 @@ class SmartBoundDetermination:
         impedance_data = self.analysis_impedance_data
         backend = matplotlib.get_backend().lower()
         is_widget = "ipympl" in backend or "nbagg" in backend
-        is_inline = "inline" in backend
         fig, ax = plt.subplots()
         ax.plot(frequency_data, impedance_data)
         ax.set_xlabel("Frequency [Hz]")
@@ -745,19 +756,6 @@ class SmartBoundDetermination:
         self._selection_done_button = None
         self._selection_pick_button = None
         self._selection_undo_button = None
-
-        # Inline backends use a text prompt because the displayed plot is static
-        if is_inline:
-            ax.set_title("Enter peak frequencies in Hz at the prompt")
-            plt.show()
-            response = input("Peak frequencies in Hz (spaces or commas): ").strip()
-            for value in response.replace(",", " ").split():
-                frequency = float(value)
-                index = int(np.abs(frequency_data - frequency).argmin())
-                if index not in selected_indices:
-                    selected_indices.append(index)
-            finish_selection()
-            return
 
         # Widget backends provide explicit pick, undo, and done controls
         fig.canvas.mpl_connect("button_press_event", on_click)
