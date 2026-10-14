@@ -42,6 +42,7 @@ class EvolutionaryAlgorithm:
         sigma: float | None = None,
         uncertainty_warning: float = 0.2,
         parameterEstimates: ArrayLike | None = None,
+        compute_uncertainties: bool = True,
     ) -> None:
         """
         Implements an evolutionary algorithm for fitting impedance models to data.
@@ -86,6 +87,10 @@ class EvolutionaryAlgorithm:
             Initial parameter vector in the same flattened order as
             ``parameterBounds``. The value is stored unchanged. Individual
             solver calls can override it with ``x0``.
+        compute_uncertainties : bool, optional
+            Compute parameter uncertainties automatically after fitting.
+            Default is True. Set to False to skip this calculation; call
+            ``get_uncertainties()`` later if needed.
 
         Attributes
         ----------
@@ -143,6 +148,7 @@ class EvolutionaryAlgorithm:
         self.N_resonators = N_resonators
         self.parameterBounds = parameterBounds
         self.parameterEstimates = parameterEstimates
+        self.compute_uncertainties = compute_uncertainties
         self.objectiveFunction = objectiveFunction
         self.wake_length = wake_length
         self.plane = plane
@@ -390,9 +396,12 @@ class EvolutionaryAlgorithm:
         )
 
         self.evolutionParameters = evolutionParameters
-        self.get_uncertainties(
-            use_minimization=False, parameterBounds=self.parameterBounds
-        )
+        self.evolutionParametersUncertainties = None
+        self.flagged_params = None
+        if self.compute_uncertainties:
+            self.get_uncertainties(
+                use_minimization=False, parameterBounds=self.parameterBounds
+            )
 
         self.warning = warning
         self.display_resonator_parameters(
@@ -477,9 +486,12 @@ class EvolutionaryAlgorithm:
         )
 
         self.evolutionParameters = solution
-        self.get_uncertainties(
-            use_minimization=False, parameterBounds=self.parameterBounds
-        )
+        self.evolutionParametersUncertainties = None
+        self.flagged_params = None
+        if self.compute_uncertainties:
+            self.get_uncertainties(
+                use_minimization=False, parameterBounds=self.parameterBounds
+            )
         self.warning = message
         self.display_resonator_parameters(
             params=self.evolutionParameters,
@@ -582,12 +594,15 @@ class EvolutionaryAlgorithm:
                 },
             )
         self.minimizationParameters = minimizationParameters.x
-        uncertainty_bounds = (
-            minimizationBounds
-            if self.evolutionParameters is not None
-            else self.parameterBounds
-        )
-        self.get_uncertainties(parameterBounds=uncertainty_bounds)
+        self.minimizationParametersUncertainties = None
+        self.flagged_params = None
+        if self.compute_uncertainties:
+            uncertainty_bounds = (
+                minimizationBounds
+                if self.evolutionParameters is not None
+                else self.parameterBounds
+            )
+            self.get_uncertainties(parameterBounds=uncertainty_bounds)
         self.display_resonator_parameters(
             params=self.minimizationParameters,
             to_markdown=False,
@@ -648,13 +663,7 @@ class EvolutionaryAlgorithm:
         uncertainties: ArrayLike | None = None,
         display_uncertainties: bool = True,
     ) -> None:
-        """
-        Displays resonance parameters in a formatted table using ASCII characters.
-
-        Args:
-            solution: A NumPy array of resonator parameters, typically shaped
-            (n_resonators, 3).
-        """
+        """Display parameters, highlighting bound hits before large uncertainties."""
 
         # Use self parameters if not provided as argument.
         if params is None:
@@ -672,6 +681,31 @@ class EvolutionaryAlgorithm:
                 return
 
         flagged_mask = self._compute_flagged_params_mask(params, uncertainties)
+        bound_mask = self._compute_bound_proximity_mask(params)
+        if np.any(bound_mask):
+            names = ("Rs", "Q", "fres")
+            bounds = np.asarray(self.parameterBounds, dtype=float)
+            values = np.asarray(params, dtype=float).ravel()
+            midpoints = bounds.mean(axis=1)
+            multiplicative = (
+                (np.arange(values.size) % 3 < 2)
+                & np.all(np.isfinite(bounds), axis=1)
+                & (bounds[:, 0] > 0)
+                & (bounds[:, 1] > bounds[:, 0])
+            )
+            midpoints[multiplicative] = np.exp(
+                np.log(bounds[multiplicative]).mean(axis=1)
+            )
+            hits = [
+                f"resonator {i // 3 + 1} {names[i % 3]} "
+                f"({'lower' if values[i] <= midpoints[i] else 'upper'})"
+                for i in np.flatnonzero(bound_mask)
+            ]
+            print(
+                "[!] Warning: Fit within 1% of or beyond a parameter bound: "
+                f"{', '.join(hits)}. "
+                "Consider widening the bounds before refitting."
+            )
 
         if not display_uncertainties:
             uncertainties = None
@@ -710,6 +744,9 @@ class EvolutionaryAlgorithm:
 
             # Print data
             params_reshaped = params.reshape(-1, 3)
+            bound_reshaped = bound_mask.reshape(-1, 3)
+            orange = "\033[38;5;208m"
+            reset = "\033[0m"
             if uncertainties is not None:
                 uncert_reshaped = uncertainties.reshape(-1, 3)
                 if flagged_mask is not None:
@@ -732,19 +769,31 @@ class EvolutionaryAlgorithm:
                     fres_cell = f"{fres_str:^24}"
 
                     # Highlight cells whose relative uncertainty exceeds threshold.
-                    if flagged_reshaped[i, 0]:
+                    if bound_reshaped[i, 0]:
+                        rs_cell = f"{orange}{rs_cell}{reset}"
+                    elif flagged_reshaped[i, 0]:
                         rs_cell = f"\033[31m{rs_cell}\033[0m"
-                    if flagged_reshaped[i, 1]:
+                    if bound_reshaped[i, 1]:
+                        q_cell = f"{orange}{q_cell}{reset}"
+                    elif flagged_reshaped[i, 1]:
                         q_cell = f"\033[31m{q_cell}\033[0m"
-                    if flagged_reshaped[i, 2]:
+                    if bound_reshaped[i, 2]:
+                        fres_cell = f"{orange}{fres_cell}{reset}"
+                    elif flagged_reshaped[i, 2]:
                         fres_cell = f"\033[31m{fres_cell}\033[0m"
 
                     print(f"{i + 1:^10d}|{rs_cell}|{q_cell}|{fres_cell}")
             else:
                 for i, parameters in enumerate(params_reshaped):
-                    print(
-                        f"{i + 1:^10d}|{parameters[0]:^24.2e}|{parameters[1]:^18.2f}|{parameters[2]:^24.3e}"
-                    )
+                    cells = [
+                        f"{parameters[0]:^24.2e}",
+                        f"{parameters[1]:^18.2f}",
+                        f"{parameters[2]:^24.3e}",
+                    ]
+                    for j in range(3):
+                        if bound_reshaped[i, j]:
+                            cells[j] = f"{orange}{cells[j]}{reset}"
+                    print(f"{i + 1:^10d}|{cells[0]}|{cells[1]}|{cells[2]}")
 
             print("-" * 76)
 
@@ -1006,6 +1055,26 @@ class EvolutionaryAlgorithm:
             rel_unc = np.abs(uncertainties / params)
 
         return np.isfinite(rel_unc) & (rel_unc >= threshold)
+
+    def _compute_bound_proximity_mask(self, params: ArrayLike) -> np.ndarray:
+        """Flag values near finite bounds, using log position for positive Rs/Q."""
+        params = np.asarray(params, dtype=float).ravel()
+        bounds = np.asarray(self.parameterBounds, dtype=float)
+        if bounds.shape != (params.size, 2):
+            return np.zeros(params.shape, dtype=bool)
+
+        width = bounds[:, 1] - bounds[:, 0]
+        valid = np.all(np.isfinite(bounds), axis=1) & (width > 0)
+        position = np.zeros_like(params)
+        position[valid] = (params[valid] - bounds[valid, 0]) / width[valid]
+
+        multiplicative = (
+            valid & (np.arange(params.size) % 3 < 2) & (bounds[:, 0] > 0) & (params > 0)
+        )
+        position[multiplicative] = (
+            np.log(params[multiplicative]) - np.log(bounds[multiplicative, 0])
+        ) / (np.log(bounds[multiplicative, 1]) - np.log(bounds[multiplicative, 0]))
+        return valid & ((position <= 0.01) | (position >= 0.99))
 
     def _warn_large_uncertainties(
         self,
