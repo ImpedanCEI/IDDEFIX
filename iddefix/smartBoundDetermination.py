@@ -31,7 +31,7 @@ class SmartBoundDetermination:
         distance: float | None = None,
         prominence: float | None = None,
         Rs_bounds: list[float] = [0.1, 10],
-        Q_bounds: list[float] = [0.5, 5],
+        Q_bounds: list[float] = [0.1, 10],
         fres_bounds: list[float] = [-1.0, 1.0],
         samples: int | None = None,
         q_side: str | list[str] = "auto",
@@ -72,10 +72,11 @@ class SmartBoundDetermination:
         Rs_bounds : list, optional
             Scaling factors [min, max] for Rs bounds. Default is [0.1, 10].
         Q_bounds : list, optional
-            Scaling factors [min, max] for Q bounds. Default is [0.5, 5].
+            Scaling factors [min, max] for Q bounds. Default is [0.1, 10].
         fres_bounds : list, optional
-            Lower and upper factors multiplying the estimated resonator
-            half-width ``fres / (2 * Q)``. Default is [-1, 1].
+            Dimensionless lower and upper factors multiplying the estimated
+            resonator half-width ``fres / (2 * Q)``. These are not offsets in
+            Hz. Default is [-1, 1].
         samples : int, optional
             Number of equally spaced frequency samples used for peak finding and
             Q estimation. If None, use the input samples. Interpolation is linear
@@ -830,6 +831,8 @@ class SmartBoundDetermination:
         if frequency_data is None:
             frequency_data = self.analysis_frequency_data
         frequency_data = np.asarray(frequency_data)
+        if not self.parameterEstimates:
+            return np.empty((0, frequency_data.size), dtype=complex)
 
         fit_function = (
             imp.n_Resonator_longitudinal_imp
