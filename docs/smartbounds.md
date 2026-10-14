@@ -276,7 +276,7 @@ $$
 $$
 
 The `Rs_bounds` and `Q_bounds` settings provide multiplicative factors,
-defaulting to `[0.1, 10]` and `[0.5, 5]`, respectively. The frequency bounds
+both defaulting to `[0.1, 10]`. The frequency bounds
 instead use a characteristic half-width calculated from the central estimates:
 
 $$
@@ -328,8 +328,16 @@ bounds = iddefix.SmartBoundDetermination(
     impedance.real,
     impedance_type="real",
     plane="transverse",
+    Rs_bounds=[0.1, 10], # default [0.1, 10]
+    Q_bounds=[0.1, 10],  # default [0.1, 10]
+    fres_bounds=[-2, 2], # default [-1, 1]
 )
 ```
+
+The `_bounds` parameters are multipliers for the estimated parameters and define the
+minimum and maximum value for the EvolutionaryAlgorithm search space.
+Here `fres_bounds=[-2, 2]` allows two estimated half-widths on either side of
+the estimated $f_r$. Omit it to use the default `[-1, 1]`.
 
 For longitudinal impedance, use `plane="longitudinal"` and choose
 `impedance_type="real"` for $\Re(Z)$ or `"absolute"` for $|Z|$. If the input
