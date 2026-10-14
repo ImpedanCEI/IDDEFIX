@@ -1233,6 +1233,8 @@ class EvolutionaryAlgorithm:
         ``input_data_kwargs``, ``component_kwargs``, and
         ``total_model_kwargs`` override the default line styles. Remaining
         keyword arguments are forwarded to ``matplotlib.pyplot.subplots``.
+        For 10 or more resonators, a shared colorbar replaces the component
+        entries in the legends.
         """
         import matplotlib.pyplot as plt
 
@@ -1331,9 +1333,34 @@ class EvolutionaryAlgorithm:
             axis.set_ylabel(ylabel)
 
         axes[-1].set_xlabel(xlabel)
-        axes[0].legend(ncol=3, frameon=False)
-        axes[-1].legend(ncol=3, frameon=False)
-        fig.tight_layout()
+        if len(components) >= 10:
+            from matplotlib.cm import ScalarMappable
+            from matplotlib.colors import BoundaryNorm
+
+            for axis in axes:
+                legend_lines = axis.lines[: 2 if y_data is not None else 1]
+                axis.legend(handles=legend_lines, loc="upper right", frameon=False)
+            fig.tight_layout()
+
+            boundaries = np.arange(0.5, len(components) + 1.5)
+            colorbar = fig.colorbar(
+                ScalarMappable(
+                    norm=BoundaryNorm(boundaries, len(components)), cmap=colors
+                ),
+                ax=axes,
+                boundaries=boundaries,
+                ticks=np.arange(1, len(components) + 1),
+                fraction=0.035,
+                pad=0.025,
+                aspect=30,
+            )
+            colorbar.set_label("Resonator number")
+            colorbar.ax.tick_params(length=0)
+            colorbar.ax.invert_yaxis()
+        else:
+            for axis in axes:
+                axis.legend(ncol=3, frameon=False)
+            fig.tight_layout()
         plt.show()
         return fig, axes
 
