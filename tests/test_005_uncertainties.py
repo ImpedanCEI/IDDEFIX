@@ -91,7 +91,9 @@ def test_loaded_uncertainties_update_warning_flags(capsys):
     model.load_resonator_parameters("1 | 100 ± 30 | 3 ± 0.3 | 1e9 ± 1e8")
 
     np.testing.assert_array_equal(model.flagged_params, [True, False, False])
-    assert "relative uncertainty >= 0.20" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "\033[31m[!] Warning:" in output
+    assert "relative uncertainty >= 0.20" in output
 
 
 def test_fit_without_automatic_uncertainties():

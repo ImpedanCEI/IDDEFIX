@@ -682,6 +682,8 @@ class EvolutionaryAlgorithm:
 
         flagged_mask = self._compute_flagged_params_mask(params, uncertainties)
         bound_mask = self._compute_bound_proximity_mask(params)
+        blue = "\033[34m"
+        reset = "\033[0m"
         if np.any(bound_mask):
             names = ("Rs", "Q", "fres")
             bounds = np.asarray(self.parameterBounds, dtype=float)
@@ -702,9 +704,9 @@ class EvolutionaryAlgorithm:
                 for i in np.flatnonzero(bound_mask)
             ]
             print(
-                "[!] Warning: Fit within 1% of or beyond a parameter bound: "
+                f"{blue}[!] Warning: Fit within 1% of or beyond a parameter bound: "
                 f"{', '.join(hits)}. "
-                "Consider widening the bounds before refitting."
+                f"Consider widening the bounds before refitting.{reset}"
             )
 
         if not display_uncertainties:
@@ -733,20 +735,18 @@ class EvolutionaryAlgorithm:
                     )
         else:
             print("\n")
-            print("-" * 76)
-
-            # Print header
             header_format = "{:^10}|{:^24}|{:^18}|{:^24}"
-            print(
-                header_format.format("Resonator", "Rs [Ohm/m or Ohm]", "Q", "fres [Hz]")
+            header = header_format.format(
+                "Resonator", "Rs [Ohm/m or Ohm]", "Q", "fres [Hz]"
             )
-            print("-" * 76)
+            separator = "-" * len(header)
+            print(separator)
+            print(header)
+            print(separator)
 
             # Print data
             params_reshaped = params.reshape(-1, 3)
             bound_reshaped = bound_mask.reshape(-1, 3)
-            orange = "\033[38;5;208m"
-            reset = "\033[0m"
             if uncertainties is not None:
                 uncert_reshaped = uncertainties.reshape(-1, 3)
                 if flagged_mask is not None:
@@ -770,15 +770,15 @@ class EvolutionaryAlgorithm:
 
                     # Highlight cells whose relative uncertainty exceeds threshold.
                     if bound_reshaped[i, 0]:
-                        rs_cell = f"{orange}{rs_cell}{reset}"
+                        rs_cell = f"{blue}{rs_cell}{reset}"
                     elif flagged_reshaped[i, 0]:
                         rs_cell = f"\033[31m{rs_cell}\033[0m"
                     if bound_reshaped[i, 1]:
-                        q_cell = f"{orange}{q_cell}{reset}"
+                        q_cell = f"{blue}{q_cell}{reset}"
                     elif flagged_reshaped[i, 1]:
                         q_cell = f"\033[31m{q_cell}\033[0m"
                     if bound_reshaped[i, 2]:
-                        fres_cell = f"{orange}{fres_cell}{reset}"
+                        fres_cell = f"{blue}{fres_cell}{reset}"
                     elif flagged_reshaped[i, 2]:
                         fres_cell = f"\033[31m{fres_cell}\033[0m"
 
@@ -792,10 +792,10 @@ class EvolutionaryAlgorithm:
                     ]
                     for j in range(3):
                         if bound_reshaped[i, j]:
-                            cells[j] = f"{orange}{cells[j]}{reset}"
+                            cells[j] = f"{blue}{cells[j]}{reset}"
                     print(f"{i + 1:^10d}|{cells[0]}|{cells[1]}|{cells[2]}")
 
-            print("-" * 76)
+            print(separator)
 
     def load_resonator_parameters(
         self, table: str, use_minimization: bool = True
@@ -1105,7 +1105,7 @@ class EvolutionaryAlgorithm:
             rel_unc = np.abs(uncertainties / params)
         max_rel = float(np.nanmax(rel_unc[mask]))
         print(
-            f"[!] Warning: {n_flagged} parameter(s) have relative uncertainty >= {threshold:.2f} (max {max_rel:.2f})."
+            f"\033[31m[!] Warning: {n_flagged} parameter(s) have relative uncertainty >= {threshold:.2f} (max {max_rel:.2f}).\033[0m"
         )
 
     def get_wake(

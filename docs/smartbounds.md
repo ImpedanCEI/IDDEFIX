@@ -419,8 +419,8 @@ model is created with `compute_uncertainties=False`. You can still call
 `model.get_uncertainties()` later. After a fit, the parameter table warns when
 a result is outside, or within 1% of, one of the original `parameterBounds`.
 For positive $R_s$ and $Q$, proximity is measured on a logarithmic scale to
-match their multiplicative bounds; $f_r$ uses a linear scale. Bound hits are
-orange in the terminal table. If you call
+match their multiplicative bounds; $f_r$ uses a linear scale. Bound warnings
+and table values are blue in the terminal. If you call
 `model.display_resonator_parameters(display_uncertainties=True)`, large
-uncertainties are red unless the same parameter also hits a bound, in which
-case orange takes precedence.
+uncertainties appear red in the table and their warnings are red. If the same
+parameter also hits a bound, its table cell is blue.
