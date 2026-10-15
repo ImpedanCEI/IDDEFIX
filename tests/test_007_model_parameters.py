@@ -4,6 +4,8 @@ The tests check public model behavior after parameter changes, including the
 partial-wake Q boundary and the transverse impedance at critical damping.
 """
 
+import re
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
@@ -74,6 +76,25 @@ def test_display_round_trip(capsys, to_markdown):
     np.testing.assert_allclose(model.evolutionParametersUncertainties, uncertainties)
 
 
+@pytest.mark.parametrize("display_uncertainties", [False, True])
+def test_display_table_alignment(capsys, display_uncertainties):
+    """The header, data rows, and separators have the same visible width."""
+    model = _model(n_resonators=1)
+    model.display_resonator_parameters(
+        params=np.array([995.0, 3.0, 1e9]),
+        uncertainties=np.array([300.0, 0.5, 1e7]),
+        display_uncertainties=display_uncertainties,
+    )
+    lines = [
+        re.sub(r"\x1b\[[0-9;]*m", "", line)
+        for line in capsys.readouterr().out.splitlines()
+        if "|" in line or line.startswith("-")
+    ]
+
+    assert len(lines) == 5
+    assert len({len(line) for line in lines}) == 1
+
+
 def test_display_bound_warning(capsys):
     """A bound hit is reported and takes color priority over uncertainty."""
     model = _model(n_resonators=1)
@@ -86,7 +107,8 @@ def test_display_bound_warning(capsys):
     cells = row.split("|")
 
     assert "resonator 1 Rs (upper)" in output
-    assert "\033[38;5;208m" in cells[1]
+    assert "\033[34m[!] Warning:" in output
+    assert "\033[34m" in cells[1]
     assert "\033[31m" not in cells[1]
     assert "\033[31m" in cells[2]
 
@@ -104,7 +126,7 @@ def test_display_multiplicative_bounds(capsys):
     model.display_resonator_parameters()
     output = capsys.readouterr().out
     assert "resonator 1 Q (upper)" in output
-    assert "\033[38;5;208m" in output
+    assert "\033[34m" in output
 
     model.parameterBounds[1] = (1.0, 1e100)
     model.modify_resonator(1, Q=2e99)
