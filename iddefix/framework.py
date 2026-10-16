@@ -726,7 +726,7 @@ class EvolutionaryAlgorithm:
                     rs, q, fres = p_row
                     urs, uq, ufres = u_row
                     print(
-                        f"| {i + 1} | {rs:.6g} ± {urs:.2g} | {q:.6g} ± {uq:.2g} | {fres:.6g} ± {ufres:.2g} |"
+                        f"| {i + 1} | {rs:.6g} ± {urs:.1e} | {q:.6g} ± {uq:.1e} | {fres:.6g} ± {ufres:.1e} |"
                     )
             else:
                 for i, parameters in enumerate(params_reshaped):
@@ -735,65 +735,57 @@ class EvolutionaryAlgorithm:
                     )
         else:
             print("\n")
-            header_format = "{:^10}|{:^24}|{:^18}|{:^24}"
-            header = header_format.format(
-                "Resonator", "Rs [Ohm/m or Ohm]", "Q", "fres [Hz]"
+            params_reshaped = params.reshape(-1, 3)
+            bound_reshaped = bound_mask.reshape(-1, 3)
+            if uncertainties is not None:
+                uncert_reshaped = uncertainties.reshape(-1, 3)
+                rows = [
+                    (
+                        f"{p_row[0]:.2e} ± {u_row[0]:>9.1e}",
+                        f"{p_row[1]:.2f} ± {u_row[1]:>9.1e}",
+                        f"{p_row[2]:.2e} ± {u_row[2]:>9.1e}",
+                    )
+                    for p_row, u_row in zip(params_reshaped, uncert_reshaped)
+                ]
+                minimum_widths = (26, 24, 26)
+            else:
+                rows = [
+                    (f"{p_row[0]:.2e}", f"{p_row[1]:.2f}", f"{p_row[2]:.3e}")
+                    for p_row in params_reshaped
+                ]
+                minimum_widths = (22, 12, 18)
+
+            headers = ("Rs [Ohm/m or Ohm]", "Q", "fres [Hz]")
+            widths = [
+                max(
+                    minimum_widths[j],
+                    len(headers[j]),
+                    *(len(row[j]) + 2 for row in rows),
+                )
+                for j in range(3)
+            ]
+            header = (
+                f"{'Resonator':^10}|{headers[0]:^{widths[0]}}|"
+                f"{headers[1]:^{widths[1]}}|{headers[2]:^{widths[2]}}"
             )
             separator = "-" * len(header)
             print(separator)
             print(header)
             print(separator)
 
-            # Print data
-            params_reshaped = params.reshape(-1, 3)
-            bound_reshaped = bound_mask.reshape(-1, 3)
-            if uncertainties is not None:
-                uncert_reshaped = uncertainties.reshape(-1, 3)
-                if flagged_mask is not None:
-                    flagged_reshaped = flagged_mask.reshape(-1, 3)
-                else:
-                    flagged_reshaped = np.zeros_like(params_reshaped, dtype=bool)
-
-                for i, (p_row, u_row) in enumerate(
-                    zip(params_reshaped, uncert_reshaped)
-                ):
-                    rs, q, fres = p_row
-                    urs, uq, ufres = u_row
-
-                    rs_str = f"{rs:.2e} ± {urs:.1e}"
-                    q_str = f"{q:.2f} ± {uq:.2f}"
-                    fres_str = f"{fres:.2e} ± {ufres:.1e}"
-
-                    rs_cell = f"{rs_str:^24}"
-                    q_cell = f"{q_str:^18}"
-                    fres_cell = f"{fres_str:^24}"
-
-                    # Highlight cells whose relative uncertainty exceeds threshold.
-                    if bound_reshaped[i, 0]:
-                        rs_cell = f"{blue}{rs_cell}{reset}"
-                    elif flagged_reshaped[i, 0]:
-                        rs_cell = f"\033[31m{rs_cell}\033[0m"
-                    if bound_reshaped[i, 1]:
-                        q_cell = f"{blue}{q_cell}{reset}"
-                    elif flagged_reshaped[i, 1]:
-                        q_cell = f"\033[31m{q_cell}\033[0m"
-                    if bound_reshaped[i, 2]:
-                        fres_cell = f"{blue}{fres_cell}{reset}"
-                    elif flagged_reshaped[i, 2]:
-                        fres_cell = f"\033[31m{fres_cell}\033[0m"
-
-                    print(f"{i + 1:^10d}|{rs_cell}|{q_cell}|{fres_cell}")
-            else:
-                for i, parameters in enumerate(params_reshaped):
-                    cells = [
-                        f"{parameters[0]:^24.2e}",
-                        f"{parameters[1]:^18.2f}",
-                        f"{parameters[2]:^24.3e}",
-                    ]
-                    for j in range(3):
-                        if bound_reshaped[i, j]:
-                            cells[j] = f"{blue}{cells[j]}{reset}"
-                    print(f"{i + 1:^10d}|{cells[0]}|{cells[1]}|{cells[2]}")
+            flagged_reshaped = (
+                flagged_mask.reshape(-1, 3)
+                if flagged_mask is not None
+                else np.zeros_like(bound_reshaped)
+            )
+            for i, row in enumerate(rows):
+                cells = [f"{row[j]:^{widths[j]}}" for j in range(3)]
+                for j in range(3):
+                    if bound_reshaped[i, j]:
+                        cells[j] = f"{blue}{cells[j]}{reset}"
+                    elif flagged_reshaped[i, j]:
+                        cells[j] = f"\033[31m{cells[j]}{reset}"
+                print(f"{i + 1:^10d}|{'|'.join(cells)}")
 
             print(separator)
 

@@ -70,14 +70,18 @@ def test_display_round_trip(capsys, to_markdown):
         to_markdown=to_markdown,
     )
 
-    model.load_resonator_parameters(capsys.readouterr().out, use_minimization=False)
+    output = capsys.readouterr().out
+    assert "5.0e-01" in output
+    model.load_resonator_parameters(output, use_minimization=False)
 
     np.testing.assert_allclose(model.evolutionParameters, parameters)
     np.testing.assert_allclose(model.evolutionParametersUncertainties, uncertainties)
 
 
-@pytest.mark.parametrize("display_uncertainties", [False, True])
-def test_display_table_alignment(capsys, display_uncertainties):
+@pytest.mark.parametrize(
+    ("display_uncertainties", "expected_width"), [(False, 65), (True, 89)]
+)
+def test_display_table_alignment(capsys, display_uncertainties, expected_width):
     """The header, data rows, and separators have the same visible width."""
     model = _model(n_resonators=1)
     model.display_resonator_parameters(
@@ -92,7 +96,9 @@ def test_display_table_alignment(capsys, display_uncertainties):
     ]
 
     assert len(lines) == 5
-    assert len({len(line) for line in lines}) == 1
+    assert {len(line) for line in lines} == {expected_width}
+    if display_uncertainties:
+        assert "5.0e-01" in lines[3]
 
 
 def test_display_bound_warning(capsys):
