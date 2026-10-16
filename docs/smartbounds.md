@@ -408,21 +408,37 @@ model = iddefix.EvolutionaryAlgorithm(
 )
 ```
 
+For a table you want to inspect without refitting, you can omit both
+`N_resonators` and `parameterBounds`. `load_resonator_parameters()` infers the
+resonator count from the table. Display, model evaluation, and component plots
+then work without fit bounds; global optimizers require finite bounds.
+
 `run_cmaes()` uses `parameterEstimates` as its initial point. The SciPy backend
 of `run_differential_evolution()` also accepts it as `x0`; the PyFDE backends
 do not support an explicit initial point. A minimization-only run starts from
 `parameterEstimates` when available. Individual CMA-ES and SciPy DE calls can
 override the stored estimate with their `x0` argument.
 
-The fitting methods compute parameter uncertainties automatically unless the
-model is created with `compute_uncertainties=False`. You can still call
-`model.get_uncertainties()` later. After a fit, the parameter table warns when
-a result is outside, or within 1% of, one of the original `parameterBounds`.
-For positive $R_s$ and $Q$, proximity is measured on a logarithmic scale to
-match their multiplicative bounds; $f_r$ uses a linear scale. Bound warnings
-and table values are blue in the terminal. If you call
-`model.display_resonator_parameters(display_uncertainties=True)`, large
-uncertainties appear red in the table and their warnings are red. If the same
-parameter also hits a bound, its table cell is blue.
-The terminal table uses wider columns when uncertainties are shown; each
-uncertainty occupies a nine-character field in scientific notation.
+### Fitted model uncertainties
+
+After fitting, `display_resonator_parameters()` shows each fitted parameter as
+`value ± uncertainty`. The uncertainty is an estimated one-standard-deviation
+error in the same units as the parameter. The table uses scientific notation
+for uncertainties. The calculation and its assumptions are described in
+[Parameter uncertainty estimates](theory.md#parameter-uncertainty-estimates).
+
+Fitting methods calculate uncertainties automatically by default. Set
+`compute_uncertainties=False` when constructing the model to skip the
+calculation, then call `model.get_uncertainties()` to compute them later. Pass
+`display_uncertainties=False` to hide uncertainties in the table; this changes
+the display only.
+
+The default warning threshold is a relative uncertainty of 0.20, calculated
+as $|\sigma_\theta / \theta|$. Parameters at or above the threshold and
+their warning appear red. Values within 1% of, or beyond, a fit bound appear
+blue. For positive $R_s$ and $Q$, closeness to bounds is measured on a
+logarithmic scale; $f_r$ uses a linear scale. These warnings describe different
+things. If a parameter meets both conditions, its table cell is blue.
+
+In notebooks, the table is rendered in monospace to preserve column alignment.
+Use `to_markdown=True` to print Markdown.
