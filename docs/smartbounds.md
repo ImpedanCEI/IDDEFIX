@@ -424,3 +424,5 @@ and table values are blue in the terminal. If you call
 `model.display_resonator_parameters(display_uncertainties=True)`, large
 uncertainties appear red in the table and their warnings are red. If the same
 parameter also hits a bound, its table cell is blue.
+The terminal table uses wider columns when uncertainties are shown; each
+uncertainty occupies a nine-character field in scientific notation.
