@@ -413,3 +413,16 @@ of `run_differential_evolution()` also accepts it as `x0`; the PyFDE backends
 do not support an explicit initial point. A minimization-only run starts from
 `parameterEstimates` when available. Individual CMA-ES and SciPy DE calls can
 override the stored estimate with their `x0` argument.
+
+The fitting methods compute parameter uncertainties automatically unless the
+model is created with `compute_uncertainties=False`. You can still call
+`model.get_uncertainties()` later. After a fit, the parameter table warns when
+a result is outside, or within 1% of, one of the original `parameterBounds`.
+For positive $R_s$ and $Q$, proximity is measured on a logarithmic scale to
+match their multiplicative bounds; $f_r$ uses a linear scale. Bound warnings
+and table values are blue in the terminal. If you call
+`model.display_resonator_parameters(display_uncertainties=True)`, large
+uncertainties appear red in the table and their warnings are red. If the same
+parameter also hits a bound, its table cell is blue.
+The terminal table uses wider columns when uncertainties are shown; each
+uncertainty occupies a nine-character field in scientific notation.

@@ -12,7 +12,7 @@ from scipy.optimize import curve_fit
 import iddefix
 
 
-def _model(frequency, impedance, *, wake_length=None, objective="Complex"):
+def _model(frequency, impedance, *, wake_length=None, objective="Complex", **kwargs):
     return iddefix.EvolutionaryAlgorithm(
         x_data=frequency,
         y_data=impedance,
@@ -20,6 +20,7 @@ def _model(frequency, impedance, *, wake_length=None, objective="Complex"):
         parameterBounds=[(50.0, 150.0), (0.5, 20.0), (0.8e9, 1.2e9)],
         wake_length=wake_length,
         objectiveFunction=objective,
+        **kwargs,
     )
 
 
@@ -90,7 +91,29 @@ def test_loaded_uncertainties_update_warning_flags(capsys):
     model.load_resonator_parameters("1 | 100 ± 30 | 3 ± 0.3 | 1e9 ± 1e8")
 
     np.testing.assert_array_equal(model.flagged_params, [True, False, False])
-    assert "relative uncertainty >= 0.20" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "\033[31m[!] Warning:" in output
+    assert "relative uncertainty >= 0.20" in output
+
+
+def test_fit_without_automatic_uncertainties():
+    """A fit can skip uncertainty work and still compute it on request."""
+    frequency = np.linspace(0.7e9, 1.3e9, 81)
+    expected = [100.0, 3.0, 1e9]
+    impedance = iddefix.Impedances.Resonator_longitudinal_imp(frequency, *expected).real
+    model = _model(
+        frequency,
+        impedance,
+        objective="Real",
+        parameterEstimates=expected,
+        compute_uncertainties=False,
+    )
+
+    model.run_minimization_algorithm()
+
+    assert model.minimizationParametersUncertainties is None
+    np.testing.assert_allclose(model.minimizationParameters, expected, rtol=0.01)
+    assert np.isfinite(model.get_uncertainties()).all()
 
 
 @pytest.mark.parametrize("vary", ["R", "Q", "both"])

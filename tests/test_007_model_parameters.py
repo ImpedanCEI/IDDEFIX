@@ -4,6 +4,8 @@ The tests check public model behavior after parameter changes, including the
 partial-wake Q boundary and the transverse impedance at critical damping.
 """
 
+import re
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
@@ -68,10 +70,74 @@ def test_display_round_trip(capsys, to_markdown):
         to_markdown=to_markdown,
     )
 
-    model.load_resonator_parameters(capsys.readouterr().out, use_minimization=False)
+    output = capsys.readouterr().out
+    assert "5.0e-01" in output
+    model.load_resonator_parameters(output, use_minimization=False)
 
     np.testing.assert_allclose(model.evolutionParameters, parameters)
     np.testing.assert_allclose(model.evolutionParametersUncertainties, uncertainties)
+
+
+@pytest.mark.parametrize(
+    ("display_uncertainties", "expected_width"), [(False, 65), (True, 89)]
+)
+def test_display_table_alignment(capsys, display_uncertainties, expected_width):
+    """The header, data rows, and separators have the same visible width."""
+    model = _model(n_resonators=1)
+    model.display_resonator_parameters(
+        params=np.array([995.0, 3.0, 1e9]),
+        uncertainties=np.array([300.0, 0.5, 1e7]),
+        display_uncertainties=display_uncertainties,
+    )
+    lines = [
+        re.sub(r"\x1b\[[0-9;]*m", "", line)
+        for line in capsys.readouterr().out.splitlines()
+        if "|" in line or line.startswith("-")
+    ]
+
+    assert len(lines) == 5
+    assert {len(line) for line in lines} == {expected_width}
+    if display_uncertainties:
+        assert "5.0e-01" in lines[3]
+
+
+def test_display_bound_warning(capsys):
+    """A bound hit is reported and takes color priority over uncertainty."""
+    model = _model(n_resonators=1)
+    model.load_resonator_parameters("1 | 995 ± 300 | 2000 ± 500 | 1e9 ± 1e7")
+    capsys.readouterr()
+
+    model.display_resonator_parameters(display_uncertainties=True)
+    output = capsys.readouterr().out
+    row = next(line for line in output.splitlines() if line.strip().startswith("1"))
+    cells = row.split("|")
+
+    assert "resonator 1 Rs (upper)" in output
+    assert "\033[34m[!] Warning:" in output
+    assert "\033[34m" in cells[1]
+    assert "\033[31m" not in cells[1]
+    assert "\033[31m" in cells[2]
+
+
+def test_display_multiplicative_bounds(capsys):
+    """A central Q is not flagged; a Q close to its multiplier limit is."""
+    model = _model(n_resonators=1)
+    model.parameterBounds[1] = (0.1, 10.0)
+    model.load_resonator_parameters("1 | 100 | 1 | 1e9")
+
+    model.display_resonator_parameters()
+    assert "parameter bound" not in capsys.readouterr().out
+
+    model.modify_resonator(1, Q=9.9)
+    model.display_resonator_parameters()
+    output = capsys.readouterr().out
+    assert "resonator 1 Q (upper)" in output
+    assert "\033[34m" in output
+
+    model.parameterBounds[1] = (1.0, 1e100)
+    model.modify_resonator(1, Q=2e99)
+    model.display_resonator_parameters()
+    assert "resonator 1 Q (upper)" in capsys.readouterr().out
 
 
 # Editing and refitting resonators
@@ -187,4 +253,19 @@ def test_plot_model_components(request, monkeypatch, fit_function, plane, ylabel
     fig, axes = model.plot_model_components()
 
     assert axes[0].get_ylabel() == ylabel
+    plt.close(fig)
+
+
+@pytest.mark.parametrize(
+    ("n_resonators", "fit_function"),
+    [(9, "impedance"), (10, "impedance"), (10, "wake")],
+)
+def test_plot_many_components(request, monkeypatch, n_resonators, fit_function):
+    """Component plots run on both sides of the colorbar threshold."""
+    model = _model(n_resonators=n_resonators, fitFunction=fit_function)
+    model.evolutionParameters = np.tile([100.0, 3.0, 1e9], n_resonators)
+
+    if not request.config.getoption("--debug-plots"):
+        monkeypatch.setattr(plt, "show", lambda: None)
+    fig, _ = model.plot_model_components()
     plt.close(fig)
