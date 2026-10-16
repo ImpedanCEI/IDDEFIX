@@ -541,3 +541,77 @@ single CMA-ES run is required.
 The optimized parameters are stored in `evolutionParameters`. As with a DE
 fit, `run_minimization_algorithm` can subsequently refine this solution with a
 local minimizer.
+
+## Parameter uncertainty estimates
+
+After fitting, IDDEFIX can estimate the uncertainty of each resonator
+parameter. This is a local covariance estimate around the fitted parameter
+vector $\hat{\theta}=(R_{s,1},Q_1,f_{r,1},\ldots)$. It describes how much
+the parameters could vary while remaining consistent with the residuals and
+the model's local response. It does not repeat the optimization or explore the
+full range of possible fits.
+
+### Residual Jacobian
+
+Let $r_i(\theta)$ be the difference between a measured value and the model
+prediction. IDDEFIX estimates the Jacobian $J$ numerically using three-point
+finite differences:
+
+$$
+J_{ij}=\frac{\partial r_i}{\partial \theta_j}.
+$$
+
+For real measurements, the residual vector contains the real residuals. When
+the input contains nonzero imaginary parts, the real and imaginary residuals
+are stacked into one real-valued vector. Derivative probes are restricted to
+the bounds supplied to the uncertainty calculation. By default,
+`get_uncertainties()` uses physical bounds for the derivatives: $R_s$ is
+unbounded, while $Q>0$ and $f_r>0$.
+
+### Covariance and reported uncertainties
+
+Under a local linear approximation, the unscaled covariance is the
+pseudoinverse of $J^\mathsf{T}J$. IDDEFIX scales it by the residual variance
+estimated from the fit:
+
+$$
+\widehat{\mathrm{Cov}}(\hat{\theta}) \approx
+\frac{\sum_{i=1}^{M} r_i^2}{M-N} (J^\mathsf{T}J)^{+},
+$$
+
+where $M$ is the number of real residual values and $N$ is the number of
+parameters. The degrees of freedom $M-N$ must be positive for this estimate to
+be meaningful. The residual variance is inferred from the fit; the calculation
+does not accept per-measurement uncertainties or weights. Consequently, model
+mismatch and systematic errors also affect the estimated scale.
+
+The pseudoinverse is computed using an SVD. Singular directions below the
+numerical precision threshold are discarded. If the Jacobian is rank
+deficient, this does not make the corresponding parameter combinations
+identifiable; the reported marginal errors may fail to capture uncertainty in
+those directions. The reported uncertainty for parameter $\theta_j$ is
+
+$$
+\sigma_{\theta_j}=\sqrt{\widehat{\mathrm{Cov}}(\hat{\theta})_{jj}}.
+$$
+
+It is an approximate one-standard-deviation error in the same units as that
+parameter. In the table it is shown as `value ± uncertainty`. The table shows
+only the diagonal errors; correlations between fitted parameters are not
+displayed. Under a well-behaved, approximately Gaussian local fit, a value plus
+or minus one such error is often treated as an approximate 68% interval. This
+interpretation is unreliable for strongly nonlinear fits, poorly identifiable
+parameters, or parameters near bounds, where the local symmetric covariance
+approximation does not describe the constrained parameter region well.
+
+By default, fitting methods calculate these uncertainties automatically. Set
+`compute_uncertainties=False` to skip that calculation, then call
+`model.get_uncertainties()` to calculate them later. The table's large-error
+warning uses the relative error $|\sigma_{\theta}/\theta|$ and defaults to
+a threshold of 0.20. This ratio is not useful for parameters at or near zero.
+
+`get_impedance_uncertainty()` uses the parameter errors to produce a separate
+pointwise sensitivity envelope for the real impedance. It varies selected
+parameters over their uncertainty ranges, subject to configured multiplicative
+limits. The envelope is a sensitivity scenario; it is not a confidence
+interval for the impedance.
