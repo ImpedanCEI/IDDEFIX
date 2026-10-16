@@ -14,9 +14,8 @@ parallel RLC (Resistor, Inductor, Capacitor) resonator circuit.
 ### Impedance resonator formula
 
 The longitudinal shunt impedance $R_s$ and impedance $Z_\parallel$ are measured
-in ohms. The fully decayed formula supports $Q>0$, while the finite formula
-currently supports $Q\geq0.5$. For a fully decayed wake, the single-resonator
-impedance is
+in ohms. Both the fully decayed and finite formulas support $Q>0$. For a fully
+decayed wake, the single-resonator impedance is
 
 $$
 Z_{\parallel}(\omega)=
@@ -32,6 +31,8 @@ T=\frac{L}{c}, \qquad
 p=B+i\omega.
 $$
 
+#### Underdamped $Q\geq0.5$
+
 For $Q\geq0.5$, its finite Fourier transform is
 
 $$
@@ -42,14 +43,39 @@ Z_{\parallel,T}(\omega)=
 {C^2+p^2}.
 $$
 
+#### Critically damped $Q=0.5$
+
 At $Q=0.5$, $C=0$ and the finite ratio is evaluated using
 
 $$
 \lim_{C\to0}\frac{\sin(CT)}{C}=T.
 $$
 
-Unlike the fully decayed impedance, the finite transform can be nonzero at
-$\omega=0$.
+#### Overdamped $Q<0.5$
+
+For the overdamped branch, $0<Q<0.5$, define
+
+$$
+D=\omega_r\sqrt{\frac{1}{4Q^2}-1}.
+$$
+
+The finite transform is then
+
+$$
+Z_{\parallel,T}(\omega)=
+\frac{R_s\omega_r}{Q}
+\frac{i\omega+e^{-pT}\left[-i\omega\cosh(DT)
++\left(-D^2+Bp\right)\frac{\sinh(DT)}{D}\right]}
+{p^2-D^2}.
+$$
+
+This follows from the substitutions
+$$
+C^2=-D^2, \quad \cos(CT)=\cosh(DT), \quad \sin(CT)/C=\sinh(DT)/D
+$$
+
+The implementation combines the hyperbolic terms with $e^{-BT}$ through the
+positive decay rates $B-D$ and $B+D$ to avoid numerical overflow.
 
 For multiple resonators, the contributions add linearly:
 
@@ -124,9 +150,8 @@ These formulas are implemented by `Resonator_longitudinal_wake_potential` and
 ## Transverse Resonator formalism
 
 The transverse shunt impedance $R_s$ and impedance $Z_\perp$ are measured in
-ohms per metre. The fully decayed formula supports $Q>0$, while the finite
-formula currently supports $Q\geq0.5$. For a fully decayed wake, the
-single-resonator impedance is
+ohms per metre. Both the fully decayed and finite formulas support $Q>0$. For
+a fully decayed wake, the single-resonator impedance is
 
 $$
 Z_\perp(\omega)=
@@ -146,8 +171,17 @@ Z_{\perp,T}(\omega)=
 $$
 
 At $Q=0.5$, the same limit $\sin(CT)/C\to T$ keeps this expression finite.
-IDDEFIX defines the transverse impedance as zero at $\omega=0$. For multiple
-resonators,
+For $0<Q<0.5$, the transverse expression becomes
+
+$$
+Z_{\perp,T}(\omega)=
+\frac{iR_s\omega_r^2}{Q\left(p^2-D^2\right)}
+\left[
+1-e^{-pT}\left(\cosh(DT)+p\frac{\sinh(DT)}{D}\right)
+\right].
+$$
+
+It is also evaluated using the stable decay-rate form. For multiple resonators,
 
 $$
 \bar Z_\perp(\omega)=
@@ -156,6 +190,49 @@ $$
 
 These formulas are implemented by `Resonator_transverse_imp` and
 `n_Resonator_transverse_imp`.
+
+### Behavior around zero frequency
+
+The apparent singularities in the fully decayed formulas are removable. With
+$x=\omega/\omega_r$ and the Fourier convention used here, their low-frequency
+behavior is
+
+$$
+Z_\parallel(\omega)=\frac{iR_s}{Q}x+R_s\mathcal{O}(x^2),
+\qquad
+Z_\perp(\omega)=\frac{iR_s}{Q}+\frac{R_s}{Q^2}x+R_s\mathcal{O}(x^2).
+$$
+
+Consequently, their analytical DC values are
+
+$$
+Z_\parallel(0)=0,
+\qquad
+Z_\perp(0)=\frac{iR_s}{Q}.
+$$
+
+Truncating a wake at time $T$ changes its area. The finite longitudinal DC
+value is the truncation boundary term
+
+$$
+Z_{\parallel,T}(0)=\frac{R_s\omega_r}{Q}
+\begin{cases}
+e^{-BT}\dfrac{\sin(CT)}{C}, & Q>0.5, \\
+Te^{-BT}, & Q=0.5, \\
+e^{-BT}\dfrac{\sinh(DT)}{D}, & 0<Q<0.5.
+\end{cases}
+$$
+
+It is generally nonzero and real, but converges to zero as $T\to\infty$. The
+finite transverse DC value is generally nonzero and imaginary,
+
+$$
+Z_{\perp,T}(0)=i\int_0^T W_\perp(t)\,dt,
+$$
+
+and converges to $iR_s/Q$ as $T\to\infty$. At $T=0$, both finite transforms
+vanish. The nonzero finite longitudinal value and the associated impedance
+ripples are both consequences of the abrupt wake truncation.
 
 ### Wake function resonator formula
 
