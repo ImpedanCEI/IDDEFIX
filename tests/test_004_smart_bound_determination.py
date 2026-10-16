@@ -1,169 +1,280 @@
-"""Automatic and interactive workflows for choosing resonator fit bounds.
+"""SmartBounds estimates checked against analytical resonator impedances."""
 
-The tests cover peak detection, width interpolation, and user selection.
-"""
-
-import asyncio
-from contextlib import nullcontext
-from importlib import import_module
-
+import matplotlib.pyplot as plt
 import numpy as np
 import pytest
-from matplotlib.backend_bases import KeyEvent, MouseEvent
 
 import iddefix
 
 
-def _two_peaks():
-    frequency = np.linspace(0.0, 10.0, 2001)
-    impedance = 10.0 * np.exp(-(((frequency - 3.0) / 0.1) ** 2) / 2) + 5.0 * np.exp(
-        -(((frequency - 7.0) / 0.15) ** 2) / 2
-    )
-    return frequency, impedance
+# Peak discovery and frequency bounds
+def test_detected_modes():
+    """Two longitudinal peaks recover their parameters and combined spectrum."""
+    frequency = np.linspace(0.1e9, 2e9, 10001)
+    expected = np.array([[100.0, 8.0, 0.5e9], [80.0, 10.0, 1.5e9]])
+    impedance = sum(
+        iddefix.Impedances.Resonator_longitudinal_imp(frequency, *resonator)
+        for resonator in expected
+    ).real
 
-
-def _click(figure, frequency, impedance, button=3):
-    axes = figure.axes[0]
-    figure.canvas.draw()
-    x, y = axes.transData.transform((frequency, impedance))
-    event = MouseEvent("button_press_event", figure.canvas, x, y, button=button)
-    figure.canvas.callbacks.process("button_press_event", event)
-
-
-def test_smart_bounds_detects_modes_and_respects_height():
-    frequency, impedance = _two_peaks()
-    bounds = iddefix.SmartBoundDetermination(
-        frequency, impedance, minimum_peak_height=1.0
-    )
-
-    assert bounds.N_resonators == 2
-    assert len(bounds.parameterBounds) == 6
-    assert all(low < high for low, high in bounds.parameterBounds)
-
-    bounds.find(minimum_peak_height=7.0)
-    assert bounds.N_resonators == 1
-    assert len(bounds.parameterBounds) == 3
-
-
-def test_smart_bounds_interpolation_preserves_real_fwhm():
-    frequency = np.linspace(5.0, 15.0, 101)
-    impedance = 10.0 / (1.0 + (frequency - 10.0) ** 2)
     bounds = iddefix.SmartBoundDetermination(
         frequency,
         impedance,
-        minimum_peak_height=np.full_like(frequency, 5.0),
-        samples=1001,
         impedance_type="real",
-        Q_bounds=[1.0, 1.0],
+        minimum_peak_height=50.0,
     )
 
-    assert len(bounds.analysis_frequency_data) == 1001
-    np.testing.assert_array_equal(bounds.frequency_data, frequency)
-    assert bounds.N_resonators == 1
-    np.testing.assert_allclose(bounds.parameterBounds[1], [5.0, 5.0])
-
-
-def test_smart_bounds_uses_selected_side_for_coupled_modes():
-    frequency = np.arange(8.0)
-    impedance = np.array([0.0, 0.0, 10.0, 4.0, 8.0, 3.0, 0.0, 0.0])
-    left = iddefix.SmartBoundDetermination(
-        frequency, impedance, minimum_peak_height=5.0, q_side="left"
-    )
-    right = iddefix.SmartBoundDetermination(
-        frequency, impedance, minimum_peak_height=5.0, q_side=["left", "right"]
-    )
-
-    np.testing.assert_array_equal(right.peaks, [2, 4])
-    assert right.q_sides_used == ["left", "right"]
-    assert right.parameterBounds[4][0] > left.parameterBounds[4][0]
-
-
-def test_interactive_picker_selects_modes_without_widget_backend(monkeypatch):
-    smart_bounds = import_module("iddefix.smartBoundDetermination")
-    monkeypatch.setattr(smart_bounds.matplotlib, "get_backend", lambda: "agg")
-    monkeypatch.setattr(smart_bounds.plt, "show", lambda **kwargs: None)
-
-    frequency = np.arange(7.0)
-    impedance = np.array([0.0, 1.0, 10.0, 1.0, 8.0, 1.0, 0.0])
-    bounds = iddefix.SmartBoundDetermination(frequency, impedance, interactive=True)
-    figure = bounds._selection_figure
-
-    _click(figure, 2.0, 10.0, button=1)
-    _click(figure, 4.0, 8.0, button=1)
-    event = KeyEvent("key_press_event", figure.canvas, key="enter")
-    figure.canvas.callbacks.process("key_press_event", event)
-
-    np.testing.assert_array_equal(bounds.peaks, [2, 4])
-    assert asyncio.run(bounds.wait_for_selection()) is bounds.parameterBounds
-    smart_bounds.plt.close(figure)
-
-
-def test_widget_picker_allows_zoom_then_right_click_and_undo(monkeypatch):
-    pytest.importorskip("IPython.display")
-    pytest.importorskip("ipywidgets")
-    smart_bounds = import_module("iddefix.smartBoundDetermination")
-    monkeypatch.setattr(
-        smart_bounds.matplotlib,
-        "get_backend",
-        lambda: "module://ipympl.backend_nbagg",
-    )
-    monkeypatch.setattr(smart_bounds.plt, "show", lambda **kwargs: None)
-    monkeypatch.setattr("IPython.display.display", lambda widget: None)
-
-    frequency = np.arange(7.0)
-    impedance = np.array([0.0, 1.0, 10.0, 1.0, 8.0, 1.0, 0.0])
-    bounds = iddefix.SmartBoundDetermination(frequency, impedance, interactive=True)
-    figure = bounds._selection_figure
-
-    class Toolbar:
-        mode = "zoom rect"
-
-        def zoom(self):
-            self.mode = ""
-
-        def _wait_cursor_for_draw_cm(self):
-            return nullcontext()
-
-    figure.canvas.toolbar = Toolbar()
-    _click(figure, 2.0, 10.0)
-    assert bounds.peaks is None
-
-    bounds._selection_pick_button.value = True
-    assert figure.canvas.toolbar.mode == ""
-    _click(figure, 2.0, 10.0)
-    _click(figure, 4.0, 8.0)
-    bounds._selection_undo_button.click()
-    _click(figure, 4.0, 8.0)
-    bounds._selection_done_button.click()
-
-    np.testing.assert_array_equal(bounds.peaks, [2, 4])
     assert bounds.N_resonators == 2
-    assert asyncio.run(bounds.wait_for_selection()) is bounds.parameterBounds
-    smart_bounds.plt.close(figure)
+    np.testing.assert_allclose(
+        np.asarray(bounds.parameterEstimates).reshape(-1, 3), expected, rtol=0.01
+    )
+    model = bounds.get_impedance_components().sum(axis=0)
+    assert np.max(np.abs(model.real - impedance)) / impedance.max() < 0.01
 
 
-def test_smart_bounds_allows_overdamped_q_bounds():
-    frequency = np.array([0.0, 10.0, 1000.0, 2000.0])
-    impedance = np.array([10.0, 11.0, 10.0, 0.0])
-
+def test_find_updates_plane():
+    """Re-running find on a transverse trace replaces longitudinal estimates."""
+    frequency = np.linspace(1e6, 2e9, 5001)
+    longitudinal = iddefix.Impedances.Resonator_longitudinal_imp(
+        frequency, 100.0, 2.0, 0.8e9
+    ).real
     bounds = iddefix.SmartBoundDetermination(
-        frequency, impedance, minimum_peak_height=1.0
+        frequency, longitudinal, impedance_type="real", minimum_peak_height=50.0
+    )
+
+    refined_frequency = np.linspace(1e6, 2e9, 10001)
+    expected = np.array([4e6, 0.5, 0.8e9])
+    transverse = iddefix.Impedances.Resonator_transverse_imp(
+        refined_frequency, *expected
+    ).real
+    bounds.find(
+        frequency_data=refined_frequency,
+        impedance_data=transverse,
+        minimum_peak_height=1e5,
+        impedance_type="real",
+        plane="transverse",
+        samples=20001,
     )
 
     assert bounds.N_resonators == 1
-    estimated_q = frequency[bounds.peaks[0]] / (2 * bounds.upper_lower_bounds[0])
-    assert 0 < bounds.parameterBounds[1][0] < 0.5
-    assert bounds.parameterBounds[1][0] == pytest.approx(estimated_q * 0.5)
+    np.testing.assert_allclose(bounds.parameterEstimates, expected, rtol=0.002)
 
 
-def test_smart_bounds_uses_q_one_fallback_when_crossing_is_missing():
-    frequency = np.array([0.0, 1.0, 2.0])
-    impedance = np.array([9.0, 10.0, 9.0])
+def test_frequency_bounds_scale_with_q():
+    """A lower-Q resonator receives a wider frequency interval."""
+    frequency = np.linspace(1e6, 2e9, 10001)
+    widths = []
+
+    for Q in (2.0, 10.0):
+        impedance = iddefix.Impedances.Resonator_longitudinal_imp(
+            frequency, 100.0, Q, 0.8e9
+        ).real
+        bounds = iddefix.SmartBoundDetermination(
+            frequency,
+            impedance,
+            impedance_type="real",
+            minimum_peak_height=50.0,
+        )
+        low, high = bounds.parameterBounds[2]
+        widths.append(high - low)
+
+    assert widths[0] > widths[1]
+
+
+# Longitudinal estimates
+@pytest.mark.parametrize("Q", [0.3, 10.0])
+@pytest.mark.parametrize("impedance_type", ["real", "absolute"])
+def test_longitudinal_frequency_resolution(Q, impedance_type):
+    """Real and absolute estimates improve as frequency sampling becomes finer."""
+    expected = np.array([100.0, Q, 0.8e9])
+    estimates = []
+
+    for samples in (401, 20001):
+        frequency = np.linspace(1e6, 3e9, samples)
+        impedance = iddefix.Impedances.Resonator_longitudinal_imp(frequency, *expected)
+        data = impedance.real if impedance_type == "real" else np.abs(impedance)
+        bounds = iddefix.SmartBoundDetermination(
+            frequency,
+            data,
+            impedance_type=impedance_type,
+            minimum_peak_height=50.0,
+        )
+        assert bounds.N_resonators == 1
+        estimates.append(np.asarray(bounds.parameterEstimates))
+
+    coarse_error, fine_error = [
+        np.max(np.abs((estimate - expected) / expected)) for estimate in estimates
+    ]
+    assert fine_error < coarse_error
+    assert fine_error < 0.003
+    assert all(
+        low < value < high
+        for value, (low, high) in zip(expected, bounds.parameterBounds)
+    )
+
+
+# Transverse estimates and crossings
+@pytest.mark.parametrize("q_side", ["left", "right"])
+def test_transverse_crossing_sides(q_side):
+    """Either crossing recovers a critically damped transverse resonator."""
+    frequency = np.linspace(1e6, 2e9, 20001)
+    expected = np.array([4e6, 0.5, 0.8e9])
+    impedance = iddefix.Impedances.Resonator_transverse_imp(frequency, *expected).real
 
     bounds = iddefix.SmartBoundDetermination(
-        frequency, impedance, minimum_peak_height=1.0
+        frequency,
+        impedance,
+        impedance_type="real",
+        plane="transverse",
+        minimum_peak_height=1e5,
+        q_side=q_side,
     )
 
     assert bounds.N_resonators == 1
-    assert bounds.upper_lower_bounds[0] == 0.0
-    assert bounds.parameterBounds[1] == (0.5, 5.0)
+    np.testing.assert_allclose(bounds.parameterEstimates, expected, rtol=0.001)
+
+
+def test_transverse_peak_with_known_q():
+    """A manually selected peak and supplied Q recover the transverse parameters."""
+    frequency = np.linspace(1e6, 2e9, 20001)
+    expected = np.array([4e6, 2.0, 0.8e9])
+    impedance = iddefix.Impedances.Resonator_transverse_imp(frequency, *expected).real
+    peak_frequency = frequency[np.argmax(impedance)]
+
+    bounds = iddefix.SmartBoundDetermination(
+        frequency,
+        impedance,
+        impedance_type="real",
+        plane="transverse",
+        minimum_peak_height=impedance.max() + 1.0,
+    )
+    bounds.add_peak(peak_frequency, Q=expected[1])
+
+    assert bounds.N_resonators == 1
+    np.testing.assert_allclose(bounds.parameterEstimates, expected, rtol=0.001)
+
+
+def test_transverse_absolute_warning(capsys):
+    """Absolute transverse data warn and do not receive the real-part correction."""
+    frequency = np.linspace(1e6, 2e9, 5001)
+    impedance = np.abs(
+        iddefix.Impedances.Resonator_transverse_imp(
+            frequency, 4e6, 5.0, 0.8e9, wake_length=0.5
+        )
+    )
+    options = dict(
+        impedance_type="absolute",
+        plane="transverse",
+        minimum_peak_height=impedance.max() * 0.6,
+    )
+    full = iddefix.SmartBoundDetermination(frequency, impedance, **options)
+    finite = iddefix.SmartBoundDetermination(
+        frequency, impedance, wake_length=0.5, **options
+    )
+
+    assert "use impedance_type='real'" in capsys.readouterr().out
+    np.testing.assert_allclose(finite.parameterEstimates, full.parameterEstimates)
+
+
+# Wake-length correction
+@pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
+def test_wake_length_automatic_estimates(plane):
+    """Peak detection recovers a finite-wake resonator in either plane."""
+    frequency = np.linspace(1e6, 2e9, 10001)
+    expected = np.array([4e6, 0.8, 0.8e9])
+    formula = getattr(iddefix.Impedances, f"Resonator_{plane}_imp")
+    impedance = formula(frequency, *expected, wake_length=0.5).real
+
+    bounds = iddefix.SmartBoundDetermination(
+        frequency,
+        impedance,
+        impedance_type="real",
+        plane=plane,
+        wake_length=0.5,
+        minimum_peak_height=impedance.max() * 0.6,
+    )
+
+    assert bounds.N_resonators == 1
+    np.testing.assert_allclose(bounds.parameterEstimates, expected, rtol=0.04)
+
+
+@pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
+@pytest.mark.parametrize("Q", [0.4, 0.5, 5.0])
+def test_wake_length_known_q(plane, Q):
+    """Supplied Q recovers Rs and the spectrum across damping regimes."""
+    frequency = np.linspace(1e6, 2e9, 10001)
+    expected = np.array([4e6, Q, 0.8e9])
+    formula = getattr(iddefix.Impedances, f"Resonator_{plane}_imp")
+    impedance = formula(frequency, *expected, wake_length=0.5).real
+    peak_frequency = frequency[np.argmax(impedance)]
+
+    bounds = iddefix.SmartBoundDetermination(
+        frequency,
+        impedance,
+        impedance_type="real",
+        plane=plane,
+        wake_length=0.5,
+        minimum_peak_height=impedance.max() + 1.0,
+    )
+    bounds.add_peak(peak_frequency, Q=Q)
+
+    assert bounds.parameterEstimates[0] == pytest.approx(expected[0], rel=0.05)
+    model = bounds.get_impedance_components()[0].real
+    around_peak = (frequency > 0.5e9) & (frequency < 1.2e9)
+    peak_scaled_error = (
+        np.max(np.abs(model[around_peak] - impedance[around_peak])) / impedance.max()
+    )
+    assert peak_scaled_error < 0.1
+
+
+def test_wake_length_longitudinal_absolute():
+    """Finite-wake correction improves Rs estimated from the magnitude."""
+    frequency = np.linspace(1e6, 2e9, 10001)
+    expected = np.array([4e6, 5.0, 0.8e9])
+    impedance = iddefix.Impedances.Resonator_longitudinal_imp(
+        frequency, *expected, wake_length=0.5
+    )
+    magnitude = np.abs(impedance)
+    peak_frequency = frequency[np.argmax(magnitude)]
+    options = dict(
+        impedance_type="absolute",
+        minimum_peak_height=magnitude.max() + 1.0,
+    )
+    full = iddefix.SmartBoundDetermination(frequency, magnitude, **options)
+    finite = iddefix.SmartBoundDetermination(
+        frequency, magnitude, wake_length=0.5, **options
+    )
+    full.add_peak(peak_frequency, Q=expected[1])
+    finite.add_peak(peak_frequency, Q=expected[1])
+
+    assert abs(finite.parameterEstimates[0] - expected[0]) < abs(
+        full.parameterEstimates[0] - expected[0]
+    )
+    assert finite.parameterEstimates[0] == pytest.approx(expected[0], rel=0.07)
+
+
+# Inspection plot
+@pytest.mark.parametrize(
+    ("show_bounds", "show_components"),
+    [(False, False), (True, False), (True, True)],
+)
+def test_inspect(request, monkeypatch, show_bounds, show_components):
+    """Plot options run for an analytical finite-wake transverse trace."""
+    frequency = np.linspace(1e6, 2e9, 5001)
+    expected = np.array([4e6, 0.8, 0.8e9])
+    impedance = iddefix.Impedances.Resonator_transverse_imp(
+        frequency, *expected, wake_length=0.5
+    ).real
+    bounds = iddefix.SmartBoundDetermination(
+        frequency,
+        impedance,
+        impedance_type="real",
+        plane="transverse",
+        wake_length=0.5,
+        minimum_peak_height=impedance.max() * 0.6,
+    )
+
+    if not request.config.getoption("--debug-plots"):
+        monkeypatch.setattr(plt, "show", lambda: None)
+    bounds.inspect(show_bounds=show_bounds, show_components=show_components)
+    plt.close("all")
