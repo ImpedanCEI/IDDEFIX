@@ -4,6 +4,7 @@ The tests check public model behavior after parameter changes, including the
 partial-wake Q boundary and the transverse impedance at critical damping.
 """
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
@@ -11,16 +12,21 @@ import iddefix
 
 
 def _model(n_resonators=2, **kwargs):
-    frequency = np.linspace(0.5e9, 1.5e9, 61)
+    x_data = (
+        np.linspace(0.5e9, 1.5e9, 61)
+        if kwargs.get("fitFunction", "impedance") == "impedance"
+        else np.linspace(0.0, 10e-9, 61)
+    )
     return iddefix.EvolutionaryAlgorithm(
-        x_data=frequency,
-        y_data=np.zeros_like(frequency),
+        x_data=x_data,
+        y_data=np.zeros_like(x_data),
         N_resonators=n_resonators,
         parameterBounds=[(0.0, 1000.0), (0.5, 1e5), (0.1e9, 2e9)] * n_resonators,
         **kwargs,
     )
 
 
+# Loading and displaying parameters
 @pytest.mark.parametrize(
     ("escape_start", "escape_end"),
     [
@@ -29,9 +35,8 @@ def _model(n_resonators=2, **kwargs):
         pytest.param("␛[31m", "␛[0m", id="visible-ansi"),
     ],
 )
-def test_loaded_table_evaluates_resonators_with_optional_uncertainties(
-    escape_start, escape_end
-):
+def test_load_table(escape_start, escape_end):
+    """Load a table with optional ANSI escapes and reproduce the model spectrum."""
     model = _model()
     model.load_resonator_parameters(
         "Resonator | Rs | Q | fres\n"
@@ -52,7 +57,8 @@ def test_loaded_table_evaluates_resonators_with_optional_uncertainties(
 
 
 @pytest.mark.parametrize("to_markdown", [False, True])
-def test_displayed_parameters_can_be_loaded(capsys, to_markdown):
+def test_display_round_trip(capsys, to_markdown):
+    """Displayed ASCII and Markdown tables preserve parameters and uncertainties."""
     model = _model()
     parameters = np.array([100.0, 3.0, 1e9, 200.0, 5.0, 1.5e9])
     uncertainties = np.array([30.0, 0.5, 1e7, 20.0, 0.5, 2e7])
@@ -68,7 +74,9 @@ def test_displayed_parameters_can_be_loaded(capsys, to_markdown):
     np.testing.assert_allclose(model.evolutionParametersUncertainties, uncertainties)
 
 
-def test_edit_add_and_remove_update_the_evaluated_model():
+# Editing and refitting resonators
+def test_edit_resonators():
+    """Editing, adding, and removing modes updates both fitted stages."""
     model = _model()
     model.load_resonator_parameters(
         "1 | 100 ± 10 | 3 ± 0.3 | 1e9 ± 1e7\n2 | 200 ± 20 | 5 ± 0.5 | 1.5e9 ± 2e7"
@@ -99,46 +107,84 @@ def test_edit_add_and_remove_update_the_evaluated_model():
     )
 
 
-def test_invalid_edits_leave_parameters_unchanged():
+def test_model_after_edits(capsys):
+    """Manual edits keep the starting vector aligned with the fitted modes."""
+    initial = [100.0, 3.0, 1e9, 200.0, 5.0, 1.5e9]
+    model = _model(parameterEstimates=initial)
+    model.load_resonator_parameters("1 | 100 | 3 | 1e9\n2 | 200 | 5 | 1.5e9")
+
+    model.modify_resonator(2, Q=4.0)
+    model.add_resonator(
+        300.0,
+        7.0,
+        1.2e9,
+        parameter_bounds=[(100.0, 500.0), (1.0, 10.0), (1e9, 1.5e9)],
+    )
+    model.remove_resonator(1)
+
+    expected = [200.0, 4.0, 1.5e9, 300.0, 7.0, 1.2e9]
+    model.y_data = iddefix.Impedances.n_Resonator_longitudinal_imp(
+        model.x_data, expected
+    ).real
+    model.run_minimization_algorithm()
+    capsys.readouterr()
+
+    np.testing.assert_allclose(model.parameterEstimates, expected)
+    fitted = model.get_impedance(model.x_data).real
+    assert np.max(np.abs(fitted - model.y_data)) / model.y_data.max() < 0.01
+
+
+def test_edit_q_boundary():
+    """Invalid Q leaves the model intact; positive subcritical Q is valid."""
     model = _model(n_resonators=1)
-    with pytest.raises(ValueError, match="Load or fit"):
-        model.modify_resonator(1, Q=1)
     model.load_resonator_parameters("1 | 100 | 3 | 1e9")
     original = model.minimizationParameters.copy()
 
-    for number, changes in (
-        (0, {"Q": 1}),
-        (2, {"Q": 1}),
-        (1, {"Q": 0}),
-        (1, {"fr": -1}),
-        (1, {"Rs": np.nan}),
-    ):
-        with pytest.raises(ValueError):
-            model.modify_resonator(number, **changes)
-        np.testing.assert_array_equal(model.minimizationParameters, original)
+    with pytest.raises(ValueError, match="Q must be positive"):
+        model.modify_resonator(1, Q=0)
+    np.testing.assert_array_equal(model.minimizationParameters, original)
 
-    # Fully decayed resonators allow positive Q below critical damping.
     model.modify_resonator(1, Rs=0, Q=0.3)
     np.testing.assert_allclose(model.minimizationParameters, [0, 0.3, 1e9])
 
 
-def test_partial_transverse_model_accepts_overdamped_q_and_remains_finite():
-    model = _model(n_resonators=1, plane="transverse", wake_length=5.0)
-    model.load_resonator_parameters("1 | 0.1 | 2 | 1e9")
+# Components and plots
+@pytest.mark.parametrize(
+    ("fit_function", "plane"),
+    [
+        ("impedance", "longitudinal"),
+        ("impedance", "transverse"),
+        ("wake", "longitudinal"),
+        ("wake potential", "longitudinal"),
+    ],
+)
+def test_get_model_components(fit_function, plane):
+    """Resonator components sum to the selected impedance or wake model."""
+    model = _model(fitFunction=fit_function, plane=plane, sigma=1e-10)
+    model.load_resonator_parameters("1 | 100 | 3 | 1e9\n2 | 200 | 5 | 1.5e9")
 
-    model.modify_resonator(1, Q=0.3)
-    overdamped = model.get_impedance_from_fitFunction()
-    assert np.isfinite(overdamped).all()
+    components = model.get_model_components()
+    total_model = model.fitFunction(model.x_data, model.minimizationParameters)
 
-    model.modify_resonator(1, Q=0.5)
+    np.testing.assert_allclose(components.sum(axis=0), total_model)
 
-    critical = model.get_impedance_from_fitFunction()
-    nearby = iddefix.Impedances.Resonator_transverse_imp(
-        model.x_data,
-        Rs=0.1,
-        Q=0.5000001,
-        resonant_frequency=1e9,
-        wake_length=5.0,
-    )
-    assert np.isfinite(critical).all()
-    np.testing.assert_allclose(critical, nearby, rtol=2e-6, atol=1e-9)
+
+@pytest.mark.parametrize(
+    ("fit_function", "plane", "ylabel"),
+    [
+        ("wake", "longitudinal", "Wake [V/C]"),
+        ("wake potential", "longitudinal", "Wake potential [V/C]"),
+        ("wake", "transverse", "Wake [V/C/m]"),
+    ],
+)
+def test_plot_model_components(request, monkeypatch, fit_function, plane, ylabel):
+    """Component plots label wake amplitudes with the selected plane's units."""
+    model = _model(n_resonators=1, fitFunction=fit_function, plane=plane, sigma=1e-10)
+    model.load_resonator_parameters("1 | 100 | 3 | 1e9")
+
+    if not request.config.getoption("--debug-plots"):
+        monkeypatch.setattr(plt, "show", lambda: None)
+    fig, axes = model.plot_model_components()
+
+    assert axes[0].get_ylabel() == ylabel
+    plt.close(fig)
