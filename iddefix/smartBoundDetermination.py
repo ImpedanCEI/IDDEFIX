@@ -78,7 +78,8 @@ class SmartBoundDetermination:
             Side of each peak used for its half-power width and Q estimate.
             "auto" uses the nearest crossing. A list chooses a side separately
             for each detected peak, in increasing frequency order. If the
-            selected side has no crossing, the Q estimate defaults to 0.5.
+            selected side has no crossing, the Q estimate defaults to 1;
+            the configured scaling factors can still produce a bound below 0.5.
         impedance_type : {"absolute", "real"}, optional
             Type of impedance supplied. Absolute impedance uses the 3 dB
             amplitude level (peak / sqrt(2)); real impedance uses the
@@ -241,8 +242,9 @@ class SmartBoundDetermination:
         q_side : str or list of str, optional
             Use the left or right crossing for Q estimation. "auto" uses
             the nearest crossing; a list selects a side for each detected peak.
-            If that side has no crossing, Q defaults to 0.5. Defaults to the
-            value supplied to the constructor.
+            If that side has no crossing, the Q estimate defaults to 1;
+            this is not a lower bound. Defaults to the value supplied to the
+            constructor.
         impedance_type : {"absolute", "real"}, optional
             Choose the crossing level for Q estimation. Defaults to the
             value supplied to the constructor.
@@ -345,7 +347,8 @@ class SmartBoundDetermination:
         analysis_impedance_data = self.analysis_impedance_data
         peaks_height = {"peak_heights": analysis_impedance_data[peaks]}
 
-        minimum_resonator_q = 0.5
+        fallback_resonator_q = 1.0
+        positive_q_floor = np.finfo(float).eps
         Nres = len(peaks)
         initial_Qs = np.zeros(Nres)
         self.minus_3dB_points = np.zeros(Nres)
@@ -369,8 +372,8 @@ class SmartBoundDetermination:
 
             if len(idx_crossings) == 0:
                 # A truncated resonance may not cross its selected level in the
-                # supplied spectrum.  Keep it in the fit with the minimum
-                # physically supported Q rather than dropping it.
+                # supplied spectrum. Keep it in the fit with a conservative
+                # fallback estimate rather than dropping it.
                 upper_lower_bound = 0.0
                 selected_side = sides[i]
             else:
@@ -415,14 +418,11 @@ class SmartBoundDetermination:
             self.q_sides_used.append(selected_side)
 
             if upper_lower_bound <= 0.0:
-                estimated_Q = minimum_resonator_q
+                estimated_Q = fallback_resonator_q
             else:
                 estimated_Q = analysis_frequency_data[peak] / (upper_lower_bound * 2)
 
-            # Q = 0.5 is the lowest value supported by the resonator
-            # formalism.  It also makes the bound estimation robust for very
-            # broad or poorly resolved resonances.
-            initial_Qs[i] = max(minimum_resonator_q, estimated_Q)
+            initial_Qs[i] = max(positive_q_floor, estimated_Q)
 
         parameterBounds = []
 
@@ -433,7 +433,7 @@ class SmartBoundDetermination:
                 peaks_height["peak_heights"][i] * self.Rs_bounds[1],
             )
             Q_bounds = (
-                max(minimum_resonator_q, initial_Qs[i] * self.Q_bounds[0]),
+                max(positive_q_floor, initial_Qs[i] * self.Q_bounds[0]),
                 initial_Qs[i] * self.Q_bounds[1],
             )
             freq_bounds = (
