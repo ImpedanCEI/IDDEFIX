@@ -113,6 +113,20 @@ def test_fit_without_automatic_uncertainties():
     assert np.isfinite(model.get_uncertainties()).all()
 
 
+@pytest.mark.parametrize("complex_data, n_samples", [(False, 3), (True, 1)])
+def test_uncertainties_require_residual_degrees_of_freedom(complex_data, n_samples):
+    """Real and complex fits need more residuals than fitted parameters."""
+    frequency = np.linspace(0.8e9, 1.2e9, n_samples)
+    impedance = iddefix.Impedances.Resonator_longitudinal_imp(
+        frequency, 100.0, 3.0, 1e9
+    )
+    model = _model(frequency, impedance if complex_data else impedance.real)
+    model.load_resonator_parameters("1 | 100 | 3 | 1e9")
+
+    with pytest.raises(ValueError, match="M > N"):
+        model.get_uncertainties()
+
+
 @pytest.mark.parametrize("vary", ["R", "Q", "both"])
 def test_impedance_envelope_contains_nominal_with_large_errors(vary):
     frequency = np.linspace(0.5e9, 1.5e9, 101)
