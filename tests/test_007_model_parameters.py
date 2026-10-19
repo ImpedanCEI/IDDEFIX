@@ -15,17 +15,23 @@ import pytest
 import iddefix
 
 
-def _model(n_resonators=2, **kwargs):
+def _model(n_resonators=2, parameter_bounds=None, **kwargs):
     x_data = (
         np.linspace(0.5e9, 1.5e9, 61)
         if kwargs.get("fitFunction", "impedance") == "impedance"
         else np.linspace(0.0, 10e-9, 61)
     )
+    if parameter_bounds is None:
+        parameter_bounds = [
+            (0.0, 1000.0),
+            (0.5, 1e5),
+            (0.1e9, 2e9),
+        ] * n_resonators
     return iddefix.EvolutionaryAlgorithm(
         x_data=x_data,
         y_data=np.zeros_like(x_data),
         N_resonators=n_resonators,
-        parameterBounds=[(0.0, 1000.0), (0.5, 1e5), (0.1e9, 2e9)] * n_resonators,
+        parameterBounds=parameter_bounds,
         **kwargs,
     )
 
@@ -53,16 +59,10 @@ def test_load_table_without_count_or_bounds(capsys, n_resonators):
             frequency, [100, 3, 1e9, 200, 5, 1.5e9]
         ),
     )
-    model.remove_resonator(2)
-    assert model.N_resonators == 1
-    assert model.parameterBounds is None
-    model.add_resonator(200, 5, 1.5e9)
-    assert model.N_resonators == 2
-    assert model.parameterBounds is None
 
 
-def test_missing_bounds_reject_fitting_and_empty_table():
-    """Loading needs a row; global fitting needs finite search bounds."""
+def test_empty_table_rejected():
+    """Loading a parameter table requires at least one resonator row."""
     frequency = np.linspace(0.5e9, 1.5e9, 61)
     model = iddefix.EvolutionaryAlgorithm(
         x_data=frequency, y_data=np.zeros_like(frequency)
@@ -70,12 +70,6 @@ def test_missing_bounds_reject_fitting_and_empty_table():
     with pytest.raises(ValueError, match="No resonator rows"):
         model.load_resonator_parameters("Resonator | Rs | Q | fres")
     assert model.N_resonators is None
-
-    model.load_resonator_parameters("1 | 100 | 3 | 1e9")
-    with pytest.raises(ValueError, match="parameterBounds"):
-        model.run_differential_evolution()
-    with pytest.raises(ValueError, match="parameterBounds"):
-        model.run_cmaes()
 
 
 def test_infer_count_from_bounds():
@@ -231,8 +225,10 @@ def test_display_bound_warning(capsys):
 
 def test_display_multiplicative_bounds(capsys):
     """A central Q is not flagged; a Q close to its multiplier limit is."""
-    model = _model(n_resonators=1)
-    model.parameterBounds[1] = (0.1, 10.0)
+    model = _model(
+        n_resonators=1,
+        parameter_bounds=[(0.0, 1000.0), (0.1, 10.0), (0.1e9, 2e9)],
+    )
     model.load_resonator_parameters("1 | 100 | 1 | 1e9")
 
     model.display_resonator_parameters()
@@ -244,16 +240,34 @@ def test_display_multiplicative_bounds(capsys):
     assert "resonator 1 Q (upper)" in output
     assert "\033[34m" in output
 
-    model.parameterBounds[1] = (1.0, 1e100)
-    model.modify_resonator(1, Q=2e99)
-    model.display_resonator_parameters()
+    wide_model = _model(
+        n_resonators=1,
+        parameter_bounds=[(0.0, 1000.0), (1.0, 1e100), (0.1e9, 2e9)],
+    )
+    wide_model.load_resonator_parameters("1 | 100 | 2e99 | 1e9")
+    wide_model.display_resonator_parameters()
     assert "resonator 1 Q (upper)" in capsys.readouterr().out
+
+
+# Fitting parameters
+def test_missing_bounds_reject_global_fitting():
+    """Global fitting requires bounds after parameters are loaded for evaluation."""
+    frequency = np.linspace(0.5e9, 1.5e9, 61)
+    model = iddefix.EvolutionaryAlgorithm(
+        x_data=frequency, y_data=np.zeros_like(frequency)
+    )
+    model.load_resonator_parameters("1 | 100 | 3 | 1e9")
+
+    with pytest.raises(ValueError, match="parameterBounds"):
+        model.run_differential_evolution()
+    with pytest.raises(ValueError, match="parameterBounds"):
+        model.run_cmaes()
 
 
 def test_minimization_warning_uses_refinement_bounds(monkeypatch, capsys):
     """Local-fit warnings refer to its margin bounds, not global search bounds."""
     model = _model(n_resonators=1, compute_uncertainties=False)
-    model.evolutionParameters = np.array([100.0, 3.0, 1e9])
+    model.load_resonator_parameters("1 | 100 | 3 | 1e9", use_minimization=False)
 
     def minimize_at_upper_bound(function, x0, bounds, **kwargs):
         return SimpleNamespace(x=np.array([bounds[0][1], x0[1], x0[2]]))
@@ -265,7 +279,25 @@ def test_minimization_warning_uses_refinement_bounds(monkeypatch, capsys):
     assert "resonator 1 Rs (upper)" in output
 
 
-# Editing and refitting resonators
+# Editing resonators
+def test_edit_loaded_model_without_bounds():
+    """A bounds-free loaded model supports the notebook editing workflow."""
+    frequency = np.linspace(0.5e9, 1.5e9, 61)
+    model = iddefix.EvolutionaryAlgorithm(
+        x_data=frequency, y_data=np.zeros_like(frequency)
+    )
+    model.load_resonator_parameters("1 | 100 | 3 | 1e9\n2 | 200 | 5 | 1.5e9")
+
+    model.remove_resonator(2)
+    model.add_resonator(200, 5, 1.5e9)
+
+    assert model.N_resonators == 2
+    assert model.parameterBounds is None
+    np.testing.assert_allclose(
+        model.minimizationParameters, [100, 3, 1e9, 200, 5, 1.5e9]
+    )
+
+
 def test_edit_resonators():
     """Editing, adding, and removing modes updates both fitted stages."""
     model = _model()
