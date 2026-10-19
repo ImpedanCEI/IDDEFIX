@@ -52,7 +52,7 @@ def test_load_table_without_count_or_bounds(capsys, n_resonators):
     assert model.N_resonators == 2
     assert model.parameterBounds is None
     model.display_resonator_parameters()
-    assert "parameter bound" not in capsys.readouterr().out
+    assert "parameter bounds" not in capsys.readouterr().out
     np.testing.assert_allclose(
         model.get_impedance(frequency),
         iddefix.Impedances.n_Resonator_longitudinal_imp(
@@ -187,6 +187,7 @@ def test_notebook_table_uses_monospace_html(monkeypatch, capsys):
     model.display_resonator_parameters(
         params=np.array([995.0, 3.0, 1e9]),
         uncertainties=np.array([300.0, 1.0, 1e7]),
+        display_warnings=True,
     )
 
     assert len(displayed) == 1
@@ -205,7 +206,7 @@ def test_notebook_table_uses_monospace_html(monkeypatch, capsys):
     )
 
 
-def test_display_bound_warning(capsys):
+def test_display_warnings_are_opt_in(capsys):
     """A bound hit is reported and takes color priority over uncertainty."""
     model = _model(n_resonators=1)
     model.load_resonator_parameters("1 | 995 ± 300 | 2000 ± 500 | 1e9 ± 1e7")
@@ -213,10 +214,19 @@ def test_display_bound_warning(capsys):
 
     model.display_resonator_parameters(display_uncertainties=True)
     output = capsys.readouterr().out
+    assert "Warning:" not in output
+    assert "\033[34m" not in output
+    assert "\033[31m" not in output
+
+    model.display_resonator_parameters(
+        display_uncertainties=True, display_warnings=True
+    )
+    output = capsys.readouterr().out
     row = next(line for line in output.splitlines() if line.strip().startswith("1"))
     cells = row.split("|")
 
-    assert "resonator 1 Rs (upper)" in output
+    assert "parameter bounds" in output
+    assert "relative uncertainty >= 0.20" in output
     assert "\033[34m[!] Warning:" in output
     assert "\033[34m" in cells[1]
     assert "\033[31m" not in cells[1]
@@ -231,13 +241,13 @@ def test_display_multiplicative_bounds(capsys):
     )
     model.load_resonator_parameters("1 | 100 | 1 | 1e9")
 
-    model.display_resonator_parameters()
-    assert "parameter bound" not in capsys.readouterr().out
+    model.display_resonator_parameters(display_warnings=True)
+    assert "parameter bounds" not in capsys.readouterr().out
 
     model.modify_resonator(1, Q=9.9)
-    model.display_resonator_parameters()
+    model.display_resonator_parameters(display_warnings=True)
     output = capsys.readouterr().out
-    assert "resonator 1 Q (upper)" in output
+    assert "parameter bounds" in output
     assert "\033[34m" in output
 
     wide_model = _model(
@@ -245,8 +255,8 @@ def test_display_multiplicative_bounds(capsys):
         parameter_bounds=[(0.0, 1000.0), (1.0, 1e100), (0.1e9, 2e9)],
     )
     wide_model.load_resonator_parameters("1 | 100 | 2e99 | 1e9")
-    wide_model.display_resonator_parameters()
-    assert "resonator 1 Q (upper)" in capsys.readouterr().out
+    wide_model.display_resonator_parameters(display_warnings=True)
+    assert "parameter bounds" in capsys.readouterr().out
 
 
 # Fitting parameters
@@ -264,7 +274,30 @@ def test_missing_bounds_reject_global_fitting():
         model.run_cmaes()
 
 
-def test_minimization_warning_uses_refinement_bounds(monkeypatch, capsys):
+@pytest.mark.parametrize("algorithm", ["differential_evolution", "cmaes"])
+def test_global_fit_bound_warning(monkeypatch, capsys, algorithm):
+    """Global fits automatically report proximity to parameter bounds."""
+    model = _model(n_resonators=1, compute_uncertainties=False)
+    solution = np.array([1000.0, 3.0, 1e9])
+
+    if algorithm == "differential_evolution":
+        monkeypatch.setattr(
+            model,
+            "_solve_differential_evolution",
+            lambda *args, **kwargs: (solution, "converged"),
+        )
+        model.run_differential_evolution()
+    else:
+        monkeypatch.setattr(
+            "iddefix.framework.Solvers.run_pymoo_cmaes_solver",
+            lambda *args, **kwargs: (solution, "converged", SimpleNamespace()),
+        )
+        model.run_cmaes()
+
+    assert "parameter bounds" in capsys.readouterr().out
+
+
+def test_minimization_bound_warning(monkeypatch, capsys):
     """Local-fit warnings refer to its margin bounds, not global search bounds."""
     model = _model(n_resonators=1, compute_uncertainties=False)
     model.load_resonator_parameters("1 | 100 | 3 | 1e9", use_minimization=False)
@@ -276,7 +309,8 @@ def test_minimization_warning_uses_refinement_bounds(monkeypatch, capsys):
     model.run_minimization_algorithm()
 
     output = capsys.readouterr().out
-    assert "resonator 1 Rs (upper)" in output
+    np.testing.assert_allclose(model.minimizationBounds[0], [90.0, 110.0])
+    assert "minimization bounds" in output
 
 
 # Editing resonators

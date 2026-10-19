@@ -107,6 +107,11 @@ class EvolutionaryAlgorithm:
             Stores parameters of the evolutionary optimization algorithm.
         minimizationParameters : numpy.ndarray or None
             Stores the best-fit parameters obtained from the optimization.
+        minimizationBounds : list of tuple or None
+            Bounds used by the most recent local minimization. They are derived
+            from ``margin`` around ``evolutionParameters``, or equal to
+            ``parameterBounds`` for a minimization-only run. They are cleared
+            when stored parameters are manually changed.
         time_data : numpy.ndarray
             Stores the input x data: times for wake function and wake potential [s]
         wake_data : numpy.ndarray
@@ -173,7 +178,7 @@ class EvolutionaryAlgorithm:
         self.evolutionParametersUncertainties = None
         self.minimizationParameters = None
         self.minimizationParametersUncertainties = None
-        self._minimization_bounds = None
+        self.minimizationBounds = None
         self.flagged_params = None
 
         # Threshold on relative uncertainty (sigma/|value|) above which a
@@ -433,6 +438,7 @@ class EvolutionaryAlgorithm:
             params=self.evolutionParameters,
             to_markdown=False,
             uncertainties=self.evolutionParametersUncertainties,
+            display_warnings=True,
         )
 
     def run_cmaes(
@@ -522,6 +528,7 @@ class EvolutionaryAlgorithm:
             params=self.evolutionParameters,
             to_markdown=False,
             uncertainties=self.evolutionParametersUncertainties,
+            display_warnings=True,
         )
 
         return res
@@ -556,8 +563,10 @@ class EvolutionaryAlgorithm:
 
         Notes
         -----
-        - The optimization is constrained within `minimizationBounds`, which
-        are computed using `margin` and the current `evolutionParameters`.
+        - The optimization is constrained within ``self.minimizationBounds``,
+          which are computed using ``margin`` and the current
+          ``evolutionParameters``. For a minimization-only run, they equal
+          ``self.parameterBounds``.
         - If the DE algorithm has not been run, the function initializes parameters
           from `self.parameterEstimates` or the midpoint of `self.parameterBounds`.
         - The minimization results are stored in `self.minimizationParameters`.
@@ -623,7 +632,7 @@ class EvolutionaryAlgorithm:
                 },
             )
         self.minimizationParameters = minimizationParameters.x
-        self._minimization_bounds = (
+        self.minimizationBounds = (
             minimizationBounds
             if self.evolutionParameters is not None
             else self.parameterBounds
@@ -631,16 +640,12 @@ class EvolutionaryAlgorithm:
         self.minimizationParametersUncertainties = None
         self.flagged_params = None
         if self.compute_uncertainties:
-            uncertainty_bounds = (
-                minimizationBounds
-                if self.evolutionParameters is not None
-                else self.parameterBounds
-            )
-            self.get_uncertainties(parameterBounds=uncertainty_bounds)
+            self.get_uncertainties(parameterBounds=self.minimizationBounds)
         self.display_resonator_parameters(
             params=self.minimizationParameters,
             to_markdown=False,
             uncertainties=self.minimizationParametersUncertainties,
+            display_warnings=True,
         )
 
     def get_uncertainties(
@@ -687,7 +692,9 @@ class EvolutionaryAlgorithm:
             parameterBounds,
         )
         setattr(self, uncertainty_attribute, uncertainties)
-        self._warn_large_uncertainties(parameters, uncertainties)
+        self.flagged_params = self._compute_flagged_params_mask(
+            parameters, uncertainties
+        )
         return uncertainties
 
     def display_resonator_parameters(
@@ -696,8 +703,14 @@ class EvolutionaryAlgorithm:
         to_markdown: bool = False,
         uncertainties: ArrayLike | None = None,
         display_uncertainties: bool = True,
+        display_warnings: bool = False,
     ) -> None:
-        """Display parameters, highlighting bound hits before large uncertainties."""
+        """Display resonator parameters and their uncertainties.
+
+        Set ``display_warnings=True`` to print uncertainty and bound warnings
+        and highlight affected values. Fitting methods enable warnings for
+        their automatic parameter display.
+        """
 
         # Use self parameters if not provided as argument.
         if params is None:
@@ -715,27 +728,28 @@ class EvolutionaryAlgorithm:
                 return
 
         flagged_mask = self._compute_flagged_params_mask(params, uncertainties)
-        bounds = (
-            self._minimization_bounds
-            if params is self.minimizationParameters
-            and self._minimization_bounds is not None
-            else self.parameterBounds
-        )
+        if (
+            params is self.minimizationParameters
+            and self.minimizationBounds is not None
+        ):
+            bounds = self.minimizationBounds
+            bounds_name = "minimization"
+        else:
+            bounds = self.parameterBounds
+            bounds_name = "parameter"
         lower_mask, upper_mask = self._compute_bound_proximity_masks(params, bounds)
         bound_mask = lower_mask | upper_mask
         blue = "\033[34m"
         reset = "\033[0m"
-        if np.any(bound_mask):
-            names = ("Rs", "Q", "fres")
-            hits = [
-                f"resonator {i // 3 + 1} {names[i % 3]} ({side})"
-                for i in range(bound_mask.size)
-                for side, mask in (("lower", lower_mask), ("upper", upper_mask))
-                if mask[i]
-            ]
+        if display_warnings:
+            self._warn_large_uncertainties(params, uncertainties)
+        else:
+            flagged_mask = None
+            bound_mask = np.zeros_like(bound_mask)
+        if display_warnings and np.any(bound_mask):
             print(
-                f"{blue}[!] Warning: Fit within 1% of a parameter bound: "
-                f"{', '.join(hits)}. Consider widening the bounds before refitting.{reset}"
+                f"{blue}[!] Warning: Fit within 1% of the {bounds_name} bounds. "
+                f"Consider widening the bounds before refitting.{reset}"
             )
 
         if not display_uncertainties:
@@ -864,7 +878,7 @@ class EvolutionaryAlgorithm:
 
         parameters = np.asarray(values)
         parameter_uncertainties = np.asarray(uncertainties)
-        self._minimization_bounds = None
+        self.minimizationBounds = None
         if use_minimization:
             self.minimizationParameters = parameters
             self.minimizationParametersUncertainties = parameter_uncertainties
@@ -874,7 +888,7 @@ class EvolutionaryAlgorithm:
         else:
             self.evolutionParameters = parameters
             self.evolutionParametersUncertainties = parameter_uncertainties
-        self._warn_large_uncertainties(parameters, parameter_uncertainties)
+        self._update_parameter_flags()
 
     def modify_resonator(
         self,
@@ -936,7 +950,7 @@ class EvolutionaryAlgorithm:
             for offset, value in changes.items():
                 estimates[first_parameter + offset] = value
             self.parameterEstimates = estimates
-        self._minimization_bounds = None
+        self.minimizationBounds = None
         self._update_parameter_flags()
 
     def remove_resonator(self, resonator_number: int) -> None:
@@ -963,7 +977,7 @@ class EvolutionaryAlgorithm:
                 setattr(self, name, np.delete(values, indices))
         if self.parameterEstimates is not None:
             self.parameterEstimates = np.delete(self.parameterEstimates, indices)
-        self._minimization_bounds = None
+        self.minimizationBounds = None
 
         first_bound = 3 * (resonator_number - 1)
         if self.parameterBounds is not None:
@@ -1033,7 +1047,7 @@ class EvolutionaryAlgorithm:
             self.parameterEstimates = np.concatenate(
                 (self.parameterEstimates, new_parameters)
             )
-        self._minimization_bounds = None
+        self.minimizationBounds = None
 
         if self.parameterBounds is not None:
             self.parameterBounds = [*self.parameterBounds, *new_bounds]

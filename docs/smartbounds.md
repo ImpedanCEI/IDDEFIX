@@ -433,12 +433,21 @@ calculation, then call `model.get_uncertainties()` to compute them later. Pass
 `display_uncertainties=False` to hide uncertainties in the table; this changes
 the display only.
 
-The default warning threshold is a relative uncertainty of 0.20, calculated
+Warnings are disabled by default when calling
+`display_resonator_parameters()`. Pass `display_warnings=True` to print fitted
+parameter warnings and highlight affected table cells. Fitting methods enable
+these warnings for their automatic parameter display.
+
+#### Fitted model warnings
+
+The default warning threshold is a relative **uncertainty of 0.20**, calculated
 as $|\sigma_\theta / \theta|$. Parameters at or above the threshold and
-their warning appear red. Values within 1% of, or beyond, a fit bound appear
-blue. For positive $R_s$ and $Q$, closeness to bounds is measured on a
-logarithmic scale; $f_r$ uses a linear scale. These warnings describe different
-things. If a parameter meets both conditions, its table cell is blue.
+their warning appear **red**.
+
+Values within **1% of a fit bound** (or beyond) appear **blue**. Evolutionary
+results use `parameterBounds`; local minimization results use
+`minimizationBounds`. For positive $R_s$ and $Q$, closeness to bounds is
+measured on a logarithmic scale; $f_r$ uses a linear scale.
 
 In notebooks, the table is rendered in monospace to preserve column alignment.
 Use `to_markdown=True` to print Markdown.
