@@ -5,6 +5,8 @@ partial-wake Q boundary and the transverse impedance at critical damping.
 """
 
 import re
+from html import unescape
+from types import SimpleNamespace
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -29,6 +31,64 @@ def _model(n_resonators=2, **kwargs):
 
 
 # Loading and displaying parameters
+@pytest.mark.parametrize("n_resonators", [None, 2])
+def test_load_table_without_count_or_bounds(capsys, n_resonators):
+    """A loaded table supplies the resonator count without fitting bounds."""
+    frequency = np.linspace(0.5e9, 1.5e9, 61)
+    model = iddefix.EvolutionaryAlgorithm(
+        x_data=frequency,
+        y_data=np.zeros_like(frequency),
+        N_resonators=n_resonators,
+        parameterBounds=None,
+    )
+    model.load_resonator_parameters("1 | 100 | 3 | 1e9\n2 | 200 | 5 | 1.5e9")
+
+    assert model.N_resonators == 2
+    assert model.parameterBounds is None
+    model.display_resonator_parameters()
+    assert "parameter bound" not in capsys.readouterr().out
+    np.testing.assert_allclose(
+        model.get_impedance(frequency),
+        iddefix.Impedances.n_Resonator_longitudinal_imp(
+            frequency, [100, 3, 1e9, 200, 5, 1.5e9]
+        ),
+    )
+    model.remove_resonator(2)
+    assert model.N_resonators == 1
+    assert model.parameterBounds is None
+    model.add_resonator(200, 5, 1.5e9)
+    assert model.N_resonators == 2
+    assert model.parameterBounds is None
+
+
+def test_missing_bounds_reject_fitting_and_empty_table():
+    """Loading needs a row; global fitting needs finite search bounds."""
+    frequency = np.linspace(0.5e9, 1.5e9, 61)
+    model = iddefix.EvolutionaryAlgorithm(
+        x_data=frequency, y_data=np.zeros_like(frequency)
+    )
+    with pytest.raises(ValueError, match="No resonator rows"):
+        model.load_resonator_parameters("Resonator | Rs | Q | fres")
+    assert model.N_resonators is None
+
+    model.load_resonator_parameters("1 | 100 | 3 | 1e9")
+    with pytest.raises(ValueError, match="parameterBounds"):
+        model.run_differential_evolution()
+    with pytest.raises(ValueError, match="parameterBounds"):
+        model.run_cmaes()
+
+
+def test_infer_count_from_bounds():
+    """Existing bounded workflows may omit the redundant resonator count."""
+    frequency = np.linspace(0.5e9, 1.5e9, 61)
+    model = iddefix.EvolutionaryAlgorithm(
+        x_data=frequency,
+        y_data=np.zeros_like(frequency),
+        parameterBounds=[(0, 1000), (0.5, 10), (0.5e9, 1.5e9)],
+    )
+    assert model.N_resonators == 1
+
+
 @pytest.mark.parametrize(
     ("escape_start", "escape_end"),
     [
@@ -101,6 +161,56 @@ def test_display_table_alignment(capsys, display_uncertainties, expected_width):
         assert "5.0e-01" in lines[3]
 
 
+def test_uncertainty_signs_align_across_rows(capsys):
+    """Values with different digit counts keep their ± signs aligned."""
+    model = _model()
+    model.display_resonator_parameters(
+        params=np.array([100.0, 3.0, 1e9, 200.0, 246.63, 1.5e9]),
+        uncertainties=np.array([30.0, 0.5, 1e7, 20.0, 230.0, 2e7]),
+    )
+    rows = [
+        re.sub(r"\x1b\[[0-9;]*m", "", line).split("|")
+        for line in capsys.readouterr().out.splitlines()
+        if line.strip().startswith(("1", "2")) and "|" in line
+    ]
+
+    assert len(rows) == 2
+    for column in range(1, 4):
+        assert rows[0][column].index("±") == rows[1][column].index("±")
+
+
+def test_notebook_table_uses_monospace_html(monkeypatch, capsys):
+    """Notebook output preserves the table spacing and warning colors."""
+    ipython = pytest.importorskip("IPython")
+    ipython_display = pytest.importorskip("IPython.display")
+    monkeypatch.setattr(
+        ipython, "get_ipython", lambda: SimpleNamespace(kernel=object())
+    )
+    displayed = []
+    monkeypatch.setattr(ipython_display, "display", displayed.append)
+    model = _model(n_resonators=1)
+
+    model.display_resonator_parameters(
+        params=np.array([995.0, 3.0, 1e9]),
+        uncertainties=np.array([300.0, 1.0, 1e7]),
+    )
+
+    assert len(displayed) == 1
+    html = displayed[0].data
+    assert '<pre style="font-family: monospace;' in html
+    assert "Resonator" in html and "±" in html
+    assert '<span style="color: #3b82f6">' in html
+    assert '<span style="color: #ef4444">' in html
+    assert "Resonator" not in capsys.readouterr().out
+
+    copied_text = unescape(re.sub(r"<[^>]+>", "", html))
+    model.load_resonator_parameters(copied_text)
+    np.testing.assert_allclose(model.minimizationParameters, [995.0, 3.0, 1e9])
+    np.testing.assert_allclose(
+        model.minimizationParametersUncertainties, [300.0, 1.0, 1e7]
+    )
+
+
 def test_display_bound_warning(capsys):
     """A bound hit is reported and takes color priority over uncertainty."""
     model = _model(n_resonators=1)
@@ -138,6 +248,21 @@ def test_display_multiplicative_bounds(capsys):
     model.modify_resonator(1, Q=2e99)
     model.display_resonator_parameters()
     assert "resonator 1 Q (upper)" in capsys.readouterr().out
+
+
+def test_minimization_warning_uses_refinement_bounds(monkeypatch, capsys):
+    """Local-fit warnings refer to its margin bounds, not global search bounds."""
+    model = _model(n_resonators=1, compute_uncertainties=False)
+    model.evolutionParameters = np.array([100.0, 3.0, 1e9])
+
+    def minimize_at_upper_bound(function, x0, bounds, **kwargs):
+        return SimpleNamespace(x=np.array([bounds[0][1], x0[1], x0[2]]))
+
+    monkeypatch.setattr("iddefix.framework.minimize", minimize_at_upper_bound)
+    model.run_minimization_algorithm()
+
+    output = capsys.readouterr().out
+    assert "resonator 1 Rs (upper)" in output
 
 
 # Editing and refitting resonators

@@ -1,10 +1,58 @@
 """SmartBounds estimates checked against analytical resonator impedances."""
 
+from types import SimpleNamespace
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
 import iddefix
+
+
+@pytest.mark.parametrize("to_markdown", [False, True])
+def test_bounds_table_layout(capsys, to_markdown):
+    """SmartBounds uses the same table layout in text and Markdown modes."""
+    bounds = object.__new__(iddefix.SmartBoundDetermination)
+    bounds.to_table(
+        parameterBounds=[
+            (1.2, 33.4),
+            (0.5, 1000.0),
+            (1e9, 2e9),
+            (12.0, 45.0),
+            (2.0, 300.0),
+            (2e9, 3e9),
+        ],
+        to_markdown=to_markdown,
+    )
+    output = capsys.readouterr().out
+
+    if to_markdown:
+        assert "| 1 | 1.20 to 33.40 | 0.50 to 1000.00 |" in output
+    else:
+        lines = [
+            line for line in output.splitlines() if "|" in line or line.startswith("-")
+        ]
+        assert len(lines) == 6
+        assert len({len(line) for line in lines}) == 1
+        assert "1.00e+09 to 2.00e+09" in output
+
+
+def test_bounds_table_in_notebook(monkeypatch):
+    """Bound ranges use the shared monospace notebook display."""
+    ipython = pytest.importorskip("IPython")
+    ipython_display = pytest.importorskip("IPython.display")
+    monkeypatch.setattr(
+        ipython, "get_ipython", lambda: SimpleNamespace(kernel=object())
+    )
+    displayed = []
+    monkeypatch.setattr(ipython_display, "display", displayed.append)
+    bounds = object.__new__(iddefix.SmartBoundDetermination)
+
+    bounds.to_table(parameterBounds=[(1.0, 10.0), (2.0, 20.0), (1e9, 2e9)])
+
+    assert len(displayed) == 1
+    assert '<pre style="font-family: monospace;' in displayed[0].data
+    assert "1.00e+09 to 2.00e+09" in displayed[0].data
 
 
 # Peak discovery and frequency bounds

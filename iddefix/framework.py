@@ -173,6 +173,7 @@ class EvolutionaryAlgorithm:
         self.evolutionParametersUncertainties = None
         self.minimizationParameters = None
         self.minimizationParametersUncertainties = None
+        self._minimization_bounds = None
         self.flagged_params = None
 
         # Threshold on relative uncertainty (sigma/|value|) above which a
@@ -622,6 +623,11 @@ class EvolutionaryAlgorithm:
                 },
             )
         self.minimizationParameters = minimizationParameters.x
+        self._minimization_bounds = (
+            minimizationBounds
+            if self.evolutionParameters is not None
+            else self.parameterBounds
+        )
         self.minimizationParametersUncertainties = None
         self.flagged_params = None
         if self.compute_uncertainties:
@@ -709,13 +715,27 @@ class EvolutionaryAlgorithm:
                 return
 
         flagged_mask = self._compute_flagged_params_mask(params, uncertainties)
-        bound_mask = self._compute_bound_proximity_mask(params)
+        bounds = (
+            self._minimization_bounds
+            if params is self.minimizationParameters
+            and self._minimization_bounds is not None
+            else self.parameterBounds
+        )
+        lower_mask, upper_mask = self._compute_bound_proximity_masks(params, bounds)
+        bound_mask = lower_mask | upper_mask
         blue = "\033[34m"
         reset = "\033[0m"
         if np.any(bound_mask):
+            names = ("Rs", "Q", "fres")
+            hits = [
+                f"resonator {i // 3 + 1} {names[i % 3]} ({side})"
+                for i in range(bound_mask.size)
+                for side, mask in (("lower", lower_mask), ("upper", upper_mask))
+                if mask[i]
+            ]
             print(
                 f"{blue}[!] Warning: Fit within 1% of a parameter bound: "
-                f"Consider widening the bounds before refitting.{reset}"
+                f"{', '.join(hits)}. Consider widening the bounds before refitting.{reset}"
             )
 
         if not display_uncertainties:
@@ -844,6 +864,7 @@ class EvolutionaryAlgorithm:
 
         parameters = np.asarray(values)
         parameter_uncertainties = np.asarray(uncertainties)
+        self._minimization_bounds = None
         if use_minimization:
             self.minimizationParameters = parameters
             self.minimizationParametersUncertainties = parameter_uncertainties
@@ -915,6 +936,7 @@ class EvolutionaryAlgorithm:
             for offset, value in changes.items():
                 estimates[first_parameter + offset] = value
             self.parameterEstimates = estimates
+        self._minimization_bounds = None
         self._update_parameter_flags()
 
     def remove_resonator(self, resonator_number: int) -> None:
@@ -941,6 +963,7 @@ class EvolutionaryAlgorithm:
                 setattr(self, name, np.delete(values, indices))
         if self.parameterEstimates is not None:
             self.parameterEstimates = np.delete(self.parameterEstimates, indices)
+        self._minimization_bounds = None
 
         first_bound = 3 * (resonator_number - 1)
         if self.parameterBounds is not None:
@@ -1010,6 +1033,7 @@ class EvolutionaryAlgorithm:
             self.parameterEstimates = np.concatenate(
                 (self.parameterEstimates, new_parameters)
             )
+        self._minimization_bounds = None
 
         if self.parameterBounds is not None:
             self.parameterBounds = [*self.parameterBounds, *new_bounds]
@@ -1055,14 +1079,18 @@ class EvolutionaryAlgorithm:
 
         return np.isfinite(rel_unc) & (rel_unc >= threshold)
 
-    def _compute_bound_proximity_mask(self, params: ArrayLike) -> np.ndarray:
-        """Flag values near finite bounds, using log position for positive Rs/Q."""
+    def _compute_bound_proximity_masks(
+        self, params: ArrayLike, bounds: ParameterBounds | None
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Find lower and upper bound hits, using log position for positive Rs/Q."""
         params = np.asarray(params, dtype=float).ravel()
-        if self.parameterBounds is None:
-            return np.zeros(params.shape, dtype=bool)
-        bounds = np.asarray(self.parameterBounds, dtype=float)
+        if bounds is None:
+            empty = np.zeros(params.shape, dtype=bool)
+            return empty, empty.copy()
+        bounds = np.asarray(bounds, dtype=float)
         if bounds.shape != (params.size, 2):
-            return np.zeros(params.shape, dtype=bool)
+            empty = np.zeros(params.shape, dtype=bool)
+            return empty, empty.copy()
 
         width = bounds[:, 1] - bounds[:, 0]
         valid = np.all(np.isfinite(bounds), axis=1) & (width > 0)
@@ -1075,7 +1103,7 @@ class EvolutionaryAlgorithm:
         position[multiplicative] = (
             np.log(params[multiplicative]) - np.log(bounds[multiplicative, 0])
         ) / (np.log(bounds[multiplicative, 1]) - np.log(bounds[multiplicative, 0]))
-        return valid & ((position <= 0.01) | (position >= 0.99))
+        return valid & (position <= 0.01), valid & (position >= 0.99)
 
     def _warn_large_uncertainties(
         self,
