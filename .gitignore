@@ -5,10 +5,12 @@
 
 # Tests png
 ###########
-notes/*
-*.pdf
 *.png
+*.pdf
 *.svg
+*.txt
+*.dat
+notes/*
 
 # Compiled source #
 ###################

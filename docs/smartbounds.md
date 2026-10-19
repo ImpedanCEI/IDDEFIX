@@ -408,8 +408,48 @@ model = iddefix.EvolutionaryAlgorithm(
 )
 ```
 
+For a table you want to inspect without refitting, you can omit both
+`N_resonators` and `parameterBounds`. `load_resonator_parameters()` infers the
+resonator count from the table. Display, model evaluation, and component plots
+then work without fit bounds. Use `get_resonator_components()` for the
+individual model arrays or `plot_resonator_components()` to plot them; global
+optimizers require finite bounds.
+
 `run_cmaes()` uses `parameterEstimates` as its initial point. The SciPy backend
 of `run_differential_evolution()` also accepts it as `x0`; the PyFDE backends
 do not support an explicit initial point. A minimization-only run starts from
 `parameterEstimates` when available. Individual CMA-ES and SciPy DE calls can
 override the stored estimate with their `x0` argument.
+
+### Fitted model uncertainties
+
+After fitting, `display_resonator_parameters()` shows each fitted parameter as
+`value ± uncertainty`. The uncertainty is an estimated one-standard-deviation
+error in the same units as the parameter. The table uses scientific notation
+for uncertainties. The calculation and its assumptions are described in
+[Parameter uncertainty estimates](theory.md#parameter-uncertainty-estimates).
+
+Fitting methods calculate uncertainties automatically by default. Set
+`compute_uncertainties=False` when constructing the model to skip the
+calculation, then call `model.get_uncertainties()` to compute them later. Pass
+`display_uncertainties=False` to hide uncertainties in the table; this changes
+the display only.
+
+Warnings are disabled by default when calling
+`display_resonator_parameters()`. Pass `display_warnings=True` to print fitted
+parameter warnings and highlight affected table cells. Fitting methods enable
+these warnings for their automatic parameter display.
+
+#### Fitted model warnings
+
+The default warning threshold is a relative **uncertainty of 0.20**, calculated
+as $|\sigma_\theta / \theta|$. Parameters at or above the threshold and
+their warning appear **red**.
+
+Values within **1% of a fit bound** (or beyond) appear **blue**. Evolutionary
+results use `parameterBounds`; local minimization results use
+`minimizationBounds`. For positive $R_s$ and $Q$, closeness to bounds is
+measured on a logarithmic scale; $f_r$ uses a linear scale.
+
+In notebooks, the table is rendered in monospace to preserve column alignment.
+Use `to_markdown=True` to print Markdown.

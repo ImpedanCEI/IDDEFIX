@@ -1,10 +1,26 @@
 """SmartBounds estimates checked against analytical resonator impedances."""
 
+from types import SimpleNamespace
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
 import iddefix
+
+
+def _single_mode_bounds():
+    """Create SmartBounds through the analytical workflow used in examples."""
+    frequency = np.linspace(0.5e9, 1.5e9, 2001)
+    impedance = iddefix.Impedances.Resonator_longitudinal_imp(
+        frequency, 100.0, 8.0, 1e9
+    ).real
+    return iddefix.SmartBoundDetermination(
+        frequency,
+        impedance,
+        impedance_type="real",
+        minimum_peak_height=50.0,
+    )
 
 
 # Peak discovery and frequency bounds
@@ -253,7 +269,7 @@ def test_wake_length_longitudinal_absolute():
     assert finite.parameterEstimates[0] == pytest.approx(expected[0], rel=0.07)
 
 
-# Inspection plot
+# Inspection and table output
 @pytest.mark.parametrize(
     ("show_bounds", "show_components"),
     [(False, False), (True, False), (True, True)],
@@ -278,3 +294,48 @@ def test_inspect(request, monkeypatch, show_bounds, show_components):
         monkeypatch.setattr(plt, "show", lambda: None)
     bounds.inspect(show_bounds=show_bounds, show_components=show_components)
     plt.close("all")
+
+
+@pytest.mark.parametrize("to_markdown", [False, True])
+def test_bounds_table_layout(capsys, to_markdown):
+    """Computed SmartBounds use aligned text and Markdown table layouts."""
+    bounds = _single_mode_bounds()
+
+    bounds.to_table(to_markdown=to_markdown)
+    output = capsys.readouterr().out
+    rs_bounds, q_bounds, frequency_bounds = bounds.parameterBounds
+
+    if to_markdown:
+        expected = (
+            f"| 1 | {rs_bounds[0]:.2f} to {rs_bounds[1]:.2f} | "
+            f"{q_bounds[0]:.2f} to {q_bounds[1]:.2f} |"
+        )
+        assert expected in output
+    else:
+        lines = [
+            line for line in output.splitlines() if "|" in line or line.startswith("-")
+        ]
+        assert len(lines) == 5
+        assert len({len(line) for line in lines}) == 1
+        assert f"{frequency_bounds[0]:.2e} to {frequency_bounds[1]:.2e}" in output
+
+
+def test_bounds_table_in_notebook(monkeypatch):
+    """Computed bound ranges use the shared monospace notebook display."""
+    ipython = pytest.importorskip("IPython")
+    ipython_display = pytest.importorskip("IPython.display")
+    monkeypatch.setattr(
+        ipython, "get_ipython", lambda: SimpleNamespace(kernel=object())
+    )
+    displayed = []
+    monkeypatch.setattr(ipython_display, "display", displayed.append)
+    bounds = _single_mode_bounds()
+
+    bounds.to_table()
+
+    assert len(displayed) == 1
+    assert '<pre style="font-family: monospace;' in displayed[0].data
+    frequency_bounds = bounds.parameterBounds[2]
+    assert (
+        f"{frequency_bounds[0]:.2e} to {frequency_bounds[1]:.2e}" in displayed[0].data
+    )

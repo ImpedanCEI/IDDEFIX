@@ -124,7 +124,22 @@ def get_uncertainties(
 
     Returns:
         uncertainties: 1 \sigma standard deviation for each of the input parameters.
+
+    Raises:
+        ValueError: If the number of real residuals does not exceed the number
+            of fitted parameters.
     """
+
+    residuals = StackedResiduals(parameters, x, fitFunction, y)
+    m = residuals.size
+    n = np.asarray(parameters).size
+    if m <= n:
+        raise ValueError(
+            "Parameter uncertainties require more real residuals than fitted "
+            f"parameters (M > N); got M={m} and N={n}. Provide more data or fit "
+            "fewer parameters. To skip automatic uncertainties during fitting, "
+            "set compute_uncertainties=False."
+        )
 
     jac = build_jacobian(parameters, fitFunction, x, y, parameterBounds)
 
@@ -134,8 +149,5 @@ def get_uncertainties(
     VT = VT[: s.size]
     pcov = np.dot(VT.T / s**2, VT)  # absolute_sigma=True in scipy.optimize.curve_fit()
 
-    residuals = StackedResiduals(parameters, x, fitFunction, y)
-    m = residuals.size
-    n = parameters.size
     pcov *= np.dot(residuals, residuals) / (m - n)  # absolute_sigma=False
     return np.sqrt(np.diag(pcov))
