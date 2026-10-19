@@ -1299,7 +1299,7 @@ class EvolutionaryAlgorithm:
 
         return impedance_data
 
-    def get_model_components(
+    def get_resonator_components(
         self,
         x_data: ArrayLike | None = None,
         use_minimization: bool = True,
@@ -1327,7 +1327,7 @@ class EvolutionaryAlgorithm:
             ]
         )
 
-    def plot_model_components(
+    def plot_resonator_components(
         self,
         x_data: ArrayLike | None = None,
         y_data: ArrayLike | None = None,
@@ -1360,7 +1360,7 @@ class EvolutionaryAlgorithm:
             if y_data.shape != x_data.shape:
                 raise ValueError("x_data and y_data must have the same shape")
 
-        components = self.get_model_components(
+        components = self.get_resonator_components(
             x_data,
             use_minimization=use_minimization,
         )

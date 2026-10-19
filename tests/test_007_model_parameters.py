@@ -415,12 +415,12 @@ def test_edit_q_boundary():
         ("wake potential", "longitudinal"),
     ],
 )
-def test_get_model_components(fit_function, plane):
+def test_get_resonator_components(fit_function, plane):
     """Resonator components sum to the selected impedance or wake model."""
     model = _model(fitFunction=fit_function, plane=plane, sigma=1e-10)
     model.load_resonator_parameters("1 | 100 | 3 | 1e9\n2 | 200 | 5 | 1.5e9")
 
-    components = model.get_model_components()
+    components = model.get_resonator_components()
     total_model = model.fitFunction(model.x_data, model.minimizationParameters)
 
     np.testing.assert_allclose(components.sum(axis=0), total_model)
@@ -434,14 +434,14 @@ def test_get_model_components(fit_function, plane):
         ("wake", "transverse", "Wake [V/C/m]"),
     ],
 )
-def test_plot_model_components(request, monkeypatch, fit_function, plane, ylabel):
+def test_plot_resonator_components(request, monkeypatch, fit_function, plane, ylabel):
     """Component plots label wake amplitudes with the selected plane's units."""
     model = _model(n_resonators=1, fitFunction=fit_function, plane=plane, sigma=1e-10)
     model.load_resonator_parameters("1 | 100 | 3 | 1e9")
 
     if not request.config.getoption("--debug-plots"):
         monkeypatch.setattr(plt, "show", lambda: None)
-    fig, axes = model.plot_model_components()
+    fig, axes = model.plot_resonator_components()
 
     assert axes[0].get_ylabel() == ylabel
     plt.close(fig)
@@ -458,5 +458,5 @@ def test_plot_many_components(request, monkeypatch, n_resonators, fit_function):
 
     if not request.config.getoption("--debug-plots"):
         monkeypatch.setattr(plt, "show", lambda: None)
-    fig, _ = model.plot_model_components()
+    fig, _ = model.plot_resonator_components()
     plt.close(fig)

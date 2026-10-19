@@ -411,7 +411,9 @@ model = iddefix.EvolutionaryAlgorithm(
 For a table you want to inspect without refitting, you can omit both
 `N_resonators` and `parameterBounds`. `load_resonator_parameters()` infers the
 resonator count from the table. Display, model evaluation, and component plots
-then work without fit bounds; global optimizers require finite bounds.
+then work without fit bounds. Use `get_resonator_components()` for the
+individual model arrays or `plot_resonator_components()` to plot them; global
+optimizers require finite bounds.
 
 `run_cmaes()` uses `parameterEstimates` as its initial point. The SciPy backend
 of `run_differential_evolution()` also accepts it as `x0`; the PyFDE backends
