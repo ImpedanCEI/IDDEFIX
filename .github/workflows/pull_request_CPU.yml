@@ -1,5 +1,5 @@
 # Run tests for every pull request
-name: pull_request_CPU_py3.12
+name: pull_request_CPU_py3.14
 
 on:
   pull_request:
@@ -24,12 +24,11 @@ jobs:
         uses: conda-incubator/setup-miniconda@v2
         with:
           miniforge-version: latest
-          python-version: "3.12"
+          python-version: "3.14"
 
       - name: Install IDDEFIX
         run: |
           pip install .
-          pip install wakis
           pip install pytest pytest-cov ipywidgets
 
       - name: Print installed packages

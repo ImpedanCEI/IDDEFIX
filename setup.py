@@ -12,10 +12,6 @@ __version__ = dd["__version__"]
 # read long_description
 long_description = (Path(__file__).parent / "README.md").read_text()
 
-# read requirements.txt for extras_require
-with open("requirements.txt") as f:
-    extra_required = f.read().splitlines()
-
 setup(
     name="iddefix",
     version=__version__,
@@ -36,9 +32,15 @@ setup(
     },
     packages=find_packages(),
     include_package_data=True,
+    python_requires=">=3.11",
     classifiers=[
         "Development Status :: 4 - Beta",
         "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
+        "Programming Language :: Python :: 3.13",
+        "Programming Language :: Python :: 3.14",
+        "Programming Language :: Python :: 3.15",
         "Operating System :: OS Independent",
         "Intended Audience :: Science/Research",
         "Topic :: Scientific/Engineering :: Physics",
@@ -46,12 +48,14 @@ setup(
     install_requires=[
         "numpy",
         "scipy",
+        "matplotlib",
         "pymoo",
         "neffint",
         "tqdm",
     ],
     extras_require={
-        "all": extra_required,
+        "all": ["jupyterlab", "ipympl", "ipywidgets", "pyfde"],
+        "notebook": ["jupyterlab", "ipympl", "ipywidgets"],
+        "test": ["pytest", "pytest-cov"],
     },
-    tests_require=["pytest", "pytest-cov"],
 )
