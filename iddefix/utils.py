@@ -163,8 +163,9 @@ def compute_deconvolution(
     data_time: ArrayLike,
     data_wake_potential: ArrayLike,
     sigma: float,
-    fmax: float = 3e9,
+    fmax: float | None = None,
     samples: int = 1001,
+    rolloff: float = 0,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Deconvolve a wake potential with a Gaussian bunch profile to obtain the
@@ -182,10 +183,16 @@ def compute_deconvolution(
         Beam sigma (RMS bunch length/4) of the Gaussian bunch profile in [s]
         used to convolve the wake function.
     fmax : float, optional
-        Maximum frequency of interest for the impedance spectrum [Hz]. Default is 3e9.
+        Frequency [Hz] at which the impedance starts to roll off. Defaults to
+        1 / (3 * sigma).
     samples : int, optional
         Number of points used to sample the frequency domain. Controls the frequency resolution.
         Default is 1001.
+    rolloff : float, optional
+        Tapering factor that sets the width of the cosine roll-off as a
+        fraction of ``fmax``. Defaults to 0, which returns only frequencies
+        below ``fmax`` without a taper. For example, 0.5 makes the taper
+        reach zero at 1.5 times ``fmax``.
 
     Returns
     -------
@@ -198,14 +205,25 @@ def compute_deconvolution(
     -----
     The impedance is computed by dividing the FFT of the wake potential by
     the FFT of an analytical Gaussian bunch profile of width ``sigma``.
-    Frequencies above ``fmax`` and negative frequencies are discarded.
+    When ``rolloff`` is positive, the returned frequency array includes the
+    taper interval from ``fmax`` to ``fmax * (1 + rolloff)``. The impedance
+    is unchanged below ``fmax`` and tapered to zero across that interval.
+    Negative frequencies are discarded.
 
     The normalization assumes time in seconds and spatial quantities scaled
     by the speed of light.
     """
 
+    if fmax is None:
+        fmax = 1 / (3 * sigma)
+    if rolloff < 0:
+        raise ValueError("rolloff must be nonnegative")
+    cutoff = fmax * (1 + rolloff)
+
     ds = (data_time[1] - data_time[0]) * c_light
-    N = int((c_light / ds) // fmax * samples)
+    N = int((c_light / ds) // cutoff * samples)
+    if rolloff > 0:
+        N = max(len(data_time), N)
 
     # Analytical gaussian with given sigma
     lambdat = gaussian_bunch(data_time, sigma)
@@ -215,9 +233,12 @@ def compute_deconvolution(
     f = np.fft.fftfreq(len(Z), ds / c_light)
 
     # Mask invalid frequencies
-    mask = np.logical_and(f >= 0, f < fmax)
+    mask = np.logical_and(f >= 0, f < cutoff)
     Z = Z[mask] / lambdaf[mask]
     f = f[mask]
+    if rolloff > 0:
+        tapered = f > fmax
+        Z[tapered] *= 0.5 * (1 + np.cos(np.pi * (f[tapered] - fmax) / (cutoff - fmax)))
 
     return f, Z
 
