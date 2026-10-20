@@ -1,3 +1,4 @@
+import warnings
 from typing import Callable
 
 import numpy as np
@@ -122,7 +123,7 @@ def compute_convolution(
         Convolution method to use:
         - 'numpy': Use `numpy.convolve`.
         - 'scipy': Use `scipy.signal.convolve`.
-        - 'scipy_fft': Use `scipy.fft.convolve`.
+        - 'scipy_fft': Use `scipy.signal.fftconvolve`.
 
     Returns
     -------
@@ -145,7 +146,7 @@ def compute_convolution(
     elif kernel.lower() == "scipy":
         from scipy.signal import convolve
     elif kernel.lower() == "scipy_fft":
-        from scipy.fft import convolve
+        from scipy.signal import fftconvolve as convolve
 
     data_time = np.asarray(data_time)
     dt = data_time[1] - data_time[0]
@@ -328,7 +329,15 @@ def compute_ineffint(
     interpolation: str = "linear",
     plane: str = "longitudinal",
     error: str = "Abs",
+    causal: bool = False,
 ) -> tuple[ArrayLike, np.ndarray]:
+    """Compute a wake from impedance using Neffint.
+
+    When ``causal`` is enabled, returned wake samples at ``times < 0`` are
+    set to zero. The sample at ``t = 0`` is retained as the immediate wake
+    behind the source. Otherwise, a warning is issued if negative-time samples
+    are nonzero.
+    """
     try:
         import neffint
     except Exception:
@@ -380,13 +389,24 @@ def compute_ineffint(
 
     # Normalize
     wake = np.conjugate(wake) / np.pi
-
     if plane == "longitudinal":
         pass
     elif plane == "transverse":
         wake *= 1j
+    wake = np.asarray(wake.real).copy()
 
-    return times, wake.real
+    # Enforce causality
+    negative_time = np.asarray(times) < 0
+    if causal:
+        wake[negative_time] = 0
+    elif np.any(wake[negative_time] != 0):
+        warnings.warn(
+            "Wake is nonzero for t < 0; pass causal=True to zero those samples.",
+            UserWarning,
+            stacklevel=2,
+        )
+
+    return times, wake
 
 
 def compute_neffint(
