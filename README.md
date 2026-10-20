@@ -10,10 +10,11 @@
 ![PyPI - Version](https://img.shields.io/pypi/v/IDDEFIX?style=flat-square&color=green)
 ![PyPI - License](https://img.shields.io/pypi/l/IDDEFIX?style=flat-square&color=pink)
 [![Documentation Status](https://readthedocs.org/projects/iddefix/badge/?version=latest)](https://iddefix.readthedocs.io/en/latest/?badge=latest)
-[![nightly_tests_CPU_python3.13](https://github.com/ImpedanCEI/IDDEFIX/actions/workflows/nightly_tests_p3.13.yml/badge.svg)](https://github.com/ImpedanCEI/IDDEFIX/actions/workflows/nightly_tests_p3.13.yml)
+[![nightly_tests_CPU_python3.15](https://github.com/ImpedanCEI/IDDEFIX/actions/workflows/nightly_tests_p3.15.yml/badge.svg)](https://github.com/ImpedanCEI/IDDEFIX/actions/workflows/nightly_tests_p3.15.yml)
 
-IDDEFIX is a physics-informed evolutionary optimization framework that fits a resonator-based model (parameterized by R, f, Q) to wakefield simulation data. It leverages Differential Evolution to optimize these parameters, enabling efficient classification and extrapolation of electromagnetic wakefield behavior. This allows for reduced simulation time while maintaining long-term accuracy, akin to time-series forecasting in machine learning
+**IDDEFIX** is a physics-informed resonator fitting framework that fits resonator-based models, parameterized by shunt impedance $R_s$, resonant frequency $f_r$, and quality factor $Q$, to wakefield simulation data (**wake functions, wake potentials, or impedances**) both in longitudinal and transverse planes. It uses evolutionary optimization algorithms, such as **Differential Evolution** and **CMA-ES**, to determine the resonator parameters that best reproduce the simulated electromagnetic response.
 
+By representing wakefield data through a compact $\sum_i (R_{s,i}, Q_i, f_{r,i})$ analytical model, IDDEFIX enables the characterization and **extrapolation of wakefields** beyond the simulated range. This can significantly reduce the simulation time required to capture long-range wakefield effects while preserving the accuracy of the reconstructed response.
 
 ## About
 
@@ -33,9 +34,12 @@ IDDEFIX is a physics-informed evolutionary optimization framework that fits a re
 * Smart Bound Determination for precise and easy boundary setting
 
 ## How to install
-IDDEFIX is deployed to the [Python Package Index (pyPI)](https://pypi.org/project/iddefix/). To install it in a conda environment do:
+
+IDDEFIX is deployed to the [Python Package Index (pyPI)](https://pypi.org/project/iddefix/) and is tested nightly on Python 3.11 to 3.15. To install it in a conda environment do:
 ```
-pip install iddefix
+pip install iddefix             # core dependencies
+pip intall iddefix['notebook']  # notebook dependencies for interactive use
+pip install iddefix['all']      # with 'notebook' + pyfde
 ```
 It can also be installed directly from the Github source to get the latest changes:
 ```
@@ -48,9 +52,10 @@ IDDEFIX is documented using `Sphinx` and `ReadTheDocs`. Documentation is availab
 
 Check :file_folder: `examples/` for different DE resonator fitting cases
 * Analytical resonator initialization and fitting
-* Resonator fitting on accelerator cavity simulation and extrapolation
-* Resonator fitting on beam wire scanner simulation
-* Resonator fitting on SPS transistion device and extrapolation
+* Resonator fitting on longitudinal accelerator cavity simulation and extrapolation
+* Resonator fitting on longitudinal beam wire scanner simulation with coupled modes
+* Resonator fitting on transverse SPS transistion data and extrapolation
+* Resonator fitting on transverse broadband (Q<0.5) Kicker data
 
 <img src="https://mattermost.web.cern.ch/files/4si7ipbezfyjdmd1zzr567hswh/public?h=2dcugjRruq3p9yEYea-9f1mXPfUbuujKRNh8dTA77a4"/>
 
@@ -75,3 +80,4 @@ Check :file_folder: `examples/` for different DE resonator fitting cases
 ###  Nightly Test badges
 [![manual_tests_CPU_python11](https://github.com/ImpedanCEI/IDDEFIX/actions/workflows/manual_test.yml/badge.svg)](https://github.com/ImpedanCEI/IDDEFIX/actions/workflows/manual_test.yml)
 [![nightly_tests_CPU_python3.11](https://github.com/ImpedanCEI/IDDEFIX/actions/workflows/nightly_tests_p3.11.yml/badge.svg)](https://github.com/ImpedanCEI/IDDEFIX/actions/workflows/nightly_tests_p3.11.yml) [![nightly_tests_CPU_python3.12](https://github.com/ImpedanCEI/IDDEFIX/actions/workflows/nightly_tests_p3.12.yml/badge.svg)](https://github.com/ImpedanCEI/IDDEFIX/actions/workflows/nightly_tests_p3.12.yml) [![nightly_tests_CPU_python3.13](https://github.com/ImpedanCEI/IDDEFIX/actions/workflows/nightly_tests_p3.13.yml/badge.svg)](https://github.com/ImpedanCEI/IDDEFIX/actions/workflows/nightly_tests_p3.13.yml)
+[![nightly_tests_CPU_python3.14](https://github.com/ImpedanCEI/IDDEFIX/actions/workflows/nightly_tests_p3.14.yml/badge.svg)](https://github.com/ImpedanCEI/IDDEFIX/actions/workflows/nightly_tests_p3.14.yml) [![nightly_tests_CPU_python3.15](https://github.com/ImpedanCEI/IDDEFIX/actions/workflows/nightly_tests_p3.15.yml/badge.svg)](https://github.com/ImpedanCEI/IDDEFIX/actions/workflows/nightly_tests_p3.15.yml)
