@@ -73,6 +73,37 @@ def test_deconvolution_rolloff():
     np.testing.assert_allclose(impedance, expected, rtol=1e-12, atol=1e-12)
 
 
+def test_deconvolution_fmax_defaults_from_sigma():
+    """An omitted fmax gives the same result as 1/(3 sigma)."""
+    sigma = 0.12e-9
+    time = (np.arange(256) - 128) * 8e-12
+    potential = np.exp(-0.5 * (time / sigma) ** 2)
+    derived_fmax = 1 / (3 * sigma)
+
+    default_f, default_z = iddefix.compute_deconvolution(time, potential, sigma)
+    explicit_f, explicit_z = iddefix.compute_deconvolution(
+        time, potential, sigma, fmax=derived_fmax
+    )
+
+    np.testing.assert_array_equal(default_f, explicit_f)
+    np.testing.assert_array_equal(default_z, explicit_z)
+
+
+def test_gaussian_bunch_spectrum_starts_at_dc_and_stops_at_fmax():
+    """The Gaussian spectrum includes DC and excludes frequencies at fmax."""
+    time = (np.arange(128) - 64) * 2e-12
+    sigma = 0.1e-9
+    fmax = 4e9
+
+    frequency, spectrum = iddefix.gaussian_bunch_spectrum(time, sigma, fmax, samples=16)
+
+    assert frequency[0] == 0
+    assert np.all(frequency >= 0)
+    assert np.all(frequency < fmax)
+    assert frequency.shape == spectrum.shape
+    np.testing.assert_allclose(spectrum[0], np.sum(iddefix.gaussian_bunch(time, sigma)))
+
+
 def stability_with_samples(time_data, wake_data, plot=False):
     sigma = 1e-10
     samples_list = [501, 1001, 5001, 10001]

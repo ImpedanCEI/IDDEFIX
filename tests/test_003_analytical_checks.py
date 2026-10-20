@@ -597,6 +597,23 @@ def test_full_wake_convolves_to_analytical_potential(plane, count, kernel, debug
     assert relative_error < 1e-3
 
 
+def test_numpy_convolution_matches_scipy():
+    """The NumPy kernel returns the same full convolution as SciPy."""
+    times = 2.0 + np.arange(9) * 0.1
+    wake = np.array([0.0, 1.0, 0.5, -0.25, 0.0, 0.1, 0.0, 0.0, 0.0])
+    sigma = 0.2
+
+    numpy_time, numpy_potential = iddefix.compute_convolution(
+        times, wake, sigma, kernel="numpy"
+    )
+    scipy_time, scipy_potential = iddefix.compute_convolution(
+        times, wake, sigma, kernel="scipy"
+    )
+
+    np.testing.assert_array_equal(numpy_time, scipy_time)
+    np.testing.assert_allclose(numpy_potential, scipy_potential)
+
+
 def _partial_potential_and_analytical_impedance(plane, count):
     model = _loaded_resonators(plane, [(100, 8, 1e9), (50, 10, 1.4e9)][:count])
     sigma = 0.1e-9
