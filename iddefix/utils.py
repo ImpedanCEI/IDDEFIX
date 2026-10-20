@@ -113,7 +113,7 @@ def compute_convolution(
     Parameters
     ----------
     data_time : array_like
-        Time axis corresponding to the wake data, typically centered at zero in [s]
+        Evenly spaced time axis corresponding to the wake data in [s].
     data_wake : array_like
         Wake potential values as a function of time.
     sigma : float
@@ -127,14 +127,17 @@ def compute_convolution(
     Returns
     -------
     t_convolved : ndarray
-        Time axis of the convolved signal, stretched to account for convolution effects.
+        Time axis of the convolved signal. It runs from the first wake time
+        plus the first sampled Gaussian lag to the last wake time plus the
+        last sampled Gaussian lag.
     wake_convolved : ndarray
         The wake potential after convolution with the Gaussian bunch.
 
     Notes
     -----
-    The Gaussian bunch profile is normalized before convolution. The output time array
-    is linearly spaced and scaled to match the domain after convolution.
+    The Gaussian bunch profile is sampled on a zero-centered lag grid and
+    normalized before convolution. The output time axis accounts for the
+    starting times of both the wake and the Gaussian grid.
     """
 
     if kernel.lower() == "numpy":
@@ -144,12 +147,14 @@ def compute_convolution(
     elif kernel.lower() == "scipy_fft":
         from scipy.fft import convolve
 
-    # Analytical gaussian with given sigma
-    lambdat = gaussian_bunch(data_time, sigma)
+    data_time = np.asarray(data_time)
+    dt = data_time[1] - data_time[0]
+    kernel_time = (np.arange(len(data_time)) - (len(data_time) - 1) / 2) * dt
+    lambdat = gaussian_bunch(kernel_time, sigma)
 
     # Perform the convolution
     wake_convolved = convolve(data_wake, lambdat) / np.sum(lambdat)
-    t_convolved = np.linspace(data_time[0], data_time[-1], len(wake_convolved)) * 2
+    t_convolved = data_time[0] + kernel_time[0] + np.arange(len(wake_convolved)) * dt
 
     return t_convolved, wake_convolved
 
