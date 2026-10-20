@@ -1,4 +1,3 @@
-import warnings
 from typing import Callable
 
 import numpy as np
@@ -329,14 +328,14 @@ def compute_ineffint(
     interpolation: str = "linear",
     plane: str = "longitudinal",
     error: str = "Abs",
-    causal: bool = False,
+    enforce_causality: bool = False,
 ) -> tuple[ArrayLike, np.ndarray]:
     """Compute a wake from impedance using Neffint.
 
-    When ``causal`` is enabled, returned wake samples at ``times < 0`` are
-    set to zero. The sample at ``t = 0`` is retained as the immediate wake
-    behind the source. Otherwise, a warning is issued if negative-time samples
-    are nonzero.
+    When ``enforce_causality`` is enabled, returned wake samples at
+    ``times < 0`` are set to zero. The sample at ``t = 0`` is retained as the
+    immediate wake behind the source. Otherwise, a warning is printed if
+    negative-time samples are nonzero.
     """
     try:
         import neffint
@@ -397,13 +396,12 @@ def compute_ineffint(
 
     # Enforce causality
     negative_time = np.asarray(times) < 0
-    if causal:
+    if enforce_causality:
         wake[negative_time] = 0
     elif np.any(wake[negative_time] != 0):
-        warnings.warn(
-            "Wake is nonzero for t < 0; pass causal=True to zero those samples.",
-            UserWarning,
-            stacklevel=2,
+        print(
+            "\033[93m[!] Warning: Wake is nonzero for t < 0; "
+            "pass enforce_causality=True to zero those samples.\033[0m"
         )
 
     return times, wake
