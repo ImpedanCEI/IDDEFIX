@@ -161,9 +161,17 @@ def compute_convolution(
     dt = data_time[1] - data_time[0]
     kernel_time = (np.arange(len(data_time)) - (len(data_time) - 1) / 2) * dt
     lambdat = gaussian_bunch(kernel_time, sigma)
+    normalization = np.sum(lambdat)
+
+    if not np.isfinite(normalization) or normalization == 0:
+        # Keep a representable peak when all physical Gaussian samples
+        # underflow (or overflow) before their normalization cancels the scale.
+        gaussian_exponent = -0.5 * (kernel_time / sigma) ** 2
+        lambdat = np.exp(gaussian_exponent - np.max(gaussian_exponent))
+        normalization = np.sum(lambdat)
 
     # Perform the convolution
-    wake_convolved = convolve(data_wake, lambdat) / np.sum(lambdat)
+    wake_convolved = convolve(data_wake, lambdat) / normalization
     t_convolved = data_time[0] + kernel_time[0] + np.arange(len(wake_convolved)) * dt
 
     return t_convolved, wake_convolved
@@ -242,8 +250,7 @@ def compute_deconvolution(
 
     ds = (data_time[1] - data_time[0]) * c_light
     N = int((c_light / ds) // cutoff * samples)
-    if rolloff > 0:
-        N = max(len(data_time), N)
+    N = max(len(data_time), N)
 
     # Analytical gaussian with given sigma
     lambdat = gaussian_bunch(data_time, sigma)
@@ -316,8 +323,8 @@ def gaussian_bunch_spectrum(
     Notes
     -----
     ``time`` must be uniformly spaced. The returned values are the discrete
-    FFT of ``gaussian_bunch(time, sigma)`` and are not additionally scaled by
-    the time step.
+    FFT of ``gaussian_bunch(time, sigma)`` with a phase correction for
+    ``time[0]``. They are not additionally scaled by the time step.
     """
     # Analytical gaussian with given sigma
     lambdat = gaussian_bunch(time, sigma)
@@ -330,7 +337,9 @@ def gaussian_bunch_spectrum(
 
     # Mask invalid frequencies
     mask = np.logical_and(f >= 0, f < fmax)
-    return f[mask], lambdaf[mask]
+    f = f[mask]
+    lambdaf = lambdaf[mask] * np.exp(-2j * np.pi * f * time[0])
+    return f, lambdaf
 
 
 # Needed for adaptive neffint routines
