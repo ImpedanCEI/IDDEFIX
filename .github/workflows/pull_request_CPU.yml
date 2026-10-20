@@ -1,5 +1,5 @@
 # Run tests for every pull request
-name: pull_request_CPU
+name: pull_request_CPU_py3.14
 
 on:
   pull_request:
@@ -8,10 +8,6 @@ on:
 jobs:
   run_tests:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.11", "3.12", "3.13", "3.14", "3.15"]
     permissions:
       contents: read
       pull-requests: write
@@ -28,20 +24,12 @@ jobs:
         uses: conda-incubator/setup-miniconda@v2
         with:
           miniforge-version: latest
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.14"
 
       - name: Install IDDEFIX
         run: |
           pip install .
           pip install pytest pytest-cov ipywidgets
-
-      - name: Install optional Wakis integration
-        if: matrix.python-version != '3.15'
-        run: pip install wakis
-
-      - name: Check notebook extra on Python 3.15
-        if: matrix.python-version == '3.15'
-        run: pip install '.[notebook]'
 
       - name: Print installed packages
         run: conda list
@@ -51,12 +39,11 @@ jobs:
           python -m pytest --cov=iddefix --cov-report=term-missing -vv
 
       - name: Generate coverage summary
-        if: matrix.python-version == '3.12'
         run: |
           coverage report > coverage.txt
 
       - name: Comment coverage on PR (update if exists)
-        if: matrix.python-version == '3.12' && github.event.pull_request.head.repo.fork == false
+        if: github.event.pull_request.head.repo.fork == false
         uses: actions/github-script@v7
         with:
           script: |

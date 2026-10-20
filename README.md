@@ -38,7 +38,7 @@ By representing wakefield data through a compact $\sum_i (R_{s,i}, Q_i, f_{r,i})
 IDDEFIX is deployed to the [Python Package Index (pyPI)](https://pypi.org/project/iddefix/) and is tested nightly on Python 3.11 to 3.15. To install it in a conda environment do:
 ```
 pip install iddefix             # core dependencies
-pip intall iddefix['notebook']  # notebook dependencies for interactive use
+pip install iddefix['notebook']  # notebook dependencies for interactive use
 pip install iddefix['all']      # with 'notebook' + pyfde
 ```
 It can also be installed directly from the Github source to get the latest changes:
