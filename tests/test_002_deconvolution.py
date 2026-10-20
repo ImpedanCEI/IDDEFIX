@@ -48,6 +48,31 @@ def compute_norm(f, Z):
     return _trapezoid(np.abs(Z), f) / (f[-1] - f[0])
 
 
+def test_deconvolution_rolloff():
+    """A positive rolloff extends the spectrum and applies the raised cosine."""
+    sigma = 0.1e-9
+    fmax = 1e9
+    rolloff = 0.5
+    time = (np.arange(512) - 256) * 1e-11
+    gaussian = iddefix.gaussian_bunch(time, sigma)
+
+    f_default, _ = iddefix.compute_deconvolution(time, gaussian, sigma, fmax=fmax)
+    f_rolloff, impedance = iddefix.compute_deconvolution(
+        time, gaussian, sigma, fmax=fmax, rolloff=rolloff
+    )
+
+    cutoff = (1 + rolloff) * fmax
+    assert f_default[-1] < fmax
+    assert np.any((f_rolloff > fmax) & (f_rolloff < cutoff))
+
+    expected = np.ones_like(f_rolloff)
+    tapered = f_rolloff > fmax
+    expected[tapered] = 0.5 * (
+        1 + np.cos(np.pi * (f_rolloff[tapered] - fmax) / (cutoff - fmax))
+    )
+    np.testing.assert_allclose(impedance, expected, rtol=1e-12, atol=1e-12)
+
+
 def stability_with_samples(time_data, wake_data, plot=False):
     sigma = 1e-10
     samples_list = [501, 1001, 5001, 10001]
