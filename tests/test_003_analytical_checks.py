@@ -571,14 +571,15 @@ def test_analytical_wake_potential_deconvolves_to_impedance(plane, count, debug_
 
 @pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
 @pytest.mark.parametrize("count", [1, 2])
-def test_full_wake_convolves_to_analytical_potential(plane, count, debug_plot):
+@pytest.mark.parametrize("kernel", ["scipy", "scipy_fft"])
+def test_full_wake_convolves_to_analytical_potential(plane, count, kernel, debug_plot):
     """The analytical Gaussian potential agrees with public convolution."""
     model = _loaded_resonators(plane, [(100, 2, 1e9), (50, 3, 1.4e9)][:count])
     sigma = 0.1e-9
     step = 4e-12
     times = (np.arange(10000) - 5000 + 0.5) * step
     potential_time, numerical_potential = iddefix.compute_convolution(
-        times, model.get_wake(times), sigma, kernel="scipy"
+        times, model.get_wake(times), sigma, kernel=kernel
     )
     useful_window = (potential_time > -0.4e-9) & (potential_time < 4e-9)
     analytical = model.get_wake_potential(potential_time[useful_window], sigma=sigma)

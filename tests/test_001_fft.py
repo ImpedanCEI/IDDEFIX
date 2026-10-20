@@ -7,7 +7,9 @@ values in a dedicated debug plot.
 """
 
 import sys
+import warnings
 from io import StringIO
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -45,6 +47,36 @@ def test_fft_preserves_time_origin_phase(time_origin, debug_plot):
         expected_label="Fourier time-shift reference",
     )
     np.testing.assert_allclose(shifted_impedance, expected, rtol=1e-12, atol=1e-12)
+
+
+def test_ineffint_can_enforce_causality(monkeypatch):
+    """Causal mode zeros negative-time wake samples but retains t=0."""
+    monkeypatch.setitem(
+        sys.modules,
+        "neffint",
+        SimpleNamespace(
+            fourier_integral_fixed_sampling=lambda **kwargs: np.array(
+                [1.0, 2.0, 3.0], dtype=complex
+            )
+        ),
+    )
+    time = np.array([-1.0, 0.0, 1.0])
+    frequency = np.array([0.0, 1.0])
+    impedance = np.array([1.0, 2.0])
+
+    with pytest.warns(UserWarning, match=r"Wake is nonzero for t < 0"):
+        _, wake = iddefix.compute_ineffint(
+            frequency, impedance, times=time, adaptative=False
+        )
+    assert np.all(wake[:2] != 0)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        _, causal_wake = iddefix.compute_ineffint(
+            frequency, impedance, times=time, adaptative=False, causal=True
+        )
+    assert not caught
+    np.testing.assert_array_equal(causal_wake, [0.0, 2.0 / np.pi, 3.0 / np.pi])
 
 
 def _load_data():
