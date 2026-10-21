@@ -11,22 +11,23 @@ ParameterDict = dict[int, ArrayLike]
 
 
 def pars_to_dict(pars: ArrayLike) -> dict[int, ArrayLike]:
-    """Converts a list of parameters into a dictionary of parameter groups.
+    """Group a flat resonator parameter sequence into triples.
 
-    This function takes a list of parameters `pars` and groups them into
-    dictionaries of three parameters (e.g. Rs, Q, resonant_frequency) each.
-    The keys of the resulting dictionary are integers starting from 0, and the
-    values are lists containing three consecutive parameters from the input list.
+    Parameters
+    ----------
+    pars : array_like
+        One-dimensional sequence ordered as consecutive
+        ``(Rs, Q, resonant_frequency)`` triples.
 
-    Args:
-        pars: A list or array of parameters to be grouped.
+    Returns
+    -------
+    dict[int, array_like]
+        Mapping from zero-based resonator index to each three-value slice.
 
-    Returns:
-        dict: A dictionary where keys are integers and values are lists of three
-        parameters.
-
-    Raises:
-        ValueError: If the length of `pars` is not a multiple of 3.
+    Raises
+    ------
+    ValueError
+        If the number of parameters is not divisible by three.
     """
 
     if len(pars) % 3 != 0:
@@ -45,46 +46,49 @@ def compute_fft(
     fmax: float = 3e9,
     samples: int = 1001,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Compute the Fourier transform of a wake and return the frequencies
-    and impedance values within a specified frequency range.
+    """Compute impedance from a uniformly sampled wake using an FFT.
+
+    The wake is zero-padded, transformed, restricted to nonnegative frequencies
+    below ``fmax``, and corrected for the time of the first sample. The
+    transform includes the spatial step ``c * dt`` in its normalization.
 
     Parameters
     ----------
     data_time : array-like
-        Array of time values (in seconds) corresponding to the wake data.
+        One-dimensional, uniformly spaced time samples in seconds. Must contain
+        at least two samples.
     data_wake : array-like
-        Array of wake potential values corresponding to `data_time`.
+        Wake values corresponding to ``data_time``. Must have the same length.
     fmax : float, optional
-        Maximum frequency (in Hz) to include in the output. Defaults to 3e9 Hz (3 GHz).
+        Upper frequency limit in hertz. Returned frequencies satisfy
+        ``0 <= f < fmax``. Defaults to 3 GHz.
     samples : int, optional
-        Number of samples to determine the resolution of the Fourier transform. Defaults to 1001.
+        Controls the number of zero-padded FFT samples and therefore the
+        frequency spacing. Defaults to 1001.
 
     Returns
     -------
     f : ndarray
-        Array of frequency values (in Hz) within the range [0, `fmax`).
+        One-dimensional frequency array in hertz, from zero up to but excluding
+        ``fmax``.
     Z : ndarray
-        Array of impedance values corresponding to the frequencies in `f`.
+        Complex impedance values corresponding to ``f``.
 
     Notes
     -----
-    - The time array (`data_time`) is assumed to be evenly spaced.
-    - The phase of the transform accounts for the first sample time.
-    - The spatial sampling interval `ds` is computed based on the time step and
-      the speed of light in vacuum.
-    - The Fourier transform is computed using the `numpy.fft` module, and the
-      results are normalized by the sampling interval (`ds`).
+    ``data_time`` must be evenly spaced. The phase factor
+    ``exp(-2j * pi * f * data_time[0])`` accounts for a nonzero first sample.
+    The wake is transformed with NumPy's FFT and scaled by the spatial step
+    ``c * dt``.
 
     Examples
     --------
     >>> import numpy as np
-    >>> from scipy.constants import c
-    >>> time = np.linspace(0, 10, 100)  # Time in nanoseconds
-    >>> wake = np.sin(2 * np.pi * 1e9 * time * 1e-9)  # Example wake
+    >>> time = np.linspace(0, 10e-9, 1001)  # seconds
+    >>> wake = np.sin(2 * np.pi * 1e9 * time)
     >>> f, Z = compute_fft(time, wake, fmax=2e9, samples=500)
-    >>> print(f.shape, Z.shape)
-    (500, 500)
+    >>> f.shape == Z.shape
+    True
     """
 
     ds = (data_time[1] - data_time[0]) * c_light
@@ -107,34 +111,43 @@ def compute_convolution(
     sigma: float,
     kernel: str = "numpy",
 ) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Compute the convolution of a wake function with a Gaussian bunch profile.
+    """Compute the full discrete convolution of a wake with a Gaussian bunch.
+
+    The Gaussian is sampled on a zero-centered lag grid with the same spacing
+    as ``data_time``. Its samples are normalized by their sum before
+    convolution, so the operation forms a weighted average of the wake.
 
     Parameters
     ----------
     data_time : array_like
-        Time axis corresponding to the wake data, typically centered at zero in [s]
+        One-dimensional, uniformly spaced time samples in seconds. Must contain
+        at least two samples.
     data_wake : array_like
-        Wake potential values as a function of time.
+        One-dimensional wake samples corresponding to ``data_time``. Must
+        have the same length.
     sigma : float
-        Beam sigma (RMS bunch length/4) of the Gaussian bunch profile in [s]
+        RMS width of the Gaussian bunch profile in seconds.
     kernel : {'numpy', 'scipy', 'scipy_fft'}, optional
-        Convolution method to use:
-        - 'numpy': Use `numpy.convolve`.
-        - 'scipy': Use `scipy.signal.convolve`.
-        - 'scipy_fft': Use `scipy.fft.convolve`.
+        Backend for the full convolution: ``'numpy'`` uses
+        :func:`numpy.convolve`, ``'scipy'`` uses ``scipy.signal.convolve``, and
+        ``'scipy_fft'`` uses ``scipy.signal.fftconvolve``. Defaults to
+        ``'numpy'``.
 
     Returns
     -------
     t_convolved : ndarray
-        Time axis of the convolved signal, stretched to account for convolution effects.
+        Time axis for the full convolution. It starts at the first input time
+        plus the first Gaussian lag and has ``len(data_time) + len(data_wake) - 1``
+        samples, assuming ``data_wake`` and ``data_time`` have equal lengths.
     wake_convolved : ndarray
-        The wake potential after convolution with the Gaussian bunch.
+        Wake samples after convolution with the normalized Gaussian bunch.
 
     Notes
     -----
-    The Gaussian bunch profile is normalized before convolution. The output time array
-    is linearly spaced and scaled to match the domain after convolution.
+    ``data_time`` is expected to be uniformly spaced. Both the wake and
+    Gaussian lag grid use that spacing, and the returned time axis includes
+    the starting times of both arrays. All backends return the full
+    convolution.
     """
 
     if kernel.lower() == "numpy":
@@ -142,14 +155,24 @@ def compute_convolution(
     elif kernel.lower() == "scipy":
         from scipy.signal import convolve
     elif kernel.lower() == "scipy_fft":
-        from scipy.fft import convolve
+        from scipy.signal import fftconvolve as convolve
 
-    # Analytical gaussian with given sigma
-    lambdat = gaussian_bunch(data_time, sigma)
+    data_time = np.asarray(data_time)
+    dt = data_time[1] - data_time[0]
+    kernel_time = (np.arange(len(data_time)) - (len(data_time) - 1) / 2) * dt
+    lambdat = gaussian_bunch(kernel_time, sigma)
+    normalization = np.sum(lambdat)
+
+    if not np.isfinite(normalization) or normalization == 0:
+        # Keep a representable peak when all physical Gaussian samples
+        # underflow (or overflow) before their normalization cancels the scale.
+        gaussian_exponent = -0.5 * (kernel_time / sigma) ** 2
+        lambdat = np.exp(gaussian_exponent - np.max(gaussian_exponent))
+        normalization = np.sum(lambdat)
 
     # Perform the convolution
-    wake_convolved = convolve(data_wake, lambdat) / np.sum(lambdat)
-    t_convolved = np.linspace(data_time[0], data_time[-1], len(wake_convolved)) * 2
+    wake_convolved = convolve(data_wake, lambdat) / normalization
+    t_convolved = data_time[0] + kernel_time[0] + np.arange(len(wake_convolved)) * dt
 
     return t_convolved, wake_convolved
 
@@ -158,49 +181,76 @@ def compute_deconvolution(
     data_time: ArrayLike,
     data_wake_potential: ArrayLike,
     sigma: float,
-    fmax: float = 3e9,
+    fmax: float | None = None,
     samples: int = 1001,
+    rolloff: float = 0,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Deconvolve a wake potential with a Gaussian bunch profile to obtain the
-    impedance spectrum.
+    """Estimate impedance by deconvolving a Gaussian bunch from a potential.
+
+    The potential and Gaussian profile are transformed with an FFT, and their
+    spectra are divided. Only nonnegative frequencies below the selected
+    cutoff are returned.
 
     Parameters
     ----------
     data_time : array_like
-        Time axis corresponding to the wake potential, typically centered
-        around zero [s].
+        One-dimensional, uniformly spaced time samples in seconds. The axis
+        should cover the potential on both sides of the bunch center.
     data_wake_potential : array_like
-        Wake potential values as a function of time WP(t) in [V/C]
-        (WP(t) = WP(s)*1e12/c).
+        Wake-potential samples corresponding to ``data_time``, in the
+        normalization expected by IDDEFIX. Keep the potential and impedance
+        units consistent with the time and spatial scaling used by the model.
     sigma : float
-        Beam sigma (RMS bunch length/4) of the Gaussian bunch profile in [s]
-        used to convolve the wake function.
+        RMS bunch length (standard deviation) of the Gaussian profile in
+        seconds.
     fmax : float, optional
-        Maximum frequency of interest for the impedance spectrum [Hz]. Default is 3e9.
+        Frequency limit in hertz. If omitted, it is derived as
+        ``1 / (3 * sigma)``.
     samples : int, optional
-        Number of points used to sample the frequency domain. Controls the frequency resolution.
-        Default is 1001.
+        Controls the zero-padded FFT length and frequency spacing. Defaults to
+        1001.
+    rolloff : float, optional
+        Nonnegative taper width as a fraction of ``fmax``. Defaults to zero,
+        which applies no taper and returns frequencies below ``fmax``. A
+        positive value ``r`` tapers the impedance from ``fmax`` to
+        ``(1 + r) * fmax``; for example, ``rolloff=0.5`` reaches zero at
+        ``1.5 * fmax``.
 
     Returns
     -------
     f : ndarray
-        Frequency axis for the impedance spectrum [Hz].
+        One-dimensional nonnegative frequency array in hertz. Frequencies are
+        below ``fmax`` when ``rolloff=0`` and below ``(1 + rolloff) * fmax``
+        when the taper is enabled.
     Z : ndarray
-        Complex beam-coupling impedance [Ohm].
+        Complex impedance values corresponding to ``f``.
 
     Notes
     -----
-    The impedance is computed by dividing the FFT of the wake potential by
-    the FFT of an analytical Gaussian bunch profile of width ``sigma``.
-    Frequencies above ``fmax`` and negative frequencies are discarded.
+    For positive ``rolloff`` (denoted by ``r``), the taper factor is 1 through
+    ``fmax`` and then follows ``0.5 * (1 + cos(pi * (f - fmax) / (r * fmax)))``
+    until it reaches zero at ``(1 + r) * fmax``. Frequencies at or above that
+    endpoint are excluded from the returned array. Negative frequencies are
+    discarded.
 
-    The normalization assumes time in seconds and spatial quantities scaled
-    by the speed of light.
+    Raises
+    ------
+    ValueError
+        If ``rolloff`` is negative.
+
+    ``data_time`` is assumed to be uniformly spaced. The FFT uses the spatial
+    step ``c * dt`` in its frequency scaling.
     """
 
+    if fmax is None:
+        fmax = 1 / (3 * sigma)
+    if rolloff < 0:
+        raise ValueError("rolloff must be nonnegative")
+    cutoff = fmax * (1 + rolloff)
+
     ds = (data_time[1] - data_time[0]) * c_light
-    N = int((c_light / ds) // fmax * samples)
+    N = int((c_light / ds) // cutoff * samples)
+    N = max(len(data_time), N)
 
     # Analytical gaussian with given sigma
     lambdat = gaussian_bunch(data_time, sigma)
@@ -210,28 +260,31 @@ def compute_deconvolution(
     f = np.fft.fftfreq(len(Z), ds / c_light)
 
     # Mask invalid frequencies
-    mask = np.logical_and(f >= 0, f < fmax)
+    mask = np.logical_and(f >= 0, f < cutoff)
     Z = Z[mask] / lambdaf[mask]
     f = f[mask]
+    if rolloff > 0:
+        tapered = f > fmax
+        Z[tapered] *= 0.5 * (1 + np.cos(np.pi * (f[tapered] - fmax) / (cutoff - fmax)))
 
     return f, Z
 
 
 def gaussian_bunch(time: ArrayLike, sigma: float) -> np.ndarray:
-    """
-    Generate a Gaussian bunch profile.
+    """Evaluate a normalized Gaussian bunch profile on a time grid.
 
     Parameters
     ----------
     time : array_like
-        Time axis where the Gaussian bunch profile is evaluated.
+        Time samples in seconds, measured from the bunch center.
     sigma : float
-        Standard deviation of the Gaussian bunch profile (RMS length).
+        RMS bunch length (standard deviation) in seconds; must be positive.
 
     Returns
     -------
     ndarray
-        Gaussian bunch profile evaluated at the given time.
+        Gaussian line-density profile evaluated at ``time``, scaled by the
+        speed of light as used by IDDEFIX's time-to-distance convention.
     """
     # Analytical gaussian with given sigma
     return (
@@ -245,20 +298,33 @@ def gaussian_bunch_spectrum(
     fmax: float,
     samples: int = 1001,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Generate a Gaussian bunch profile.
+    """Compute the positive-frequency FFT spectrum of a Gaussian bunch.
 
     Parameters
     ----------
     time : array_like
-        Time axis where the Gaussian bunch profile is evaluated.
+        One-dimensional, uniformly spaced time samples in seconds.
     sigma : float
-        Standard deviation of the Gaussian bunch profile (RMS length).
+        RMS bunch length (standard deviation) in seconds.
+    fmax : float
+        Upper frequency limit in hertz; frequencies at or above this limit
+        are omitted.
+    samples : int, optional
+        Controls the zero-padded FFT length and frequency spacing. Defaults to
+        1001.
 
     Returns
     -------
-    ndarray
-        Gaussian bunch profile evaluated at the given time.
+    f : ndarray
+        Nonnegative frequency samples below ``fmax``, in hertz.
+    lambdaf : ndarray
+        FFT values of the sampled Gaussian profile at ``f``.
+
+    Notes
+    -----
+    ``time`` must be uniformly spaced. The returned values are the discrete
+    FFT of ``gaussian_bunch(time, sigma)`` with a phase correction for
+    ``time[0]``. They are not additionally scaled by the time step.
     """
     # Analytical gaussian with given sigma
     lambdat = gaussian_bunch(time, sigma)
@@ -271,13 +337,21 @@ def gaussian_bunch_spectrum(
 
     # Mask invalid frequencies
     mask = np.logical_and(f >= 0, f < fmax)
-    return f[mask], lambdaf[mask]
+    f = f[mask]
+    lambdaf = lambdaf[mask] * np.exp(-2j * np.pi * f * time[0])
+    return f, lambdaf
 
 
+# Needed for adaptive neffint routines
 def interpolation_error_abs(
     func_output: ArrayLike,
     interpolant_output: ArrayLike,
 ) -> np.ndarray:
+    """Return the absolute interpolation error element by element.
+
+    The inputs must have matching shapes. The leading axis represents samples;
+    no reduction is performed over any trailing output dimensions.
+    """
     return np.abs(func_output - interpolant_output)
 
 
@@ -285,13 +359,18 @@ def interpolation_error_rms(
     func_output: ArrayLike,
     interpolant_output: ArrayLike,
 ) -> np.ndarray:
-    error = interpolant_output - func_output
-    squared_error = error**2
-    mean_squared_error = np.mean(
-        squared_error, axis=1
-    )  # This stage changes the shape from (N, 4) to # (N,)
-    rms_error = np.sqrt(mean_squared_error)
-    return rms_error
+    """Return an RMS interpolation error for each leading-axis sample.
+
+    The inputs must have matching shapes. For one-dimensional inputs, each
+    sample has a scalar output and the absolute error is returned. For
+    multidimensional outputs, the RMS magnitude is computed over all axes
+    after the leading sample axis. Complex errors use their magnitudes.
+    """
+    error = np.asarray(interpolant_output) - np.asarray(func_output)
+    if error.ndim == 1:
+        return np.abs(error)
+    axes = tuple(range(1, error.ndim))
+    return np.sqrt(np.mean(np.abs(error) ** 2, axis=axes))
 
 
 def compute_ineffint(
@@ -302,7 +381,61 @@ def compute_ineffint(
     interpolation: str = "linear",
     plane: str = "longitudinal",
     error: str = "Abs",
+    enforce_causality: bool = False,
 ) -> tuple[ArrayLike, np.ndarray]:
+    """Compute a wake from impedance using Neffint's Fourier integration.
+
+    With ``adaptative=True``, Neffint refines the supplied frequency grid
+    before evaluating the transform. Set it to ``False`` to integrate on the
+    supplied grid directly. The returned wake is real-valued and follows the
+    longitudinal or transverse convention selected by ``plane``.
+
+    Parameters
+    ----------
+    data_freq : array_like
+        One-dimensional, increasing frequency samples in hertz.
+    data_impedance : array_like
+        Complex impedance samples corresponding to ``data_freq``. Use units
+        consistent with the selected plane (typically ohms longitudinally or
+        ohms per metre transversely).
+    times : array_like, optional
+        Time samples in seconds at which to evaluate the wake. Defaults to
+        1000 points from 10 ps to 50 ns.
+    adaptative : bool, optional
+        Whether to refine the supplied grid with Neffint before integration.
+        The parameter retains its historical spelling. Defaults to ``True``.
+    interpolation : {'linear', 'pchip'}, optional
+        Interpolation method used by Neffint for Fourier integration.
+        Defaults to ``'linear'``.
+    plane : {'longitudinal', 'transverse'}, optional
+        Impedance and wake convention to use. Defaults to ``'longitudinal'``.
+    error : {'abs', 'rms'}, optional
+        Error metric for adaptive refinement; capitalization is ignored.
+        Defaults to ``'Abs'``.
+    enforce_causality : bool, optional
+        If ``True``, set returned wake samples at ``times < 0`` to zero. The
+        sample at ``t = 0`` is retained. If ``False``, print a yellow warning
+        when any negative-time wake sample is nonzero. Defaults to ``False``.
+
+    Returns
+    -------
+    times : array_like
+        The requested time samples.
+    wake : ndarray
+        Real-valued wake samples corresponding to ``times``.
+
+    Raises
+    ------
+    ImportError
+        If Neffint is not installed.
+
+    Notes
+    -----
+    Adaptive refinement adds frequency samples by interpolating between the
+    supplied data. It cannot recover impedance features absent from the input
+    range or sampling. Causality enforcement clips the computed result and
+    therefore changes the direct inverse-transform result.
+    """
     try:
         import neffint
     except Exception:
@@ -354,13 +487,23 @@ def compute_ineffint(
 
     # Normalize
     wake = np.conjugate(wake) / np.pi
-
     if plane == "longitudinal":
         pass
     elif plane == "transverse":
         wake *= 1j
+    wake = np.asarray(wake.real).copy()
 
-    return times, wake.real
+    # Enforce causality
+    negative_time = np.asarray(times) < 0
+    if enforce_causality:
+        wake[negative_time] = 0
+    elif np.any(wake[negative_time] != 0):
+        print(
+            "\033[93m[!] Warning: Wake is nonzero for t < 0; "
+            "pass enforce_causality=True to zero those samples.\033[0m"
+        )
+
+    return times, wake
 
 
 def compute_neffint(
@@ -372,6 +515,51 @@ def compute_neffint(
     plane: str = "longitudinal",
     error: str = "abs",
 ) -> tuple[ArrayLike, np.ndarray]:
+    """Compute impedance from a wake using Neffint's Fourier integration.
+
+    With ``adaptative=True``, Neffint refines the supplied time grid before
+    evaluating the transform. Set it to ``False`` to integrate on the supplied
+    grid directly.
+
+    Parameters
+    ----------
+    data_time : array_like
+        One-dimensional, increasing time samples in seconds.
+    data_wake : array_like
+        Real or complex wake samples corresponding to ``data_time``.
+    frequencies : array_like, optional
+        Frequency samples in hertz at which to evaluate the impedance.
+        Defaults to 1000 points from 1 Hz to 5 GHz.
+    adaptative : bool, optional
+        Whether to refine the supplied time grid with Neffint before
+        integration. The parameter retains its historical spelling. Defaults
+        to ``True``.
+    interpolation : {'linear', 'pchip'}, optional
+        Interpolation method used by Neffint for Fourier integration.
+        Defaults to ``'linear'``.
+    plane : {'longitudinal', 'transverse'}, optional
+        Wake and impedance convention to use. Defaults to ``'longitudinal'``.
+    error : {'abs', 'rms'}, optional
+        Error metric for adaptive refinement; capitalization is ignored.
+        Defaults to ``'abs'``.
+
+    Returns
+    -------
+    frequencies : array_like
+        The requested frequency samples in hertz.
+    impedance : ndarray
+        Complex impedance values corresponding to ``frequencies``.
+
+    Raises
+    ------
+    ImportError
+        If Neffint is not installed.
+
+    Notes
+    -----
+    Adaptive refinement interpolates between supplied wake samples. It cannot
+    recover time-domain details absent from the input range or sampling.
+    """
     try:
         import neffint
     except Exception:

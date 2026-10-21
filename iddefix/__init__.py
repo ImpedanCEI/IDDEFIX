@@ -19,4 +19,5 @@ from .utils import (
     compute_ineffint,
     compute_neffint,
     gaussian_bunch,
+    gaussian_bunch_spectrum,
 )

@@ -571,14 +571,15 @@ def test_analytical_wake_potential_deconvolves_to_impedance(plane, count, debug_
 
 @pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
 @pytest.mark.parametrize("count", [1, 2])
-def test_full_wake_convolves_to_analytical_potential(plane, count, debug_plot):
+@pytest.mark.parametrize("kernel", ["scipy", "scipy_fft"])
+def test_full_wake_convolves_to_analytical_potential(plane, count, kernel, debug_plot):
     """The analytical Gaussian potential agrees with public convolution."""
     model = _loaded_resonators(plane, [(100, 2, 1e9), (50, 3, 1.4e9)][:count])
     sigma = 0.1e-9
     step = 4e-12
     times = (np.arange(10000) - 5000 + 0.5) * step
     potential_time, numerical_potential = iddefix.compute_convolution(
-        times, model.get_wake(times), sigma, kernel="scipy"
+        times, model.get_wake(times), sigma, kernel=kernel
     )
     useful_window = (potential_time > -0.4e-9) & (potential_time < 4e-9)
     analytical = model.get_wake_potential(potential_time[useful_window], sigma=sigma)
@@ -594,6 +595,47 @@ def test_full_wake_convolves_to_analytical_potential(plane, count, debug_plot):
     relative_error = np.linalg.norm(numerical_potential[useful_window] - analytical)
     relative_error /= np.linalg.norm(analytical)
     assert relative_error < 1e-3
+
+
+def test_numpy_convolution_matches_scipy():
+    """The NumPy kernel returns the same full convolution as SciPy."""
+    times = 2.0 + np.arange(9) * 0.1
+    wake = np.array([0.0, 1.0, 0.5, -0.25, 0.0, 0.1, 0.0, 0.0, 0.0])
+    sigma = 0.2
+
+    numpy_time, numpy_potential = iddefix.compute_convolution(
+        times, wake, sigma, kernel="numpy"
+    )
+    scipy_time, scipy_potential = iddefix.compute_convolution(
+        times, wake, sigma, kernel="scipy"
+    )
+
+    np.testing.assert_array_equal(numpy_time, scipy_time)
+    np.testing.assert_allclose(numpy_potential, scipy_potential)
+
+
+def test_convolution_stays_finite_for_narrow_gaussian_on_even_grid():
+    """Gaussian weights remain normalizable when the even grid misses zero."""
+    times = np.arange(8) * 1e-11
+    wake = np.arange(8, dtype=float)
+
+    _, potential = iddefix.compute_convolution(times, wake, sigma=1e-13)
+
+    assert np.all(np.isfinite(potential))
+
+
+def test_deconvolution_does_not_truncate_input_without_rolloff():
+    """The FFT length never truncates a late potential when rolloff is zero."""
+    sigma = 50e-12
+    times = np.arange(20000) * 10e-12 - 100e-9
+    potential = iddefix.gaussian_bunch(times - 60e-9, sigma)
+
+    frequency, impedance = iddefix.compute_deconvolution(
+        times, potential, sigma, rolloff=0
+    )
+
+    assert frequency[0] == 0
+    np.testing.assert_allclose(impedance[0], 1.0, rtol=1e-12, atol=1e-12)
 
 
 def _partial_potential_and_analytical_impedance(plane, count):

@@ -6,14 +6,12 @@ Run ``pytest tests/test_001_fft.py --debug-plots`` to display the asserted
 values in a dedicated debug plot.
 """
 
-import sys
 from io import StringIO
 
 import numpy as np
 import pytest
 from scipy.constants import c as c_light
 
-sys.path.append("../")
 import iddefix
 
 
@@ -45,6 +43,88 @@ def test_fft_preserves_time_origin_phase(time_origin, debug_plot):
         expected_label="Fourier time-shift reference",
     )
     np.testing.assert_allclose(shifted_impedance, expected, rtol=1e-12, atol=1e-12)
+
+
+def test_ineffint_can_enforce_causality(monkeypatch, capsys):
+    """Causal mode zeros negative-time wake samples but retains t=0."""
+    import neffint
+
+    # Isolate IDDEFIX's causality handling from Neffint 1.1's t=0 integration bug.
+    monkeypatch.setattr(
+        neffint,
+        "fourier_integral_fixed_sampling",
+        lambda **kwargs: np.pi * np.array([1.0, 2.0, 3.0]),
+    )
+    time = np.array([-1.0, 0.0, 1.0])
+    frequency = np.array([0.0, 1.0])
+    impedance = np.array([1.0, 2.0])
+
+    _, wake = iddefix.compute_ineffint(
+        frequency, impedance, times=time, adaptative=False
+    )
+    output = capsys.readouterr().out
+    assert "\033[93m[!] Warning:" in output
+    assert "Wake is nonzero for t < 0" in output
+    assert np.all(wake[:2] != 0)
+
+    _, causal_wake = iddefix.compute_ineffint(
+        frequency, impedance, times=time, adaptative=False, enforce_causality=True
+    )
+    assert capsys.readouterr().out == ""
+    assert causal_wake[0] == 0.0
+    assert causal_wake[1] == wake[1]
+    assert causal_wake[2] == wake[2]
+
+
+@pytest.mark.parametrize("error", ["Abs", "rms"])
+@pytest.mark.parametrize("direction", ["impedance_to_wake", "wake_to_impedance"])
+def test_adaptive_neffint_paths(error, direction):
+    """Adaptive transforms use Neffint and evaluate on the requested grid."""
+    source_grid = np.array([0.0, 2.0])
+    source_values = np.array([1.0, 3.0])
+    target_grid = np.array([0.25, 0.75])
+
+    if direction == "impedance_to_wake":
+        returned_grid, result = iddefix.compute_ineffint(
+            source_grid,
+            source_values,
+            times=target_grid,
+            adaptative=True,
+            interpolation="linear",
+            error=error,
+        )
+    else:
+        returned_grid, result = iddefix.compute_neffint(
+            source_grid,
+            source_values,
+            frequencies=target_grid,
+            adaptative=True,
+            interpolation="linear",
+            error=error,
+        )
+
+    np.testing.assert_array_equal(returned_grid, target_grid)
+    assert result.shape == target_grid.shape
+    assert np.all(np.isfinite(result))
+
+
+def test_interpolation_error_metrics():
+    """Interpolation metrics handle scalar complex values and vector outputs."""
+    expected = np.array([1.0, 2.0])
+    scalar_error = iddefix.utils.interpolation_error_abs(
+        np.array([1.0 + 1.0j, 3.0]), np.array([2.0 + 1.0j, 1.0])
+    )
+    np.testing.assert_array_equal(scalar_error, expected)
+
+    vector_error = iddefix.utils.interpolation_error_rms(
+        np.array([[1.0 + 1.0j, 3.0], [0.0, 2.0]]),
+        np.array([[2.0 + 1.0j, 1.0], [3.0, 6.0]]),
+    )
+    np.testing.assert_allclose(vector_error, [np.sqrt(2.5), np.sqrt(12.5)])
+    scalar_rms_error = iddefix.utils.interpolation_error_rms(
+        np.array([1.0 + 1.0j, 3.0]), np.array([2.0 + 1.0j, 1.0])
+    )
+    np.testing.assert_array_equal(scalar_rms_error, expected)
 
 
 def _load_data():
