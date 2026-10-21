@@ -104,6 +104,21 @@ def test_gaussian_bunch_spectrum_starts_at_dc_and_stops_at_fmax():
     np.testing.assert_allclose(spectrum[0], np.sum(iddefix.gaussian_bunch(time, sigma)))
 
 
+def test_gaussian_bunch_spectrum_corrects_time_origin():
+    """The spectrum uses the supplied time coordinates, including their origin."""
+    time = (np.arange(128) - 37) * 2e-12
+    sigma = 0.1e-9
+    fmax = 4e9
+
+    frequency, spectrum = iddefix.gaussian_bunch_spectrum(time, sigma, fmax, samples=16)
+    gaussian = iddefix.gaussian_bunch(time, sigma)
+    expected = np.array(
+        [np.sum(gaussian * np.exp(-2j * np.pi * f * time)) for f in frequency]
+    )
+
+    np.testing.assert_allclose(spectrum, expected, rtol=1e-12, atol=1e-12)
+
+
 def stability_with_samples(time_data, wake_data, plot=False):
     sigma = 1e-10
     samples_list = [501, 1001, 5001, 10001]

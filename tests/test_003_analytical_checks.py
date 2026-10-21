@@ -614,6 +614,30 @@ def test_numpy_convolution_matches_scipy():
     np.testing.assert_allclose(numpy_potential, scipy_potential)
 
 
+def test_convolution_stays_finite_for_narrow_gaussian_on_even_grid():
+    """Gaussian weights remain normalizable when the even grid misses zero."""
+    times = np.arange(8) * 1e-11
+    wake = np.arange(8, dtype=float)
+
+    _, potential = iddefix.compute_convolution(times, wake, sigma=1e-13)
+
+    assert np.all(np.isfinite(potential))
+
+
+def test_deconvolution_does_not_truncate_input_without_rolloff():
+    """The FFT length never truncates a late potential when rolloff is zero."""
+    sigma = 50e-12
+    times = np.arange(20000) * 10e-12 - 100e-9
+    potential = iddefix.gaussian_bunch(times - 60e-9, sigma)
+
+    frequency, impedance = iddefix.compute_deconvolution(
+        times, potential, sigma, rolloff=0
+    )
+
+    assert frequency[0] == 0
+    np.testing.assert_allclose(impedance[0], 1.0, rtol=1e-12, atol=1e-12)
+
+
 def _partial_potential_and_analytical_impedance(plane, count):
     model = _loaded_resonators(plane, [(100, 8, 1e9), (50, 10, 1.4e9)][:count])
     sigma = 0.1e-9
