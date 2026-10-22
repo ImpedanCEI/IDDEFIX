@@ -19,6 +19,7 @@ from ._table import display_resonator_table
 from .objectiveFunctions import ObjectiveFunctions as obj
 from .resonatorFormulas import Impedances as imp
 from .resonatorFormulas import Wakes as wak
+from .smartBoundDetermination import SmartBoundDetermination
 from .solvers import Solvers
 from .uncertainties import get_uncertainties as calculate_uncertainties
 from .utils import compute_fft
@@ -265,6 +266,94 @@ class EvolutionaryAlgorithm:
                 raise Exception("Algorithm needs N_resonartors >= 1")
             self.frequency_data = x_data
             self.impedance_data = y_data
+
+    def estimate_bounds(
+        self,
+        impedance_type: str | None = None,
+        show_table: bool = True,
+        show_inspect: bool = True,
+        **kwargs: Any,
+    ) -> SmartBoundDetermination:
+        """Estimate resonator search bounds from the stored impedance data.
+
+        The detected bounds, estimates, and resonator count are stored on this
+        model. The model's plane and wake length are used for estimation.
+
+        Parameters
+        ----------
+        impedance_type : {"absolute", "real"} or None, optional
+            Use the magnitude or real part of the stored impedance. Defaults
+            to ``"absolute"`` for longitudinal models and ``"real"`` for
+            transverse models.
+        show_table : bool, optional
+            Display the estimated bounds with ``to_table()``. Default is True.
+        show_inspect : bool, optional
+            Plot detected peaks and estimated resonator components with
+            ``inspect(show_components=True)``. Default is True.
+        **kwargs
+            Automatic peak-finding options passed to
+            :class:`SmartBoundDetermination`:
+
+            - ``minimum_peak_height``: Minimum peak height; default 1.0.
+            - ``threshold``, ``distance``, ``prominence``: Criteria passed to
+              ``scipy.signal.find_peaks``; each defaults to None. ``distance``
+              counts samples on the analysis grid.
+            - ``Rs_bounds`` and ``Q_bounds``: Lower and upper multipliers for
+              the estimated Rs and Q; each defaults to ``[0.1, 10]``.
+            - ``fres_bounds``: Lower and upper multiples of the estimated
+              resonator half-width; defaults to ``[-1, 1]``.
+            - ``samples``: Number of equally spaced analysis samples; by
+              default, use the stored frequency samples.
+            - ``q_side``: ``"auto"``, ``"left"``, ``"right"``, or a list with
+              one choice per peak; defaults to ``"auto"``.
+
+            Interactive selection is not supported by this method.
+
+        Returns
+        -------
+        SmartBoundDetermination
+            Estimator containing the detected peaks and bounds, available for
+            inspection with ``inspect()`` or ``to_table()``.
+
+        Raises
+        ------
+        ValueError
+            If the model contains wake data, no peaks are detected, or
+            interactive selection is requested.
+        """
+        if self.fitFunctionType != "impedance":
+            raise ValueError("estimate_bounds requires impedance data")
+        if kwargs.get("interactive", False):
+            raise ValueError("estimate_bounds does not support interactive selection")
+
+        if impedance_type is None:
+            impedance_type = "real" if self.plane == "transverse" else "absolute"
+        if impedance_type == "absolute":
+            impedance = np.abs(self.impedance_data)
+        elif impedance_type == "real":
+            impedance = np.real(self.impedance_data)
+        else:
+            raise ValueError("impedance_type must be 'absolute' or 'real'")
+
+        estimate = SmartBoundDetermination(
+            self.frequency_data,
+            impedance,
+            impedance_type=impedance_type,
+            plane=self.plane,
+            wake_length=self.wake_length,
+            **kwargs,
+        )
+        if not estimate.N_resonators:
+            raise ValueError("No resonance peaks found in the impedance data")
+
+        self.N_resonators = estimate.N_resonators
+        self.parameterBounds = estimate.parameterBounds
+        self.parameterEstimates = estimate.parameterEstimates
+        if show_table:
+            estimate.to_table()
+        if show_inspect:
+            estimate.inspect(show_components=True)
+        return estimate
 
     def check_y_data(self) -> None:
         """
