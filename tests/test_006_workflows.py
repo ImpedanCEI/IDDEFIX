@@ -44,16 +44,16 @@ def test_estimate_bounds_from_impedance(plane, capsys, monkeypatch):
         lambda self, **options: inspections.append((self, options)),
     )
 
-    estimate = model.estimate_bounds(minimum_peak_height=50.0)
+    bounds = model.estimate_bounds(minimum_peak_height=50.0)
 
     assert "fres [Hz]" in capsys.readouterr().out
-    assert inspections == [(estimate, {"show_components": True})]
-    assert isinstance(estimate, iddefix.SmartBoundDetermination)
-    assert estimate.impedance_type == "real"
-    np.testing.assert_allclose(estimate.analysis_impedance_data, impedance.real)
+    assert inspections == [(bounds, {"show_components": True})]
+    assert isinstance(bounds, iddefix.SmartBoundDetermination)
+    assert bounds.impedance_type == "real"
+    np.testing.assert_allclose(bounds.analysis_impedance_data, impedance.real)
     assert model.N_resonators == 1
-    assert model.parameterBounds == estimate.parameterBounds
-    assert model.parameterEstimates == estimate.parameterEstimates
+    assert model.parameterBounds == bounds.parameterBounds
+    assert model.parameterEstimates == bounds.parameterEstimates
     np.testing.assert_allclose(model.parameterEstimates, parameters, rtol=0.02)
     assert len(model._require_fit_bounds()) == 3
 
@@ -61,7 +61,7 @@ def test_estimate_bounds_from_impedance(plane, capsys, monkeypatch):
         minimum_peak_height=50.0, show_table=False, show_inspect=False
     )
     assert capsys.readouterr().out == ""
-    assert inspections == [(estimate, {"show_components": True})]
+    assert inspections == [(bounds, {"show_components": True})]
 
 
 def test_estimate_bounds_from_magnitude():
@@ -72,12 +72,12 @@ def test_estimate_bounds_from_magnitude():
     )
     model = iddefix.EvolutionaryAlgorithm(frequency, impedance)
 
-    estimate = model.estimate_bounds(
+    bounds = model.estimate_bounds(
         impedance_type="absolute", show_table=False, show_inspect=False
     )
 
-    assert estimate.impedance_type == "absolute"
-    np.testing.assert_allclose(estimate.analysis_impedance_data, np.abs(impedance))
+    assert bounds.impedance_type == "absolute"
+    np.testing.assert_allclose(bounds.analysis_impedance_data, np.abs(impedance))
     assert model.N_resonators == 1
 
 

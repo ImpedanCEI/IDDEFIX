@@ -334,7 +334,7 @@ class EvolutionaryAlgorithm:
         else:
             raise ValueError("impedance_type must be 'absolute' or 'real'")
 
-        estimate = SmartBoundDetermination(
+        bounds = SmartBoundDetermination(
             self.frequency_data,
             impedance,
             impedance_type=impedance_type,
@@ -342,17 +342,17 @@ class EvolutionaryAlgorithm:
             wake_length=self.wake_length,
             **kwargs,
         )
-        if not estimate.N_resonators:
+        if not bounds.N_resonators:
             raise ValueError("No resonance peaks found in the impedance data")
 
-        self.N_resonators = estimate.N_resonators
-        self.parameterBounds = estimate.parameterBounds
-        self.parameterEstimates = estimate.parameterEstimates
+        self.N_resonators = bounds.N_resonators
+        self.parameterBounds = bounds.parameterBounds
+        self.parameterEstimates = bounds.parameterEstimates
         if show_table:
-            estimate.to_table()
+            bounds.to_table()
         if show_inspect:
-            estimate.inspect(show_components=True)
-        return estimate
+            bounds.inspect(show_components=True)
+        return bounds
 
     def check_y_data(self) -> None:
         """
