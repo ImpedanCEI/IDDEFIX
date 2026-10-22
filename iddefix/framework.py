@@ -269,7 +269,7 @@ class EvolutionaryAlgorithm:
 
     def estimate_bounds(
         self,
-        impedance_type: str | None = None,
+        impedance_type: str | None = "real",
         show_table: bool = True,
         show_inspect: bool = True,
         **kwargs: Any,
@@ -283,8 +283,7 @@ class EvolutionaryAlgorithm:
         ----------
         impedance_type : {"absolute", "real"} or None, optional
             Use the magnitude or real part of the stored impedance. Defaults
-            to ``"absolute"`` for longitudinal models and ``"real"`` for
-            transverse models.
+            to ``"real"`` for both planes. ``None`` also selects this default.
         show_table : bool, optional
             Display the estimated bounds with ``to_table()``. Default is True.
         show_inspect : bool, optional
@@ -327,7 +326,7 @@ class EvolutionaryAlgorithm:
             raise ValueError("estimate_bounds does not support interactive selection")
 
         if impedance_type is None:
-            impedance_type = "real" if self.plane == "transverse" else "absolute"
+            impedance_type = "real"
         if impedance_type == "absolute":
             impedance = np.abs(self.impedance_data)
         elif impedance_type == "real":

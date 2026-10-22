@@ -49,6 +49,8 @@ def test_estimate_bounds_from_impedance(plane, capsys, monkeypatch):
     assert "fres [Hz]" in capsys.readouterr().out
     assert inspections == [(estimate, {"show_components": True})]
     assert isinstance(estimate, iddefix.SmartBoundDetermination)
+    assert estimate.impedance_type == "real"
+    np.testing.assert_allclose(estimate.analysis_impedance_data, impedance.real)
     assert model.N_resonators == 1
     assert model.parameterBounds == estimate.parameterBounds
     assert model.parameterEstimates == estimate.parameterEstimates
@@ -60,6 +62,23 @@ def test_estimate_bounds_from_impedance(plane, capsys, monkeypatch):
     )
     assert capsys.readouterr().out == ""
     assert inspections == [(estimate, {"show_components": True})]
+
+
+def test_estimate_bounds_from_magnitude():
+    """Longitudinal bounds can still use the impedance magnitude explicitly."""
+    frequency = np.linspace(0.5e9, 1.5e9, 2001)
+    impedance = iddefix.Impedances.Resonator_longitudinal_imp(
+        frequency, 100.0, 8.0, 1e9
+    )
+    model = iddefix.EvolutionaryAlgorithm(frequency, impedance)
+
+    estimate = model.estimate_bounds(
+        impedance_type="absolute", show_table=False, show_inspect=False
+    )
+
+    assert estimate.impedance_type == "absolute"
+    np.testing.assert_allclose(estimate.analysis_impedance_data, np.abs(impedance))
+    assert model.N_resonators == 1
 
 
 def test_estimate_bounds_requires_detected_impedance_peak():

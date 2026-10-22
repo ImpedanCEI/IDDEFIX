@@ -398,7 +398,6 @@ model = iddefix.EvolutionaryAlgorithm(
     plane="longitudinal",
 )
 bounds = model.estimate_bounds(
-    impedance_type="real",
     minimum_peak_height=1.0,
 )
 model.run_differential_evolution()
@@ -411,9 +410,10 @@ plot with the estimated resonator components. Pass `show_table=False` or
 `show_inspect=False` to suppress either display. To inspect frequency-bound
 intervals instead, call `bounds.inspect(show_bounds=True)`.
 
-The method uses impedance magnitude by default for longitudinal models and
-real impedance for transverse models. The model supplies its `plane` and
-`wake_length` to SmartBounds, so these are set when constructing the model.
+The method uses real impedance by default for both planes. Pass
+`impedance_type="absolute"` to detect peaks in the impedance magnitude instead.
+The model supplies its `plane` and `wake_length` to SmartBounds, so these are
+set when constructing the model.
 Pass automatic detection options such as `prominence`, `samples`, `q_side`,
 `Rs_bounds`, `Q_bounds`, and `fres_bounds` to `estimate_bounds()` as keyword
 arguments. Interactive peak selection requires using
