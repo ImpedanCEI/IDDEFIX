@@ -67,32 +67,21 @@ class Wakes:
         """
 
         omega_r = 2 * np.pi * resonant_frequency
+        B = omega_r / (2 * Q)
         if Q == 0.5:
             Wl = 2 * Rs * omega_r * np.exp(-omega_r * times) * (1 - omega_r * times)
         elif Q < 0.5:
-            omega_r_bar = omega_r * np.sqrt((1 / (4 * Q**2)) - 1)
-            cos_term = np.cosh(omega_r_bar * times)
-            sin_term = np.sinh(omega_r_bar * times)
-            exp_term = np.exp(-omega_r * times / (2 * Q))
-            Wl = (
-                Rs
-                * omega_r
-                / Q
-                * exp_term
-                * (cos_term - omega_r / (2 * Q * omega_r_bar) * sin_term)
-            )
+            D = omega_r * np.sqrt((1 / (4 * Q**2)) - 1)
+            cos_term = np.cosh(D * times)
+            sin_term = np.sinh(D * times)
+            exp_term = np.exp(-B * times)
+            Wl = Rs * omega_r / Q * exp_term * (cos_term - B / D * sin_term)
         else:
-            omega_r_bar = omega_r * np.sqrt(1 - (1 / (4 * Q**2)))
-            cos_term = np.cos(omega_r_bar * times)
-            sin_term = np.sin(omega_r_bar * times)
-            exp_term = np.exp(-omega_r * times / (2 * Q))
-            Wl = (
-                Rs
-                * omega_r
-                / Q
-                * exp_term
-                * (cos_term - omega_r / (2 * Q * omega_r_bar) * sin_term)
-            )
+            C = omega_r * np.sqrt(1 - (1 / (4 * Q**2)))
+            cos_term = np.cos(C * times)
+            sin_term = np.sin(C * times)
+            exp_term = np.exp(-B * times)
+            Wl = Rs * omega_r / Q * exp_term * (cos_term - B / C * sin_term)
         Wl[times == 0.0] = omega_r / (2 * Q)  # Fundamental theorem of beam loading
         Wl[times < 0] = 0.0
 
@@ -142,19 +131,18 @@ class Wakes:
         """
 
         omega_r = 2 * np.pi * resonant_frequency
-        exp_term = np.exp(-omega_r * times / 2 / Q)
+        B = omega_r / (2 * Q)
+        exp_term = np.exp(-B * times)
         if Q == 0.5:
             Wt = omega_r**2 * Rs / Q * exp_term * times
         elif Q < 0.5:
-            omega_r_bar = omega_r * np.sqrt((1 / (4 * Q**2)) - 1)
-            sqrt_term = np.sqrt((1 / (4 * Q * Q)) - 1)
-            sin_term = np.sinh(omega_r * sqrt_term * times)
-            Wt = omega_r**2 * Rs / (Q * omega_r_bar) * exp_term * sin_term
+            D = omega_r * np.sqrt((1 / (4 * Q**2)) - 1)
+            sin_term = np.sinh(D * times)
+            Wt = omega_r**2 * Rs / (Q * D) * exp_term * sin_term
         else:
-            omega_r_bar = omega_r * np.sqrt(1 - (1 / (4 * Q**2)))
-            sqrt_term = np.sqrt(1 - (1 / (4 * Q * Q)))
-            sin_term = np.sin(omega_r * sqrt_term * times)
-            Wt = omega_r**2 * Rs / (Q * omega_r_bar) * exp_term * sin_term
+            C = omega_r * np.sqrt(1 - (1 / (4 * Q**2)))
+            sin_term = np.sin(C * times)
+            Wt = omega_r**2 * Rs / (Q * C) * exp_term * sin_term
         Wt[times < 0] = 0.0
 
         return Wt
@@ -536,7 +524,7 @@ class Impedances:
 
             B = omega_r / 2 / Q
             T = wake_length / c
-            s = B + 1j * omega
+            p = B + 1j * omega
             if Q < 0.5:
                 D = omega_r * np.sqrt(1 / 4 / Q**2 - 1)
                 fast_rate = B + D
@@ -558,14 +546,14 @@ class Impedances:
             else:
                 # The formula remains finite at the critical value Q = 0.5.
                 C = omega_r * np.sqrt(1 - 1 / 4 / Q**2)
-                exp_term = np.exp(-s * T)
+                exp_term = np.exp(-p * T)
                 cos_term = np.cos(C * T)
                 # sin(C*T)/C has the finite limit T at the critical Q = 0.5.
                 sin_over_C = T * np.sinc(C * T / np.pi)
                 numerator = 1j * omega + exp_term * (
-                    -1j * omega * cos_term + C**2 * sin_over_C + B * s * sin_over_C
+                    -1j * omega * cos_term + C**2 * sin_over_C + B * p * sin_over_C
                 )
-                denominator = C**2 + s**2
+                denominator = C**2 + p**2
             Zl = Rs * omega_r / Q * numerator / denominator
 
         return Zl
@@ -632,7 +620,7 @@ class Impedances:
 
             B = omega_r / 2 / Q
             T = wake_length / c
-            AC = Rs * omega_r**2 / Q
+            prefactor = Rs * omega_r**2 / Q
             if Q < 0.5:
                 D = omega_r * np.sqrt(1 / 4 / Q**2 - 1)
                 fast_rate = B + D
@@ -644,20 +632,30 @@ class Impedances:
                 decay_sinh_over_D = (
                     phase * slow_decay * (-np.expm1(-2 * D * T)) / (2 * D)
                 )
-                s = B + 1j * omega
+                p = B + 1j * omega
                 denominator = (slow_rate + 1j * omega) * (fast_rate + 1j * omega)
-                Zt = 1j * AC / denominator * (1 - decay_cosh - s * decay_sinh_over_D)
+                Zt = (
+                    1j
+                    * prefactor
+                    / denominator
+                    * (1 - decay_cosh - p * decay_sinh_over_D)
+                )
 
             else:
                 C = omega_r * np.sqrt(1 - 1 / 4 / Q**2)
-                # A*C and sin(C*T)/C have finite limits at the critical Q = 0.5.
+                # The prefactor and sin(C*T)/C have finite limits at Q = 0.5.
                 sin_over_C = T * np.sinc(C * T / np.pi)
-                s = B + 1j * omega
-                exp_term = np.exp(-T * s)
+                p = B + 1j * omega
+                exp_term = np.exp(-T * p)
                 cos_term = np.cos(C * T)
-                sin_term = s * sin_over_C
-                denominator = C**2 + s**2
-                Zt = 1j * AC / denominator * (1 - exp_term * (cos_term + sin_term))
+                sin_term = p * sin_over_C
+                denominator = C**2 + p**2
+                Zt = (
+                    1j
+                    * prefactor
+                    / denominator
+                    * (1 - exp_term * (cos_term + sin_term))
+                )
 
         return Zt
 
