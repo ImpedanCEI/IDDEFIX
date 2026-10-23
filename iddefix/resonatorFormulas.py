@@ -274,76 +274,75 @@ class Wakes:
         sigma: float = 1e-10,
         use_mpmath: bool = False,
     ) -> np.ndarray:
-        """
-        Single resonator wake potential (longitudinal) for a Gaussian bunch of line density.
+        """Calculate the longitudinal resonator wake potential for a Gaussian bunch.
 
         Args:
-            Rs (float or list): Shunt impedance (Ohm).
-            resonant_frequency (float or list): Resonant frequency (Hz).
-            Q (float or list): Quality factor.
-            sigma (float): RMS bunch length (s)
-            times (array-like): Times (s) where wake is computed (times > 0 behind the source).
-            use_mpmath (bool, optional): Use mpmath for calculations. Defaults to False.
+            times (array-like): Observation times in seconds.
+            Rs (float): Shunt impedance in Ohm.
+            Q (float): Positive quality factor.
+            resonant_frequency (float): Resonant frequency in Hz.
+            sigma (float): RMS bunch duration in seconds.
+            use_mpmath (bool): Deprecated compatibility option. SciPy is used
+                for all quality factors.
 
         Returns:
-            np.ndarray: Wake potential at times `times`.
+            np.ndarray: Longitudinal wake potential in V/C.
 
         Notes:
-            The formula is from Chao's Handbook (p. 237, sec 3.2), partly re-derived by
-            N. Mounet. Equivalent formula in https://cds.cern.ch/record/192684/files/198812060.pdf
-            Q must be different from 0.5!
-            Rs, resonant_frequency, and Q must be scalar.
+            Uses the critical, overdamped, or underdamped expression according
+            to Q. Gaussian convolution can give a nonzero leading tail at
+            negative observation times.
         """
-        omegar = 2 * np.pi * resonant_frequency
-        kr = omegar * (1 - 1 / (4 * Q**2)) ** 0.5
-        alphar = omegar / (2 * Q)
-        cstsin = -Rs * omegar**2 / (4 * Q**2 * kr)
-        cstcos = Rs * omegar / (2 * Q)
+        times = np.asarray(times, dtype=float)
+        omega_r = 2 * np.pi * resonant_frequency
+        gaussian = np.exp(-(times**2) / (2 * sigma**2))
 
-        mpmath_is_installed = True
-
-        if use_mpmath:
-            try:
-                pass
-            except Exception:
-                raise ImportError(
-                    "mpmath is not installed. Please install it to use this function."
+        if Q == 0.5:
+            a = omega_r
+            argument = (a * sigma**2 - times) / (np.sqrt(2) * sigma)
+            with np.errstate(over="ignore", invalid="ignore"):
+                I_sigma = np.where(
+                    argument >= 0,
+                    gaussian * sp.erfcx(argument) / 2,
+                    np.exp(a**2 * sigma**2 / 2 - a * times) * sp.erfc(argument) / 2,
                 )
-                mpmath_is_installed = False
-
-        if use_mpmath and mpmath_is_installed:
-            from mpmath import erfc, exp, im, matrix, re
-
-            cst = exp((alphar**2 - kr**2) * sigma**2 / 2)
-            times_mp = matrix(times)
-            erfc_arg = -(times_mp - alphar * sigma**2 + 1j * kr * sigma**2) / (
-                np.sqrt(2) * sigma
+            J_sigma = (times - a * sigma**2) * I_sigma + (
+                sigma / np.sqrt(2 * np.pi) * gaussian
             )
-            erfc_v = erfc_arg.apply(erfc)
-            arg_expo1 = -alphar * times_mp
-            expo1 = arg_expo1.apply(exp)
-            arg_expo2 = 1j * (kr * times_mp - alphar * kr * sigma**2)
-            expo2 = arg_expo2.apply(exp)
-            im_expo_erfc = matrix([im(ex * er) for (ex, er) in zip(expo2, erfc_v)])
-            re_expo_erfc = matrix([re(ex * er) for (ex, er) in zip(expo2, erfc_v)])
-            W = np.hstack(
-                [
-                    cst * ex1 * (cstsin * im_exr + cstcos * re_exr)
-                    for (ex1, im_exr, re_exr) in zip(expo1, im_expo_erfc, re_expo_erfc)
-                ]
-            )
+            W = 2 * Rs * omega_r * (I_sigma - omega_r * J_sigma)
+
+        elif Q < 0.5:
+            B = omega_r / (2 * Q)
+            D = omega_r * np.sqrt(1 / (4 * Q**2) - 1)
+            a_plus = B + D
+            a_minus = omega_r**2 / a_plus
+            I_values = []
+            for a in (a_minus, a_plus):
+                argument = (a * sigma**2 - times) / (np.sqrt(2) * sigma)
+                with np.errstate(over="ignore", invalid="ignore"):
+                    I_sigma = np.where(
+                        argument >= 0,
+                        gaussian * sp.erfcx(argument) / 2,
+                        np.exp(a**2 * sigma**2 / 2 - a * times) * sp.erfc(argument) / 2,
+                    )
+                I_values.append(I_sigma)
+            I_minus, I_plus = I_values
+            W = Rs * omega_r / (2 * Q * D) * (a_plus * I_plus - a_minus * I_minus)
+
         else:
-            cst = np.exp((alphar**2 - kr**2) * sigma**2 / 2)
-            erfc_v = sp.erfc(
-                -(times - alphar * sigma**2 + 1j * kr * sigma**2) / (np.sqrt(2) * sigma)
-            )
-            expo1 = np.exp(-alphar * times)
-            expo2 = np.exp(1j * (kr * times - alphar * kr * sigma**2))
-            W = (
-                cst
-                * expo1
-                * (cstsin * np.imag(expo2 * erfc_v) + cstcos * np.real(expo2 * erfc_v))
-            )
+            B = omega_r / (2 * Q)
+            C = omega_r * np.sqrt(1 - 1 / (4 * Q**2))
+            a = B - 1j * C
+            argument = (a * sigma**2 - times) / (np.sqrt(2) * sigma)
+            # K_sigma(a, t) in theory.md; erfcx(z) = wofz(i*z).
+            with np.errstate(over="ignore", invalid="ignore"):
+                K_sigma = np.where(
+                    argument.real >= 0,
+                    gaussian * sp.wofz(1j * argument) / 2,
+                    np.exp(a**2 * sigma**2 / 2 - a * times)
+                    - gaussian * sp.wofz(-1j * argument) / 2,
+                )
+            W = Rs * omega_r / Q * np.real((1 + 1j * B / C) * K_sigma)
 
         return W
 
@@ -371,74 +370,75 @@ class Wakes:
         sigma: float = 1e-10,
         use_mpmath: bool = False,
     ) -> np.ndarray:
-        """
-        Single resonator wake potential (transverse) for a Gaussian bunch of line density.
+        """Calculate the transverse resonator wake potential for a Gaussian bunch.
 
         Args:
-            Rs (float or list): Shunt impedance (Ohm).
-            resonant_frequency (float or list): Resonant frequency (Hz).
-            Q (float or list): Quality factor.
-            sigma (float): RMS bunch length (s)
-            times (array-like): Times (s) where wake is computed (times > 0 behind the source).
-            use_mpmath (bool, optional): Use mpmath for calculations. Defaults to False.
+            times (array-like): Observation times in seconds.
+            Rs (float): Shunt impedance in Ohm/m.
+            Q (float): Positive quality factor.
+            resonant_frequency (float): Resonant frequency in Hz.
+            sigma (float): RMS bunch duration in seconds.
+            use_mpmath (bool): Deprecated compatibility option. SciPy is used
+                for all quality factors.
 
         Returns:
-            np.ndarray: Wake potential at times `times`.
+            np.ndarray: Transverse wake potential in V/C/m.
 
         Notes:
-            The formula is from Chao's Handbook (p. 237, sec 3.2), partly re-derived by
-            N. Mounet. Equivalent formula in https://cds.cern.ch/record/192684/files/198812060.pdf
-            Q must be different from 0.5!
-            Rs, resonant_frequency, and Q must be scalar.
+            Uses the critical, overdamped, or underdamped expression according
+            to Q. Gaussian convolution can give a nonzero leading tail at
+            negative observation times.
         """
+        times = np.asarray(times, dtype=float)
+        omega_r = 2 * np.pi * resonant_frequency
+        gaussian = np.exp(-(times**2) / (2 * sigma**2))
 
-        omegar = 2 * np.pi * resonant_frequency
-        kr = omegar * (1 - 1 / (4 * Q**2)) ** 0.5
-        alphar = omegar / (2 * Q)
-
-        mpmath_is_installed = True
-
-        if use_mpmath:
-            try:
-                pass
-            except Exception:
-                raise ImportError(
-                    "mpmath is not installed. Please install it to use this function."
+        if Q == 0.5:
+            a = omega_r
+            argument = (a * sigma**2 - times) / (np.sqrt(2) * sigma)
+            with np.errstate(over="ignore", invalid="ignore"):
+                I_sigma = np.where(
+                    argument >= 0,
+                    gaussian * sp.erfcx(argument) / 2,
+                    np.exp(a**2 * sigma**2 / 2 - a * times) * sp.erfc(argument) / 2,
                 )
-                mpmath_is_installed = False
+            J_sigma = (times - a * sigma**2) * I_sigma + (
+                sigma / np.sqrt(2 * np.pi) * gaussian
+            )
+            W = 2 * Rs * omega_r**2 * J_sigma
 
-        if use_mpmath and mpmath_is_installed:
-            from mpmath import erfc, exp, im, matrix
+        elif Q < 0.5:
+            B = omega_r / (2 * Q)
+            D = omega_r * np.sqrt(1 / (4 * Q**2) - 1)
+            a_plus = B + D
+            a_minus = omega_r**2 / a_plus
+            I_values = []
+            for a in (a_minus, a_plus):
+                argument = (a * sigma**2 - times) / (np.sqrt(2) * sigma)
+                with np.errstate(over="ignore", invalid="ignore"):
+                    I_sigma = np.where(
+                        argument >= 0,
+                        gaussian * sp.erfcx(argument) / 2,
+                        np.exp(a**2 * sigma**2 / 2 - a * times) * sp.erfc(argument) / 2,
+                    )
+                I_values.append(I_sigma)
+            I_minus, I_plus = I_values
+            W = Rs * omega_r**2 / (2 * Q * D) * (I_minus - I_plus)
 
-            times_mp = matrix(times)
-            cst = (
-                Rs * omegar**2 / (2 * Q * kr) * exp((alphar**2 - kr**2) * sigma**2 / 2)
-            )
-            erfc_arg = -(times_mp - alphar * sigma**2 + 1j * kr * sigma**2) / (
-                np.sqrt(2) * sigma
-            )
-            erfc_v = erfc_arg.apply(erfc)
-            arg_expo1 = -alphar * times_mp
-            expo1 = arg_expo1.apply(exp)
-            arg_expo2 = 1j * (kr * times_mp - alphar * kr * sigma**2)
-            expo2 = arg_expo2.apply(exp)
-            im_expo_erfc = matrix([im(ex * er) for (ex, er) in zip(expo2, erfc_v)])
-            W = np.hstack(
-                [cst * ex1 * im_exr for (ex1, im_exr) in zip(expo1, im_expo_erfc)]
-            )
         else:
-            cst = (
-                Rs
-                * omegar**2
-                / (2 * Q * kr)
-                * np.exp((alphar**2 - kr**2) * sigma**2 / 2)
-            )
-            erf_v = sp.erf(
-                (times - alphar * sigma**2 + 1j * kr * sigma**2) / (np.sqrt(2) * sigma)
-            )
-            expo1 = np.exp(-alphar * times)
-            expo2 = np.exp(1j * (kr * times - alphar * kr * sigma**2))
-            W = cst * expo1 * np.imag(expo2 * (1 + erf_v))
+            B = omega_r / (2 * Q)
+            C = omega_r * np.sqrt(1 - 1 / (4 * Q**2))
+            a = B - 1j * C
+            argument = (a * sigma**2 - times) / (np.sqrt(2) * sigma)
+            # K_sigma(a, t) in theory.md; erfcx(z) = wofz(i*z).
+            with np.errstate(over="ignore", invalid="ignore"):
+                K_sigma = np.where(
+                    argument.real >= 0,
+                    gaussian * sp.wofz(1j * argument) / 2,
+                    np.exp(a**2 * sigma**2 / 2 - a * times)
+                    - gaussian * sp.wofz(-1j * argument) / 2,
+                )
+            W = Rs * omega_r**2 / (Q * C) * np.imag(K_sigma)
 
         return W
 
