@@ -24,6 +24,87 @@ def resonance():
     return frequency, parameters, impedance, bounds
 
 
+@pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
+def test_estimate_bounds_from_impedance(plane, capsys, monkeypatch):
+    """Detected bounds and estimates prepare an impedance model for fitting."""
+    frequency = np.linspace(0.5e9, 1.5e9, 2001)
+    parameters = [100.0, 8.0, 1e9]
+    formula = (
+        iddefix.Impedances.Resonator_longitudinal_imp
+        if plane == "longitudinal"
+        else iddefix.Impedances.Resonator_transverse_imp
+    )
+    impedance = formula(frequency, *parameters)
+    model = iddefix.EvolutionaryAlgorithm(frequency, impedance, plane=plane)
+    capsys.readouterr()
+    inspections = []
+    monkeypatch.setattr(
+        iddefix.SmartBoundDetermination,
+        "inspect",
+        lambda self, **options: inspections.append((self, options)),
+    )
+
+    bounds = model.estimate_bounds(minimum_peak_height=50.0)
+
+    assert "fres [Hz]" in capsys.readouterr().out
+    assert inspections == [(bounds, {"show_components": True})]
+    assert isinstance(bounds, iddefix.SmartBoundDetermination)
+    assert bounds.impedance_type == "real"
+    np.testing.assert_allclose(bounds.analysis_impedance_data, impedance.real)
+    assert model.N_resonators == 1
+    assert model.parameterBounds == bounds.parameterBounds
+    assert model.parameterEstimates == bounds.parameterEstimates
+    np.testing.assert_allclose(model.parameterEstimates, parameters, rtol=0.02)
+    assert len(model._require_fit_bounds()) == 3
+
+    model.estimate_bounds(
+        minimum_peak_height=50.0, show_table=False, show_inspect=False
+    )
+    assert capsys.readouterr().out == ""
+    assert inspections == [(bounds, {"show_components": True})]
+
+
+def test_estimate_bounds_from_magnitude():
+    """Longitudinal bounds can still use the impedance magnitude explicitly."""
+    frequency = np.linspace(0.5e9, 1.5e9, 2001)
+    impedance = iddefix.Impedances.Resonator_longitudinal_imp(
+        frequency, 100.0, 8.0, 1e9
+    )
+    model = iddefix.EvolutionaryAlgorithm(frequency, impedance)
+
+    bounds = model.estimate_bounds(
+        impedance_type="absolute", show_table=False, show_inspect=False
+    )
+
+    assert bounds.impedance_type == "absolute"
+    np.testing.assert_allclose(bounds.analysis_impedance_data, np.abs(impedance))
+    assert model.N_resonators == 1
+
+
+def test_estimate_bounds_requires_detected_impedance_peak():
+    """An empty detection leaves any existing fitting setup untouched."""
+    frequency = np.linspace(0.5e9, 1.5e9, 101)
+    original = [(1.0, 2.0), (1.0, 10.0), (0.5e9, 1.5e9)]
+    model = iddefix.EvolutionaryAlgorithm(
+        frequency, np.zeros_like(frequency), parameterBounds=original
+    )
+
+    with pytest.raises(ValueError, match="No resonance peaks"):
+        model.estimate_bounds()
+
+    assert model.N_resonators == 1
+    assert model.parameterBounds is original
+
+
+def test_estimate_bounds_rejects_wake_data():
+    """Peak detection needs a frequency-domain impedance trace."""
+    time = np.linspace(0.0, 1e-9, 101)
+    model = iddefix.EvolutionaryAlgorithm(time, np.zeros_like(time), fitFunction="wake")
+
+    with pytest.raises(ValueError, match="requires impedance"):
+        model.estimate_bounds()
+
+
 @pytest.mark.parametrize("objective", ["Complex", "Real", "Abs"])
 def test_named_objective_matches_its_impedance_residual(resonance, objective):
     frequency, parameters, impedance, bounds = resonance
