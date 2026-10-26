@@ -393,8 +393,8 @@ fitting. For a longitudinal fit to the real part of a complex impedance:
 
 ```python
 model = iddefix.EvolutionaryAlgorithm(
-    frequency,
-    impedance,
+    impedance_x_data=frequency,
+    impedance_y_data=impedance,
     plane="longitudinal",
 )
 bounds = model.estimate_bounds(
@@ -432,8 +432,8 @@ the fitting model:
 
 ```python
 model = iddefix.EvolutionaryAlgorithm(
-    frequency,
-    impedance,
+    impedance_x_data=frequency,
+    impedance_y_data=impedance,
     N_resonators=bounds.N_resonators,
     parameterBounds=bounds.parameterBounds,
     parameterEstimates=bounds.parameterEstimates,
