@@ -33,8 +33,12 @@ ObjectiveCallable = Callable[..., float]
 class EvolutionaryAlgorithm:
     def __init__(
         self,
-        x_data: ArrayLike,
-        y_data: ArrayLike,
+        impedance_x_data: ArrayLike | None = None,
+        impedance_y_data: ArrayLike | None = None,
+        wake_potential_x_data: ArrayLike | None = None,
+        wake_potential_y_data: ArrayLike | None = None,
+        wake_x_data: ArrayLike | None = None,
+        wake_y_data: ArrayLike | None = None,
         N_resonators: int | None = None,
         parameterBounds: ParameterBounds | None = None,
         plane: str = "longitudinal",
@@ -55,11 +59,15 @@ class EvolutionaryAlgorithm:
 
         Parameters
         ----------
-        x_data : numpy.ndarray
-            Stores the input x data: frequencies for impedance [Hz], or
-            times for wake function and wake potential [s]
-        y_data : numpy.ndarray
-            Stores the input y data: impedance data [Ohm] or Wake function/potential [V/C/s]
+        impedance_x_data, impedance_y_data : array-like, optional
+            Frequency [Hz] and measured impedance. Named pairs activate normalized
+            fitting. Supply at least one complete data pair.
+        wake_potential_x_data, wake_potential_y_data : array-like, optional
+            Time [s] and measured Gaussian wake potential. Requires explicit sigma
+            in seconds. Each named pair must be complete, finite, and nonempty.
+        wake_x_data, wake_y_data : array-like, optional
+            Time [s] and measured point wake, fitted with the same parameters.
+
         N_resonators : int or None, optional
             Number of resonators in the model. If omitted, inferred from
             ``parameterBounds`` or a subsequently loaded parameter table.
@@ -68,15 +76,16 @@ class EvolutionaryAlgorithm:
             parameters: Rs (shunt resistance), Q (quality factor), and fr (resonant frequency).
             May be omitted when loading a table for evaluation or plotting.
         fitFunction: str, optional
-            Specify which fitFunction to use: ["impedance", "wake", "wake_potential"]
+            Retained for compatibility. The primary model domain is selected from
+            the supplied data pairs: impedance, then wake potential, then wake.
         plane : str, optional
             Type of impedance model, either `"longitudinal"` or `"transverse"`.
             Default is `"longitudinal"`.
         objectiveFunction : callable or str, optional
-            The objective function to minimize. If str, it should be in
-            ['Real', 'Complex', 'Abs'] (no case distinction). Default if
-            `y_data` is complex: ``obj.sumOfSquaredError``; otherwise it is
-            ``obj.sumOfSquaredErrorReal``.
+            Optional single-source objective: a callable or one of 'Real',
+            'Complex', or 'Abs' (case insensitive). By default, use the normalized
+            objective for any supplied data pairs. Multiple sources require this
+            default so every source contributes on the same normalized scale.
         wake_length : float, optional
             Length of the wake function in meters. Required for wake computations.
         sigma : float, optional
@@ -95,6 +104,7 @@ class EvolutionaryAlgorithm:
             Compute parameter uncertainties automatically after fitting.
             Default is True. Set to False to skip this calculation; call
             ``get_uncertainties()`` later if needed.
+
 
         Attributes
         ----------
@@ -126,6 +136,12 @@ class EvolutionaryAlgorithm:
 
         Notes
         -----
+        Named sources contribute equally through their mean squared residual
+        divided by measured RMS squared (scale 1 for an all-zero trace).
+        Complex impedance includes real and imaginary residuals. Solvers and
+        uncertainties share these residuals.
+
+
             - The ``fitFunction`` is assigned based on the ``plane`` type, the
                     fit mode, and the number of resonators.
             - The impedance and wake model is based on resonators and can be
@@ -141,8 +157,8 @@ class EvolutionaryAlgorithm:
         >>> Z = iddefix.Impedances.Resonator_longitudinal_imp(freq, 400, 30, 0.2e9) # Rs, Q, fr
         >>> bounds = [(10, 1000), (1, 100), (1e9, 5e9)]  # Example bounds for Rs, Q, fr
         >>> model = iddefix.EvolutionaryAlgorithm(
-        ...     x_data=freq,
-        ...     y_data=Z,
+        ...     impedance_x_data=freq,
+        ...     impedance_y_data=Z,
         ...     N_resonators=1,
         ...     parameterBounds=bounds,
         ... )
@@ -151,9 +167,10 @@ class EvolutionaryAlgorithm:
         >>> model.run_differential_evolution(maxiter=100, popsize=10)
         """
 
-        self.x_data = x_data
-        self.y_data = y_data
+        self.x_data = None
+        self.y_data = None
 
+        # Infer the resonator count and store fitting options.
         if N_resonators is None and parameterBounds is not None:
             if len(parameterBounds) == 0 or len(parameterBounds) % 3:
                 raise ValueError(
@@ -168,8 +185,16 @@ class EvolutionaryAlgorithm:
         self.wake_length = wake_length
         self.plane = plane
         self.sigma = sigma
-        self.fitFunctionType = "impedance"
+        self.fitFunctionType = (
+            "wake"
+            if fitFunction in ("wake", "wake function")
+            else "wake potential"
+            if fitFunction in ("wake potential", "wake_potential")
+            else "impedance"
+        )
+        self._joint_data = None
 
+        # Initialize measured data and optimization results.
         self.time_data = None
         self.wake_data = None
         self.wake_potential_data = None
@@ -186,86 +211,44 @@ class EvolutionaryAlgorithm:
         # warning is printed after evolution/minimization
         self.uncertainty_warning = uncertainty_warning
 
-        if self.objectiveFunction is None:
-            if np.iscomplex(y_data).any():
-                self.objectiveFunction = obj.sumOfSquaredError
-                print(
-                    "[!] Objective function set to default \
-                    `iddefix.objectiveFunctions.sumOfSquaredError`"
-                )
-            else:
-                self.objectiveFunction = obj.sumOfSquaredErrorReal
-                print(
-                    "[!] Objective function set to \
-                    `iddefix.objectiveFunctions.sumOfSquaredErrorReal` \
-                    for real-valued only data"
-                )
-        elif isinstance(self.objectiveFunction, str):
-            objective_name = self.objectiveFunction.lower()
-            if objective_name == "complex":
-                self.objectiveFunction = obj.sumOfSquaredError
-            elif objective_name == "real":
-                self.objectiveFunction = obj.sumOfSquaredErrorReal
-            elif objective_name == "abs":
-                self.objectiveFunction = obj.sumOfSquaredErrorAbs
-            else:
-                print(
-                    "[!] Objective function set to default \
-                    `iddefix.objectiveFunctions.sumOfSquaredError`"
-                )
-                self.objectiveFunction = obj.sumOfSquaredError
+        # Prepare active sources in order: impedance, wake potential, wake.
+        self._check_input_data(
+            {
+                "impedance": (impedance_x_data, impedance_y_data),
+                "wake_potential": (wake_potential_x_data, wake_potential_y_data),
+                "wake": (wake_x_data, wake_y_data),
+            }
+        )
 
-        if fitFunction == "wake" or fitFunction == "wake function":
-            self.fitFunctionType = "wake"
-            if plane == "longitudinal":
-                self.fitFunction = wak.n_Resonator_longitudinal_wake
-            elif plane == "transverse":
-                self.fitFunction = wak.n_Resonator_transverse_wake
-            else:
-                raise Exception("Algorithm needs N_resonartors >= 1")
-            self.time_data = x_data
-            self.wake_data = y_data
+        # Select the loss after the active sources are known.
+        self._set_objective_function()
 
-        elif fitFunction == "wake potential":
-            self.fitFunctionType = "wake potential"
-            if self.sigma is None:
-                print("[!] sigma not specified, using the default sigma=1e-10 s")
-                self.sigma = 1e-10
+        # Configure the primary model used by evaluation and plotting.
+        self._set_fit_function()
 
-            if plane == "longitudinal":
-                self.fitFunction = partial(
-                    wak.n_Resonator_longitudinal_wake_potential,
-                    sigma=self.sigma,
-                )
-            elif plane == "transverse":
-                self.fitFunction = partial(
-                    wak.n_Resonator_transverse_wake_potential, sigma=self.sigma
-                )
-            else:
-                raise Exception("Algorithm needs N_resonartors >= 1")
-            self.time_data = x_data
-            self.wake_potential_data = y_data
+        # Store the primary measurements for the domain-specific getters.
+        if self.fitFunctionType == "wake":
+            self.time_data, self.wake_data = self.x_data, self.y_data
+        elif self.fitFunctionType == "wake potential":
+            self.time_data, self.wake_potential_data = self.x_data, self.y_data
+        else:
+            self.frequency_data, self.impedance_data = self.x_data, self.y_data
 
-        else:  # Default to "impedance"
-            if wake_length is not None:
-                print(
-                    "[!] Using the partially decayed resonator formalism for impedance"
-                )
-            else:
-                print("[!] Using the fully decayed resonator formalism for impedance")
-
-            if plane == "longitudinal":
-                self.fitFunction = partial(
-                    imp.n_Resonator_longitudinal_imp, wake_length=wake_length
-                )
-            elif plane == "transverse":
-                self.fitFunction = partial(
-                    imp.n_Resonator_transverse_imp, wake_length=wake_length
-                )
-            else:
-                raise Exception("Algorithm needs N_resonartors >= 1")
-            self.frequency_data = x_data
-            self.impedance_data = y_data
+        # Expose each joint source while retaining the primary default grid.
+        if self._joint_data is not None:
+            for name, (x, y, _) in self._joint_data.items():
+                setattr(self, name + "_x_data", x)
+                setattr(self, name + "_y_data", y)
+                if name == "impedance":
+                    self.frequency_data, self.impedance_data = x, y
+                elif name == "wake":
+                    self.wake_data = y
+                    if self.time_data is None:
+                        self.time_data = x
+                else:
+                    self.wake_potential_data = y
+                    if self.time_data is None:
+                        self.time_data = x
 
     def estimate_bounds(
         self,
@@ -353,6 +336,143 @@ class EvolutionaryAlgorithm:
         if show_inspect:
             bounds.inspect(show_components=True)
         return bounds
+
+    def _set_fit_function(self) -> None:
+        """Assign the primary resonator model for its domain and plane."""
+        # Select the point wake, Gaussian wake potential, or impedance model.
+        if self.fitFunctionType == "wake":
+            if self.plane == "longitudinal":
+                self.fitFunction = wak.n_Resonator_longitudinal_wake
+            elif self.plane == "transverse":
+                self.fitFunction = wak.n_Resonator_transverse_wake
+            else:
+                raise Exception("Algorithm needs N_resonartors >= 1")
+
+        elif self.fitFunctionType == "wake potential":
+            if self.sigma is None:
+                print("[!] sigma not specified, using the default sigma=1e-10 s")
+                self.sigma = 1e-10
+
+            if self.plane == "longitudinal":
+                self.fitFunction = partial(
+                    wak.n_Resonator_longitudinal_wake_potential,
+                    sigma=self.sigma,
+                )
+            elif self.plane == "transverse":
+                self.fitFunction = partial(
+                    wak.n_Resonator_transverse_wake_potential, sigma=self.sigma
+                )
+            else:
+                raise Exception("Algorithm needs N_resonartors >= 1")
+
+        else:  # Default to "impedance"
+            if self.wake_length is not None:
+                print(
+                    "[!] Using the partially decayed resonator formalism for impedance"
+                )
+            else:
+                print("[!] Using the fully decayed resonator formalism for impedance")
+
+            if self.plane == "longitudinal":
+                self.fitFunction = partial(
+                    imp.n_Resonator_longitudinal_imp, wake_length=self.wake_length
+                )
+            elif self.plane == "transverse":
+                self.fitFunction = partial(
+                    imp.n_Resonator_transverse_imp, wake_length=self.wake_length
+                )
+            else:
+                raise Exception("Algorithm needs N_resonartors >= 1")
+
+    def _set_objective_function(self) -> None:
+        """Select the normalized loss or an explicit single-source objective."""
+        # Use the normalized loss unless a single-source objective was supplied.
+        if self._joint_data is not None:
+            self.objectiveFunction = partial(
+                obj.jointSumOfSquaredError, sources=self._joint_data
+            )
+            return
+
+        # Preserve explicit single-source objectives and supplied callables.
+        if isinstance(self.objectiveFunction, str):
+            objective_name = self.objectiveFunction.lower()
+            if objective_name == "complex":
+                self.objectiveFunction = obj.sumOfSquaredError
+            elif objective_name == "real":
+                self.objectiveFunction = obj.sumOfSquaredErrorReal
+            elif objective_name == "abs":
+                self.objectiveFunction = obj.sumOfSquaredErrorAbs
+            else:
+                print(
+                    "[!] Objective function set to default \
+                    `iddefix.objectiveFunctions.sumOfSquaredError`"
+                )
+                self.objectiveFunction = obj.sumOfSquaredError
+
+    def _check_input_data(
+        self,
+        data: dict[str, tuple[ArrayLike | None, ArrayLike | None]],
+    ) -> None:
+        """Validate and prepare the supplied fitting data."""
+        # Collect complete named pairs, ignoring unavailable sources.
+        active = {}
+        for name, (x, y) in data.items():
+            if (x is None) != (y is None):
+                raise ValueError(f"Provide both {name}_x_data and {name}_y_data")
+            if x is not None:
+                active[name] = (x, y)
+
+        # Require measurements and compatible options for a joint fit.
+        if not active:
+            raise ValueError("Provide at least one complete data pair")
+        if len(active) > 1 and self.objectiveFunction is not None:
+            raise ValueError("Multiple data sources use the normalized joint objective")
+        if self.plane not in ("longitudinal", "transverse"):
+            raise ValueError("plane must be longitudinal or transverse")
+
+        # Validate measurements and bind the corresponding resonator models.
+        self._joint_data = {}
+        for name, (x, y) in active.items():
+            x, y = np.asarray(x, dtype=float), np.asarray(y)
+            if (
+                x.ndim != 1
+                or y.ndim != 1
+                or x.size == 0
+                or x.shape != y.shape
+                or not np.all(np.isfinite(x))
+                or not np.all(np.isfinite(y))
+                or (name != "impedance" and np.iscomplex(y).any())
+            ):
+                raise ValueError(
+                    f"{name} data must be finite, nonempty matching 1D arrays; "
+                    "wake and wake_potential measurements must be real"
+                )
+
+            # Bind source-specific settings without changing the shared parameters.
+            module = imp if name == "impedance" else wak
+            suffix = "imp" if name == "impedance" else name
+            function = getattr(module, f"n_Resonator_{self.plane}_{suffix}")
+            if name == "impedance":
+                function = partial(function, wake_length=self.wake_length)
+            elif name == "wake_potential":
+                if self.sigma is None or not np.isfinite(self.sigma) or self.sigma <= 0:
+                    raise ValueError(
+                        "Provide a finite positive sigma for wake_potential data"
+                    )
+                function = partial(function, sigma=self.sigma)
+            x, y = x.copy(), y.copy()
+            self._joint_data[name] = (x, y, function)
+            setattr(self, name + "_x_data", x)
+            setattr(self, name + "_y_data", y)
+
+        # Retain the first active source for existing getters and plotting.
+        primary = next(iter(self._joint_data))
+        self.x_data, self.y_data = self._joint_data[primary][:2]
+        self.fitFunctionType = primary.replace("_", " ")
+
+        # An explicit single-source objective uses its original residual scale.
+        if self.objectiveFunction is not None:
+            self._joint_data = None
 
     def check_y_data(self) -> None:
         """
@@ -686,7 +806,7 @@ class EvolutionaryAlgorithm:
                 objective_function,
                 x0=self.evolutionParameters,
                 bounds=minimizationBounds,
-                tol=1,  # empiric value, documentation is cryptic
+                tol=1e-8 if self._joint_data is not None else 1,
                 method=method,
                 options={
                     "maxiter": self.N_resonators * 1000,
@@ -711,7 +831,7 @@ class EvolutionaryAlgorithm:
                 x0=initial_parameters,
                 bounds=self.parameterBounds,
                 method=method,
-                tol=1,
+                tol=1e-8 if self._joint_data is not None else 1,
                 options={
                     "maxiter": self.N_resonators * 5000,
                     "maxfev": self.N_resonators * 5000,
@@ -761,6 +881,8 @@ class EvolutionaryAlgorithm:
         if parameters is None:
             raise ValueError("No resonator parameters are available")
 
+        if self._joint_data is not None and (x_data is not None or y_data is not None):
+            raise ValueError("Joint uncertainties use the stored named data pairs")
         if x_data is None:
             x_data = self.x_data
         if y_data is None:
@@ -778,6 +900,7 @@ class EvolutionaryAlgorithm:
             np.asarray(x_data),
             np.asarray(y_data),
             parameterBounds,
+            sources=self._joint_data,
         )
         setattr(self, uncertainty_attribute, uncertainties)
         self.flagged_params = self._compute_flagged_params_mask(
@@ -1245,6 +1368,8 @@ class EvolutionaryAlgorithm:
         use_minimization: bool = True,
     ) -> np.ndarray:
         # Check for time data
+        if time_data is None and self._joint_data is not None:
+            time_data = getattr(self, "wake_x_data", None)
         if time_data is None:
             if self.time_data is None:
                 raise AttributeError("Provide time data array")
@@ -1281,6 +1406,8 @@ class EvolutionaryAlgorithm:
         use_minimization: bool = True,
     ) -> np.ndarray:
         # Check for time data
+        if time_data is None and self._joint_data is not None:
+            time_data = getattr(self, "wake_potential_x_data", None)
         if time_data is None:
             if self.time_data is None:
                 raise AttributeError("Provide time data array")
