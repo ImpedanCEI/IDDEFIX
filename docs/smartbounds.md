@@ -387,6 +387,38 @@ frequency and the estimated resonant frequency using the formula above.
 
 ### Use the estimates in a fit
 
+To estimate bounds directly from an `EvolutionaryAlgorithm`, construct the model
+with frequency-domain impedance data, then call `estimate_bounds()` before
+fitting. For a longitudinal fit to the real part of a complex impedance:
+
+```python
+model = iddefix.EvolutionaryAlgorithm(
+    frequency,
+    impedance,
+    plane="longitudinal",
+)
+bounds = model.estimate_bounds(
+    minimum_peak_height=1.0,
+)
+model.run_differential_evolution()
+```
+
+`estimate_bounds()` stores the detected `N_resonators`, `parameterBounds`, and
+`parameterEstimates` on the model and returns the `SmartBoundDetermination`
+instance as `bounds`. By default it displays the bounds table and an inspection
+plot with the estimated resonator components. Pass `show_table=False` or
+`show_inspect=False` to suppress either display. To inspect frequency-bound
+intervals instead, call `bounds.inspect(show_bounds=True)`.
+
+The method uses real impedance by default for both planes. Pass
+`impedance_type="absolute"` to detect peaks in the impedance magnitude instead.
+The model supplies its `plane` and `wake_length` to SmartBounds, so these are
+set when constructing the model.
+Pass automatic detection options such as `prominence`, `samples`, `q_side`,
+`Rs_bounds`, `Q_bounds`, and `fres_bounds` to `estimate_bounds()` as keyword
+arguments. Interactive peak selection requires using
+`SmartBoundDetermination` directly.
+
 The corresponding central estimates are available independently of the search
 bounds:
 
