@@ -48,6 +48,77 @@ def compute_norm(f, Z):
     return _trapezoid(np.abs(Z), f) / (f[-1] - f[0])
 
 
+def test_deconvolution_rolloff():
+    """A positive rolloff extends the spectrum and applies the raised cosine."""
+    sigma = 0.1e-9
+    fmax = 1e9
+    rolloff = 0.5
+    time = (np.arange(512) - 256) * 1e-11
+    gaussian = iddefix.gaussian_bunch(time, sigma)
+
+    f_default, _ = iddefix.compute_deconvolution(time, gaussian, sigma, fmax=fmax)
+    f_rolloff, impedance = iddefix.compute_deconvolution(
+        time, gaussian, sigma, fmax=fmax, rolloff=rolloff
+    )
+
+    cutoff = (1 + rolloff) * fmax
+    assert f_default[-1] < fmax
+    assert np.any((f_rolloff > fmax) & (f_rolloff < cutoff))
+
+    expected = np.ones_like(f_rolloff)
+    tapered = f_rolloff > fmax
+    expected[tapered] = 0.5 * (
+        1 + np.cos(np.pi * (f_rolloff[tapered] - fmax) / (cutoff - fmax))
+    )
+    np.testing.assert_allclose(impedance, expected, rtol=1e-12, atol=1e-12)
+
+
+def test_deconvolution_fmax_defaults_from_sigma():
+    """An omitted fmax gives the same result as 1/(3 sigma)."""
+    sigma = 0.12e-9
+    time = (np.arange(256) - 128) * 8e-12
+    potential = np.exp(-0.5 * (time / sigma) ** 2)
+    derived_fmax = 1 / (3 * sigma)
+
+    default_f, default_z = iddefix.compute_deconvolution(time, potential, sigma)
+    explicit_f, explicit_z = iddefix.compute_deconvolution(
+        time, potential, sigma, fmax=derived_fmax
+    )
+
+    np.testing.assert_array_equal(default_f, explicit_f)
+    np.testing.assert_array_equal(default_z, explicit_z)
+
+
+def test_gaussian_bunch_spectrum_starts_at_dc_and_stops_at_fmax():
+    """The Gaussian spectrum includes DC and excludes frequencies at fmax."""
+    time = (np.arange(128) - 64) * 2e-12
+    sigma = 0.1e-9
+    fmax = 4e9
+
+    frequency, spectrum = iddefix.gaussian_bunch_spectrum(time, sigma, fmax, samples=16)
+
+    assert frequency[0] == 0
+    assert np.all(frequency >= 0)
+    assert np.all(frequency < fmax)
+    assert frequency.shape == spectrum.shape
+    np.testing.assert_allclose(spectrum[0], np.sum(iddefix.gaussian_bunch(time, sigma)))
+
+
+def test_gaussian_bunch_spectrum_corrects_time_origin():
+    """The spectrum uses the supplied time coordinates, including their origin."""
+    time = (np.arange(128) - 37) * 2e-12
+    sigma = 0.1e-9
+    fmax = 4e9
+
+    frequency, spectrum = iddefix.gaussian_bunch_spectrum(time, sigma, fmax, samples=16)
+    gaussian = iddefix.gaussian_bunch(time, sigma)
+    expected = np.array(
+        [np.sum(gaussian * np.exp(-2j * np.pi * f * time)) for f in frequency]
+    )
+
+    np.testing.assert_allclose(spectrum, expected, rtol=1e-12, atol=1e-12)
+
+
 def stability_with_samples(time_data, wake_data, plot=False):
     sigma = 1e-10
     samples_list = [501, 1001, 5001, 10001]
