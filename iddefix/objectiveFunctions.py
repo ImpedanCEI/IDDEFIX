@@ -30,6 +30,37 @@ def _sum_objective_terms(terms: np.ndarray, predicted_y: np.ndarray) -> float:
 
 
 class ObjectiveFunctions:
+    def jointSumOfSquaredError(
+        parameters: ArrayLike,
+        sources: dict[str, tuple[ArrayLike, ArrayLike, FitCallable]],
+        fitFunction: FitCallable | None = None,
+        x: ArrayLike | None = None,
+        y: ArrayLike | None = None,
+    ) -> float:
+        """Sum each source's mean squared error divided by measured RMS squared.
+
+        ``sources`` maps each active domain to its grid, measurements, and model.
+        Sources contribute equally, with real and imaginary errors for complex
+        measurements. An all-zero measured trace uses scale 1. The other
+        arguments allow use with the existing solver dispatch interface.
+        """
+        grouped_parameters = pars_to_dict(parameters)
+        loss = 0.0
+        for source_x, source_y, source_model in sources.values():
+            source_y = np.asarray(source_y)
+            predicted_y = np.asarray(source_model(source_x, grouped_parameters))
+            # Match the fixed normalization used for joint uncertainties.
+            peak = float(np.max(np.abs(source_y)))
+            scale = (
+                peak * np.sqrt(np.mean(np.abs(source_y / peak) ** 2)) if peak else 1.0
+            )
+            difference = (source_y - predicted_y) / scale
+            terms = difference.real**2
+            if np.iscomplex(source_y).any():
+                terms = terms + difference.imag**2
+            loss += _sum_objective_terms(terms, predicted_y) / source_y.size
+        return float(loss)
+
     def sumOfSquaredError(
         parameters: ArrayLike,
         fitFunction: FitCallable,

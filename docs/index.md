@@ -32,6 +32,7 @@ The source code is available in the `IDDEFIX` [GitHub repository](https://github
 :maxdepth: 2
 theory.md
 smartbounds.md
+joint_fitting.md
 iddefix.rst
 ```
 

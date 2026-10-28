@@ -17,6 +17,7 @@ else:
     _trapezoid = np.trapz
 
 
+# Reference wake data
 @pytest.fixture(scope="module")
 def wake_data_time():
     """Load the real SPS wake potential data for testing."""
@@ -48,6 +49,7 @@ def compute_norm(f, Z):
     return _trapezoid(np.abs(Z), f) / (f[-1] - f[0])
 
 
+# Deconvolution cutoff, taper, and Gaussian spectrum
 def test_deconvolution_rolloff():
     """A positive rolloff extends the spectrum and applies the raised cosine."""
     sigma = 0.1e-9
@@ -119,6 +121,7 @@ def test_gaussian_bunch_spectrum_corrects_time_origin():
     np.testing.assert_allclose(spectrum, expected, rtol=1e-12, atol=1e-12)
 
 
+# Frequency-sampling convergence
 def stability_with_samples(time_data, wake_data, plot=False):
     sigma = 1e-10
     samples_list = [501, 1001, 5001, 10001]
@@ -169,6 +172,7 @@ def test_stability_with_samples(wake_data, request):
     stability_with_samples(time, wake, plot=False)
 
 
+# Bunch-length sensitivity
 def stability_with_sigma(data_time, data_wake, plot=False):
     sigmas = [0.5e-10, 1e-10, 2e-10]
 
@@ -218,9 +222,7 @@ def test_stability_with_sigma(wake_data, request):
     stability_with_sigma(time, wake, plot=False)
 
 
-# ==============================================================
 # Optional diagnostic plotting when running directly
-# ==============================================================
 
 if __name__ == "__main__":
     print("Running impedance stability diagnostics with real SPS data...\n")
