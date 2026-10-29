@@ -800,7 +800,7 @@ class EvolutionaryAlgorithm:
         their automatic parameter display.
         """
 
-        # Use self parameters if not provided as argument.
+        # Select the latest fitted stage and its matching uncertainties.
         if params is None:
             if self.minimizationParameters is not None:
                 params = self.minimizationParameters
@@ -815,6 +815,7 @@ class EvolutionaryAlgorithm:
                 print("[!] No parameters to display.")
                 return
 
+        # Find parameters that need uncertainty or bound warnings.
         flagged_mask = self._compute_flagged_params_mask(params, uncertainties)
         if (
             params is self.minimizationParameters
@@ -844,28 +845,29 @@ class EvolutionaryAlgorithm:
             uncertainties = None
             flagged_mask = None
 
+        # Format each parameter once before adding optional uncertainty text.
         params_reshaped = params.reshape(-1, 3)
         if to_markdown:
-            if uncertainties is not None:
-                uncert_reshaped = uncertainties.reshape(-1, 3)
+            frequency_format = ".6g"
+        elif uncertainties is not None:
+            frequency_format = ".2e"
+        else:
+            frequency_format = ".3e"
+        value_formats = (".6g", ".6g", frequency_format)
+        values = [
+            tuple(format(p_row[j], value_formats[j]) for j in range(3))
+            for p_row in params_reshaped
+        ]
+
+        if uncertainties is not None:
+            uncert_reshaped = uncertainties.reshape(-1, 3)
+            if to_markdown:
                 rows = [
-                    tuple(f"{p_row[j]:.6g} ± {u_row[j]:.1e}" for j in range(3))
-                    for p_row, u_row in zip(params_reshaped, uncert_reshaped)
+                    tuple(f"{value[j]} ± {u_row[j]:.1e}" for j in range(3))
+                    for value, u_row in zip(values, uncert_reshaped)
                 ]
             else:
-                rows = [
-                    tuple(f"{value:.6g}" for value in p_row)
-                    for p_row in params_reshaped
-                ]
-            display_resonator_table(rows, to_markdown=True)
-        else:
-            bound_reshaped = bound_mask.reshape(-1, 3)
-            if uncertainties is not None:
-                uncert_reshaped = uncertainties.reshape(-1, 3)
-                values = [
-                    (f"{p_row[0]:.2e}", f"{p_row[1]:.2f}", f"{p_row[2]:.2e}")
-                    for p_row in params_reshaped
-                ]
+                # Align the ± signs across resonators in the text table.
                 value_widths = [
                     max((len(row[j]) for row in values), default=0) for j in range(3)
                 ]
@@ -876,13 +878,15 @@ class EvolutionaryAlgorithm:
                     )
                     for value, u_row in zip(values, uncert_reshaped)
                 ]
-                minimum_widths = (26, 24, 26)
-            else:
-                rows = [
-                    (f"{p_row[0]:.2e}", f"{p_row[1]:.2f}", f"{p_row[2]:.3e}")
-                    for p_row in params_reshaped
-                ]
-                minimum_widths = (22, 12, 18)
+        else:
+            rows = values
+
+        # Bound and uncertainty highlighting applies to the text/HTML table.
+        if to_markdown:
+            display_resonator_table(rows, to_markdown=True)
+        else:
+            bound_reshaped = bound_mask.reshape(-1, 3)
+            minimum_widths = (26, 24, 26) if uncertainties is not None else (22, 12, 18)
 
             flagged_reshaped = (
                 flagged_mask.reshape(-1, 3)
