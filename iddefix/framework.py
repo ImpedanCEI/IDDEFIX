@@ -141,18 +141,20 @@ class EvolutionaryAlgorithm:
         --------
         >>> import numpy as np
         >>> import iddefix
-        >>> freq = np.linspace(1e9, 5e9, 100)  # Frequency range from 1 GHz to 5 GHz
-        >>> Z = iddefix.Impedances.Resonator_longitudinal_imp(freq, 400, 30, 0.2e9) # Rs, Q, fr
-        >>> bounds = [(10, 1000), (1, 100), (1e9, 5e9)]  # Example bounds for Rs, Q, fr
+        >>> # Create a resonator impedance (freqs, Rs, Q, fr)
+        >>> freqs = np.linspace(0.5e9, 1.5e9, 401)
+        >>> Z = iddefix.Impedances.Resonator_longitudinal_imp(freqs, 100, 8, 1e9)
         >>> model = iddefix.EvolutionaryAlgorithm(
-        ...     x_data=freq,
-        ...     y_data=Z,
-        ...     N_resonators=1,
-        ...     parameterBounds=bounds,
+        ...    x_data=freqs,
+        ...    y_data=Z
         ... )
-        >>> print(model.plane)
-        'longitudinal'
-        >>> model.run_differential_evolution(maxiter=100, popsize=10)
+        >>> model.estimate_bounds(
+        ...     minimum_peak_height=50,
+        ...     show_table=True,
+        ...     show_inspect=True
+        ... )
+        >>> model.downsample_data(factor=2, show=True)
+        >>> model.run_cmaes(maxiter=100, popsize=10)
         """
 
         self.x_data = x_data
