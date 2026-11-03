@@ -131,14 +131,20 @@ def test_display_round_trip(
     )
 
     output = capsys.readouterr().out
-    assert "5.0e-01" in output
-    assert "100" in output
-    if to_markdown:
-        assert "100 ± 3.0e+01" in output
+    assert "995" in output
+    if display_uncertainties:
+        assert "5.0e-01" in output
+        if to_markdown:
+            assert "995 ± 3.0e+01" in output
     model.load_resonator_parameters(output, use_minimization=False)
 
     np.testing.assert_allclose(model.evolutionParameters, parameters)
-    np.testing.assert_allclose(model.evolutionParametersUncertainties, uncertainties)
+    expected_uncertainties = (
+        uncertainties if display_uncertainties else np.zeros_like(uncertainties)
+    )
+    np.testing.assert_allclose(
+        model.evolutionParametersUncertainties, expected_uncertainties
+    )
 
 
 @pytest.mark.parametrize("to_markdown", [False, True])
