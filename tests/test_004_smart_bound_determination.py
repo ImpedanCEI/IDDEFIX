@@ -317,7 +317,37 @@ def test_bounds_table_values(capsys, to_markdown):
     """Text and Markdown displays include the estimated parameter ranges."""
     bounds = _single_mode_bounds()
     bounds.to_table(to_markdown=to_markdown)
-    _assert_displayed_bounds(capsys.readouterr().out, bounds)
+    output = capsys.readouterr().out
+    rs_bounds, q_bounds, frequency_bounds = bounds.parameterBounds
+
+    if to_markdown:
+        expected = (
+            f"| 1 | {rs_bounds[0]:.4g} to {rs_bounds[1]:.4g} | "
+            f"{q_bounds[0]:.4g} to {q_bounds[1]:.4g} |"
+        )
+        assert expected in output
+    else:
+        lines = [
+            line for line in output.splitlines() if "|" in line or line.startswith("-")
+        ]
+        assert len(lines) == 5
+        assert len({len(line) for line in lines}) == 1
+        assert f"{rs_bounds[0]:.4g} to {rs_bounds[1]:.4g}" in output
+        assert f"{frequency_bounds[0]:.2e} to {frequency_bounds[1]:.2e}" in output
+
+
+@pytest.mark.parametrize("to_markdown", [False, True])
+@pytest.mark.parametrize("q_bounds", [(0.00123456, 0.00987654), (0.0143298, 0.0198765)])
+def test_bounds_table_displays_small_q_values(capsys, to_markdown, q_bounds):
+    bounds = _single_mode_bounds()
+    bounds.to_table(
+        parameterBounds=[(1.0, 2.0), q_bounds, (1e6, 2e6)],
+        to_markdown=to_markdown,
+    )
+
+    output = capsys.readouterr().out
+    assert "1 to 2" in output
+    assert f"{q_bounds[0]:.4g} to {q_bounds[1]:.4g}" in output
 
 
 def test_bounds_table_in_notebook(monkeypatch):

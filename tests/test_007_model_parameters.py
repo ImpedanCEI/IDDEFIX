@@ -131,12 +131,68 @@ def test_display_round_trip(
     )
 
     output = capsys.readouterr().out
+    assert "5.0e-01" in output
+    assert "100" in output
+    if to_markdown:
+        assert "100 ± 3.0e+01" in output
     model.load_resonator_parameters(output, use_minimization=False)
 
     np.testing.assert_allclose(model.evolutionParameters, parameters)
-    np.testing.assert_allclose(
-        model.evolutionParametersUncertainties,
-        uncertainties if display_uncertainties else np.zeros_like(uncertainties),
+    np.testing.assert_allclose(model.evolutionParametersUncertainties, uncertainties)
+
+
+@pytest.mark.parametrize("to_markdown", [False, True])
+@pytest.mark.parametrize("display_uncertainties", [False, True])
+@pytest.mark.parametrize("q", [0.00432198, 0.0143298])
+def test_display_round_trip_small_q(q, display_uncertainties, to_markdown, capsys):
+    model = _model(
+        n_resonators=1,
+        parameter_bounds=[(0.0, 1e6), (0.0001, 10.0), (0.1e9, 2e9)],
+    )
+    capsys.readouterr()
+    model.display_resonator_parameters(
+        params=np.array([568903.0, q, 1e9]),
+        uncertainties=np.array([10.0, 0.0001, 1e7]) if display_uncertainties else None,
+        to_markdown=to_markdown,
+    )
+
+    output = capsys.readouterr().out
+    assert "568903" in output
+    assert f"{q:.6g}" in output
+    model.load_resonator_parameters(output, use_minimization=False)
+    assert model.evolutionParameters[0] == pytest.approx(568903.0, rel=1e-5)
+    assert model.evolutionParameters[1] == pytest.approx(q)
+
+
+@pytest.mark.parametrize(
+    ("display_uncertainties", "expected_width"), [(False, 65), (True, 89)]
+)
+def test_display_table_alignment(capsys, display_uncertainties, expected_width):
+    """The header, data rows, and separators have the same visible width."""
+    model = _model(n_resonators=1)
+    model.display_resonator_parameters(
+        params=np.array([995.0, 3.0, 1e9]),
+        uncertainties=np.array([300.0, 0.5, 1e7]),
+        display_uncertainties=display_uncertainties,
+    )
+    lines = [
+        re.sub(r"\x1b\[[0-9;]*m", "", line)
+        for line in capsys.readouterr().out.splitlines()
+        if "|" in line or line.startswith("-")
+    ]
+
+    assert len(lines) == 5
+    assert {len(line) for line in lines} == {expected_width}
+    if display_uncertainties:
+        assert "5.0e-01" in lines[3]
+
+
+def test_uncertainty_signs_align_across_rows(capsys):
+    """Values with different digit counts keep their ± signs aligned."""
+    model = _model()
+    model.display_resonator_parameters(
+        params=np.array([100.0, 3.0, 1e9, 200.0, 246.63, 1.5e9]),
+        uncertainties=np.array([30.0, 0.5, 1e7, 20.0, 230.0, 2e7]),
     )
 
 

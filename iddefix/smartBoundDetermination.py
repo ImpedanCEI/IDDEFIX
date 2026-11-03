@@ -1005,14 +1005,19 @@ class SmartBoundDetermination:
             to_markdown: If True, print the table in Markdown format.
         """
         params = self.parameterBounds if parameterBounds is None else parameterBounds
-        rows = [
-            (
-                f"{params[i * 3][0]:.2f} to {params[i * 3][1]:.2f}",
-                f"{params[i * 3 + 1][0]:.2f} to {params[i * 3 + 1][1]:.2f}",
-                f"{params[i * 3 + 2][0]:.2e} to {params[i * 3 + 2][1]:.2e}",
+
+        # Turn each Rs, Q, and frequency bound triple into display-ready cells.
+        rows = []
+        for i in range(len(params) // 3):
+            rs_bounds, q_bounds, frequency_bounds = params[3 * i : 3 * i + 3]
+            q_range = " to ".join(f"{q:.4g}" for q in q_bounds)
+            rows.append(
+                (
+                    f"{rs_bounds[0]:.4g} to {rs_bounds[1]:.4g}",
+                    q_range,
+                    f"{frequency_bounds[0]:.2e} to {frequency_bounds[1]:.2e}",
+                )
             )
-            for i in range(len(params) // 3)
-        ]
         display_resonator_table(
             rows, to_markdown=to_markdown, minimum_widths=(24, 18, 25)
         )
