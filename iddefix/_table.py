@@ -19,14 +19,16 @@ def display_resonator_table(
     colors: Sequence[Sequence[str | None]] | None = None,
 ) -> None:
     """Display three preformatted parameter columns with numbered rows."""
+    # Markdown uses its own column layout and has no color highlighting.
     if to_markdown:
         print("\n")
-        print("| Resonator | Rs [Ohm/m or Ohm] | Q | fres [Hz] |")
-        print("|-----------|------------------|---|-----------|")
+        print("| Resonator | " + " | ".join(HEADERS) + " |")
+        print("|-----------|" + "|".join("-" * (len(h) + 2) for h in HEADERS) + "|")
         for i, row in enumerate(rows, start=1):
             print(f"| {i} | {row[0]} | {row[1]} | {row[2]} |")
         return
 
+    # Size text columns for both headers and the longest formatted value.
     widths = [
         max(minimum_widths[j], len(HEADERS[j]), *(len(row[j]) + 2 for row in rows))
         for j in range(3)
@@ -47,6 +49,7 @@ def display_resonator_table(
         lines.append(f"{i + 1:^10d}|{'|'.join(cells)}")
     lines.append(separator)
 
+    # Notebook HTML preserves the aligned text and translates ANSI colors.
     try:
         from IPython import get_ipython
         from IPython.display import HTML, display
