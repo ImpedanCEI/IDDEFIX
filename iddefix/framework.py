@@ -475,13 +475,26 @@ class EvolutionaryAlgorithm:
             self._joint_data = None
 
     def check_y_data(self) -> None:
-        """
-        Small function to avoid 0 frequency leading to zero division when
-        using resonators.
-        """
-        mask = np.where(self.x_data > 0.0)[0]
-        self.x_data = self.x_data[mask]
-        self.y_data = self.y_data[mask]
+        """Remove nonpositive frequencies from the impedance measurements."""
+        if self.frequency_data is None:
+            return
+
+        mask = self.frequency_data > 0.0
+        if not np.any(mask):
+            raise ValueError("impedance data have no positive frequencies")
+        self.frequency_data = self.frequency_data[mask]
+        self.impedance_data = self.impedance_data[mask]
+        self.impedance_x_data = self.frequency_data
+        self.impedance_y_data = self.impedance_data
+        self.x_data, self.y_data = self.frequency_data, self.impedance_data
+
+        if self._joint_data is not None:
+            _, _, source_model = self._joint_data["impedance"]
+            self._joint_data["impedance"] = (
+                self.frequency_data,
+                self.impedance_data,
+                source_model,
+            )
 
     def _solve_differential_evolution(
         self,

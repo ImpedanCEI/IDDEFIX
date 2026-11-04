@@ -515,3 +515,37 @@ def test_legacy_positive_x_filter():
     model.check_y_data()
     np.testing.assert_array_equal(model.x_data, frequency[2:])
     np.testing.assert_array_equal(model.y_data, impedance[2:])
+
+
+@pytest.mark.parametrize("time_source", ["wake", "wake_potential"])
+def test_positive_frequency_filter_in_joint_fit(time_source):
+    """Joint loss uses filtered impedance and the complete time-domain source."""
+    parameters = np.array([100.0, 2.0, 1e9])
+    frequency = np.array([0.0, 0.5e9, 1e9])
+    impedance = np.array([1e6 + 0j, 2 + 1j, 3 + 2j])
+    time = np.array([-1e-9, 0.0, 1e-9, 2e-9])
+    time_values = np.array([1e6, 1e6, 2.0, 3.0])
+    time_source_data = {
+        f"{time_source}_x_data": time,
+        f"{time_source}_y_data": time_values,
+    }
+    options = {"sigma": 1e-10} if time_source == "wake_potential" else {}
+    model = iddefix.EvolutionaryAlgorithm(
+        impedance_x_data=frequency,
+        impedance_y_data=impedance,
+        **time_source_data,
+        **options,
+    )
+    model.check_y_data()
+
+    expected = iddefix.EvolutionaryAlgorithm(
+        impedance_x_data=frequency[1:],
+        impedance_y_data=impedance[1:],
+        **time_source_data,
+        **options,
+    )
+    np.testing.assert_array_equal(model.frequency_data, frequency[1:])
+    np.testing.assert_array_equal(model.time_data, time)
+    assert model.objectiveFunction(parameters) == pytest.approx(
+        expected.objectiveFunction(parameters)
+    )
