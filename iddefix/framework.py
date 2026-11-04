@@ -153,18 +153,25 @@ class EvolutionaryAlgorithm:
         --------
         >>> import numpy as np
         >>> import iddefix
-        >>> freq = np.linspace(1e9, 5e9, 100)  # Frequency range from 1 GHz to 5 GHz
-        >>> Z = iddefix.Impedances.Resonator_longitudinal_imp(freq, 400, 30, 0.2e9) # Rs, Q, fr
-        >>> bounds = [(10, 1000), (1, 100), (1e9, 5e9)]  # Example bounds for Rs, Q, fr
-        >>> model = iddefix.EvolutionaryAlgorithm(
-        ...     impedance_x_data=freq,
-        ...     impedance_y_data=Z,
-        ...     N_resonators=1,
-        ...     parameterBounds=bounds,
+        >>> Rs, Q, fr = 400.0, 30.0, 2e9
+        >>> sigma = 50e-12  # Bunch length in seconds
+        >>> freq = np.linspace(1e9, 5e9, 100)
+        >>> time = np.linspace(-0.5e-9, 1.5e-9, 100)
+        >>> Z = iddefix.Impedances.Resonator_longitudinal_imp(freq, Rs, Q, fr)
+        >>> W = iddefix.Wakes.Resonator_longitudinal_wake_potential(
+        ...     time, Rs, Q, fr, sigma=sigma
         ... )
-        >>> print(model.plane)
-        'longitudinal'
-        >>> model.run_differential_evolution(maxiter=100, popsize=10)
+        >>> model = iddefix.EvolutionaryAlgorithm(
+        ...     impedance_x_data=freq,       # Required x_data
+        ...     impedance_y_data=Z,          # Required y_data
+        ...     wake_potential_x_data=time,  # Optional for the joint fit
+        ...     wake_potential_y_data=W,     # Optional for the joint fit
+        ...     sigma=sigma,
+        ... )
+        >>> bounds = model.estimate_bounds()  # Infers bounds from impedance
+        >>> bounds.inspect()  # Inspect the returned bounds object
+        >>> model.run_cmaes(maxiter=1000, popsize=30)
+        >>> model.run_minimization_algorithm()
         """
 
         self.x_data = None
@@ -254,7 +261,9 @@ class EvolutionaryAlgorithm:
         self,
         impedance_type: str | None = "real",
         show_table: bool = True,
-        show_inspect: bool = True,
+        show_inspect: bool = False,
+        show_bounds: bool = False,
+        show_components: bool = True,
         **kwargs: Any,
     ) -> SmartBoundDetermination:
         """Estimate resonator search bounds from the stored impedance data.
@@ -270,8 +279,13 @@ class EvolutionaryAlgorithm:
         show_table : bool, optional
             Display the estimated bounds with ``to_table()``. Default is True.
         show_inspect : bool, optional
-            Plot detected peaks and estimated resonator components with
-            ``inspect(show_components=True)``. Default is True.
+            Plot detected peaks with ``inspect()``. Default is True.
+        show_bounds : bool, optional
+            Show estimated frequency bounds on the inspection plot. Default is
+            False. Used only when ``show_inspect`` is True.
+        show_components : bool, optional
+            Show estimated resonator components on the inspection plot. Default
+            is True. Used only when ``show_inspect`` is True.
         **kwargs
             Automatic peak-finding options passed to
             :class:`SmartBoundDetermination`:
@@ -334,7 +348,7 @@ class EvolutionaryAlgorithm:
         if show_table:
             bounds.to_table()
         if show_inspect:
-            bounds.inspect(show_components=True)
+            bounds.inspect(show_bounds=show_bounds, show_components=show_components)
         return bounds
 
     def _set_fit_function(self) -> None:
