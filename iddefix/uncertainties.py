@@ -5,17 +5,19 @@ import numpy.typing as npt
 from scipy.linalg import svd
 from scipy.optimize._numdiff import approx_derivative
 
-import iddefix
+from .utils import pars_to_dict
 
 ArrayLike = npt.ArrayLike
 FitCallable = Callable[[ArrayLike, dict[int, ArrayLike]], ArrayLike]
+JointSources = dict[str, tuple[ArrayLike, ArrayLike, FitCallable]]
 
 
 def StackedResiduals(
     parameters: ArrayLike,
-    x: ArrayLike,
-    fitFunction: FitCallable,
-    y: ArrayLike,
+    x: ArrayLike | None,
+    fitFunction: FitCallable | None,
+    y: ArrayLike | None,
+    sources: JointSources | None = None,
 ) -> np.ndarray:
     """Return real residuals, stacking imaginary residuals for complex data.
 
@@ -28,13 +30,29 @@ def StackedResiduals(
         fitFunction: Function that takes parameters and x values as input and
             returns predicted y values (including real and imaginary parts).
         y: Array of y values for the data (including real and imaginary parts).
+        sources: Optional joint datasets. When supplied, stack each source's
+            residuals divided by its measured RMS and square root of sample count.
+            An all-zero measured trace uses RMS scale 1.
 
     Returns:
         residuals: The stacked residuals for a given solution.
     """
 
+    if sources is not None:
+        residuals = []
+        for source_x, source_y, source_model in sources.values():
+            source_y = np.asarray(source_y)
+            residual = StackedResiduals(parameters, source_x, source_model, source_y)
+            # Scale before squaring to avoid overflow for large measured units.
+            peak = float(np.max(np.abs(source_y)))
+            scale = (
+                peak * np.sqrt(np.mean(np.abs(source_y / peak) ** 2)) if peak else 1.0
+            )
+            residuals.append(residual / scale / np.sqrt(source_y.size))
+        return np.concatenate(residuals)
+
     y = np.asarray(y)
-    grouped_parameters = iddefix.utils.pars_to_dict(parameters)
+    grouped_parameters = pars_to_dict(parameters)
     predicted_y = fitFunction(x, grouped_parameters)
 
     real_residuals = y.real - predicted_y.real
@@ -50,6 +68,7 @@ def build_jacobian(
     x: ArrayLike,
     y: ArrayLike,
     parameterBounds: ArrayLike | None = None,
+    sources: JointSources | None = None,
 ) -> np.ndarray:
     """Build the Jacobian of the system.
 
@@ -68,6 +87,8 @@ def build_jacobian(
         y: Array of y values for the data (including real and imaginary parts).
         parameterBounds: Optional (lower, upper) bounds for each parameter.
             Derivatives at a bound are taken from the allowed side.
+        sources: Optional joint datasets, each containing its grid, measured
+            values, and model. Uses fixed RMS and sample-count normalization.
 
     Returns:
         jac: The system Jacobian matrix.
@@ -78,7 +99,7 @@ def build_jacobian(
         bounds = tuple(np.asarray(parameterBounds, dtype=float).T)
 
     jac = approx_derivative(
-        lambda p: StackedResiduals(p, x, fitFunction, y),
+        lambda p: StackedResiduals(p, x, fitFunction, y, sources=sources),
         parameters,
         method="3-point",  # central differences (more accurate)
         bounds=bounds,
@@ -93,6 +114,7 @@ def get_uncertainties(
     x: ArrayLike,
     y: ArrayLike,
     parameterBounds: ArrayLike | None = None,
+    sources: JointSources | None = None,
 ) -> np.ndarray:
     r"""Compute the parameter uncertainties of the results of the Differential
     Evolution or minimization algorithm.
@@ -121,6 +143,8 @@ def get_uncertainties(
         y: Array of y values for the data (including real and imaginary parts).
         parameterBounds: Optional (lower, upper) bounds for each parameter.
             These keep numerical derivative probes inside the fit domain.
+        sources: Optional joint datasets. Uses the same fixed normalized
+            residuals as the joint objective for the Jacobian and variance.
 
     Returns:
         uncertainties: 1 \sigma standard deviation for each of the input parameters.
@@ -130,7 +154,7 @@ def get_uncertainties(
             of fitted parameters.
     """
 
-    residuals = StackedResiduals(parameters, x, fitFunction, y)
+    residuals = StackedResiduals(parameters, x, fitFunction, y, sources=sources)
     m = residuals.size
     n = np.asarray(parameters).size
     if m <= n:
@@ -141,7 +165,9 @@ def get_uncertainties(
             "set compute_uncertainties=False."
         )
 
-    jac = build_jacobian(parameters, fitFunction, x, y, parameterBounds)
+    jac = build_jacobian(
+        parameters, fitFunction, x, y, parameterBounds, sources=sources
+    )
 
     _, s, VT = svd(jac, full_matrices=False)
     threshold = np.finfo(float).eps * max(jac.shape) * s[0]

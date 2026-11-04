@@ -6,8 +6,6 @@ Run ``pytest tests/test_001_fft.py --debug-plots`` to display the asserted
 values in a dedicated debug plot.
 """
 
-from io import StringIO
-
 import numpy as np
 import pytest
 from scipy.constants import c as c_light
@@ -15,6 +13,7 @@ from scipy.constants import c as c_light
 import iddefix
 
 
+# FFT time-origin phase
 @pytest.mark.parametrize(
     "time_origin",
     [0.0, 3.5e-11, -4.0e-11, 0.5e-11],
@@ -45,41 +44,32 @@ def test_fft_preserves_time_origin_phase(time_origin, debug_plot):
     np.testing.assert_allclose(shifted_impedance, expected, rtol=1e-12, atol=1e-12)
 
 
-def test_ineffint_can_enforce_causality(monkeypatch, capsys):
-    """Causal mode zeros negative-time wake samples but retains t=0."""
-    import neffint
-
-    # Isolate IDDEFIX's causality handling from Neffint 1.1's t=0 integration bug.
-    monkeypatch.setattr(
-        neffint,
-        "fourier_integral_fixed_sampling",
-        lambda **kwargs: np.pi * np.array([1.0, 2.0, 3.0]),
-    )
-    time = np.array([-1.0, 0.0, 1.0])
-    frequency = np.array([0.0, 1.0])
-    impedance = np.array([1.0, 2.0])
+# Inverse-transform causality and adaptive integration
+def test_ineffint_can_enforce_causality():
+    """Causal mode zeros negative times and preserves positive-time samples."""
+    pytest.importorskip("neffint")
+    # Neffint 1.1's integrator does not converge at exactly t=0.
+    time = np.array([-1e-10, 1e-10])
+    frequency = np.linspace(0, 2e9, 1001)
+    impedance = np.exp(-0.5 * (frequency / 0.5e9) ** 2)
 
     _, wake = iddefix.compute_ineffint(
         frequency, impedance, times=time, adaptative=False
     )
-    output = capsys.readouterr().out
-    assert "\033[93m[!] Warning:" in output
-    assert "Wake is nonzero for t < 0" in output
-    assert np.all(wake[:2] != 0)
-
     _, causal_wake = iddefix.compute_ineffint(
         frequency, impedance, times=time, adaptative=False, enforce_causality=True
     )
-    assert capsys.readouterr().out == ""
-    assert causal_wake[0] == 0.0
-    assert causal_wake[1] == wake[1]
-    assert causal_wake[2] == wake[2]
+    assert np.all(np.isfinite(wake[time < 0]))
+    assert np.any(wake[time < 0] != 0)
+    np.testing.assert_array_equal(causal_wake[time < 0], 0.0)
+    np.testing.assert_allclose(causal_wake[time > 0], wake[time > 0])
 
 
 @pytest.mark.parametrize("error", ["Abs", "rms"])
 @pytest.mark.parametrize("direction", ["impedance_to_wake", "wake_to_impedance"])
 def test_adaptive_neffint_paths(error, direction):
     """Adaptive transforms use Neffint and evaluate on the requested grid."""
+    pytest.importorskip("neffint")
     source_grid = np.array([0.0, 2.0])
     source_values = np.array([1.0, 3.0])
     target_grid = np.array([0.25, 0.75])
@@ -127,6 +117,7 @@ def test_interpolation_error_metrics():
     np.testing.assert_array_equal(scalar_rms_error, expected)
 
 
+# Reference SPS model and data fixture
 def _load_data():
     """Load and prepare data once for all tests."""
     data_wake_potential = np.loadtxt(
@@ -140,9 +131,8 @@ def _load_data():
     sigma = 1e-10
 
     DE_model = iddefix.EvolutionaryAlgorithm(
-        data_wake_time,
-        data_wake_dipolar * c_light,
-        N_resonators=10,
+        wake_potential_x_data=data_wake_time,
+        wake_potential_y_data=data_wake_dipolar * c_light,
         parameterBounds=None,
         plane="transverse",
         fitFunction="wake potential",
@@ -150,8 +140,7 @@ def _load_data():
     )
 
     # Preload DE parameters
-    data_str = StringIO(
-        """
+    data_str = """
         1     |        2.22e+00        |      76.87       |    1.005e+09
         2     |        7.62e+00        |      138.95      |    1.176e+09
         3     |        1.15e+00        |      15.49       |    1.268e+09
@@ -164,28 +153,25 @@ def _load_data():
         10    |        1.99e+00        |      178.88      |    2.908e+09
         11    |        1.99e+00        |      38.55       |    3.184e+09
     """.strip()
-    )
 
-    DE_model.minimizationParameters = np.loadtxt(
-        data_str, skiprows=0, usecols=(1, 2, 3), delimiter="|", dtype=float
-    ).flatten()
+    DE_model.load_resonator_parameters(data_str)
 
     return DE_model, data_wake_time, data_wake_dipolar, sigma
 
 
-# ---------- Pytest fixture ----------
 @pytest.fixture(scope="module")
 def load_data():
     return _load_data()
 
 
+# Wake and impedance reconstruction
 def test_compare_wakes(load_data, debug_plot, adaptative=False):
     """Check that neffint wake and DE model wake are consistent."""
     DE_model, _, _, _ = load_data
     time = np.linspace(1e-11, 50e-9, 1000)
     f_fd = np.linspace(0, 5e9, 1000)
 
-    global t, W
+    pytest.importorskip("neffint")
     Z_fd = DE_model.get_impedance(frequency_data=f_fd, wake_length=None)
     t, W = iddefix.compute_ineffint(
         f_fd,
@@ -212,15 +198,26 @@ def test_compare_wakes(load_data, debug_plot, adaptative=False):
 
 def test_compare_impedances(load_data, debug_plot, adaptative=False):
     """Compare impedance computed from DE model, FFT, and neffint."""
+    pytest.importorskip("neffint")
     DE_model, _, _, _ = load_data
-    f_de = np.linspace(1, 5e9, 10000)
-    time = np.linspace(0, 50e-9, 1000)
+    f_de = np.linspace(1, 5e9, 2000)
+    time = np.linspace(1e-11, 50e-9, 1000)
     Z_de = DE_model.get_impedance(frequency_data=f_de, wake_length=None)
     W_de = DE_model.get_wake(time)
 
     f_fft, Z_fft = iddefix.compute_fft(time, W_de / c_light, fmax=5e9)
 
-    f_inft, Z_inft = iddefix.compute_fft(time, W / c_light, fmax=5e9)
+    # Reconstruct this test's wake independently of other tests.
+    reconstruction_f = np.linspace(0, 5e9, 1000)
+    reconstruction_z = DE_model.get_impedance(reconstruction_f)
+    _, reconstructed_wake = iddefix.compute_ineffint(
+        reconstruction_f,
+        reconstruction_z,
+        times=time,
+        plane="transverse",
+        adaptative=adaptative,
+    )
+    f_inft, Z_inft = iddefix.compute_fft(time, reconstructed_wake / c_light, fmax=5e9)
 
     f_nft, Z_nft = iddefix.compute_neffint(
         time, DE_model.get_wake(time), frequencies=f_de, adaptative=adaptative

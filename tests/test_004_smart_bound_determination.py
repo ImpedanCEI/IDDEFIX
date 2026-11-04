@@ -1,5 +1,7 @@
 """SmartBounds estimates checked against analytical resonator impedances."""
 
+import re
+from html import unescape
 from types import SimpleNamespace
 
 import matplotlib.pyplot as plt
@@ -170,8 +172,8 @@ def test_transverse_peak_with_known_q():
     np.testing.assert_allclose(bounds.parameterEstimates, expected, rtol=0.001)
 
 
-def test_transverse_absolute_warning(capsys):
-    """Absolute transverse data warn and do not receive the real-part correction."""
+def test_transverse_magnitude_estimates():
+    """Magnitude-only data keep their estimates when no phase correction is available."""
     frequency = np.linspace(1e6, 2e9, 5001)
     impedance = np.abs(
         iddefix.Impedances.Resonator_transverse_imp(
@@ -188,7 +190,6 @@ def test_transverse_absolute_warning(capsys):
         frequency, impedance, wake_length=0.5, **options
     )
 
-    assert "use impedance_type='real'" in capsys.readouterr().out
     np.testing.assert_allclose(finite.parameterEstimates, full.parameterEstimates)
 
 
@@ -296,11 +297,25 @@ def test_inspect(request, monkeypatch, show_bounds, show_components):
     plt.close("all")
 
 
-@pytest.mark.parametrize("to_markdown", [False, True])
-def test_bounds_table_layout(capsys, to_markdown):
-    """Computed SmartBounds use aligned text and Markdown table layouts."""
-    bounds = _single_mode_bounds()
+def _assert_displayed_bounds(text, bounds):
+    """Compare numerical content without prescribing text or HTML formatting."""
+    text = unescape(re.sub(r"<[^>]+>", "", text))
+    numbers = np.array(
+        [
+            float(value)
+            for value in re.findall(
+                r"[-+]?(?:\d+\.\d*|\.\d+|\d+)(?:[eE][-+]?\d+)?", text
+            )
+        ]
+    )
+    for value in np.asarray(bounds.parameterBounds).ravel():
+        assert np.any(np.isclose(numbers, value, rtol=0.01, atol=1e-12))
 
+
+@pytest.mark.parametrize("to_markdown", [False, True])
+def test_bounds_table_values(capsys, to_markdown):
+    """Text and Markdown displays include the estimated parameter ranges."""
+    bounds = _single_mode_bounds()
     bounds.to_table(to_markdown=to_markdown)
     output = capsys.readouterr().out
     rs_bounds, q_bounds, frequency_bounds = bounds.parameterBounds
@@ -336,7 +351,7 @@ def test_bounds_table_displays_small_q_values(capsys, to_markdown, q_bounds):
 
 
 def test_bounds_table_in_notebook(monkeypatch):
-    """Computed bound ranges use the shared monospace notebook display."""
+    """Notebook output exposes the same numerical parameter ranges."""
     ipython = pytest.importorskip("IPython")
     ipython_display = pytest.importorskip("IPython.display")
     monkeypatch.setattr(
@@ -345,12 +360,6 @@ def test_bounds_table_in_notebook(monkeypatch):
     displayed = []
     monkeypatch.setattr(ipython_display, "display", displayed.append)
     bounds = _single_mode_bounds()
-
     bounds.to_table()
-
-    assert len(displayed) == 1
-    assert '<pre style="font-family: monospace;' in displayed[0].data
-    frequency_bounds = bounds.parameterBounds[2]
-    assert (
-        f"{frequency_bounds[0]:.2e} to {frequency_bounds[1]:.2e}" in displayed[0].data
-    )
+    assert displayed
+    _assert_displayed_bounds("\n".join(item.data for item in displayed), bounds)

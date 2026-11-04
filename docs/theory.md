@@ -14,7 +14,7 @@ parallel RLC (Resistor, Inductor, Capacitor) resonator circuit.
 ### Impedance resonator formula
 
 The longitudinal shunt impedance $R_s$ and impedance $Z_\parallel$ are measured
-in ohms. Both the fully decayed and finite formulas support $Q>0$. For a fully
+in ohms. Both the fully decayed and partuially decayed formulas support $Q>0$. For a fully
 decayed wake, the single-resonator impedance is
 
 $$
@@ -93,18 +93,34 @@ Equivalently, the wake function can be described by these three parameters.
 
 ### Wake function resonator formula
 
-The longitudinal wake function supports all $Q>0$ through underdamped,
-critically damped, and overdamped branches. The expression below shows the
-underdamped branch, $Q>0.5$.
+The longitudinal point wake is causal: $w_\parallel(t)=0$ for $t<0$. Using
+$B$, $C$, and $D$ defined above, its branches for $t>0$ are:
 
-#### Single:
+#### Underdamped $Q>0.5$
 
 $$
 w_{\parallel}(t)=R_s\frac{\omega_r}{Q}e^{-Bt}
 \left[\cos(Ct)-\frac{B}{C}\sin(Ct)\right].
 $$
 
-#### Multiple:
+#### Critically damped $Q=0.5$
+
+Taking $\sin(Ct)/C\to t$ as $C\to0$ gives
+
+$$
+w_{\parallel}(t)=2R_s\omega_r e^{-\omega_rt}(1-\omega_rt).
+$$
+
+#### Overdamped $0<Q<0.5$
+
+Replacing $C$ by $iD$ gives
+
+$$
+w_{\parallel}(t)=R_s\frac{\omega_r}{Q}e^{-Bt}
+\left[\cosh(Dt)-\frac{B}{D}\sinh(Dt)\right].
+$$
+
+For multiple resonators, the contributions add linearly:
 
 $$
 \bar w_{\parallel}(t)=
@@ -115,9 +131,23 @@ Both found in the `Wakes` class as the functions `Resonator_longitudinal_wake` a
 
 ### Wake potential resonator formula
 
-The analytical longitudinal wake potential for a Gaussian bunch currently
-supports the underdamped range $Q>0.5$. Let $\sigma$ be the RMS bunch length in
-seconds and define the auxiliary factor
+The wake potential is the point wake convolved with a Gaussian bunch of RMS
+duration $\sigma$. Unlike the causal point wake, it can be nonzero for $t<0$.
+
+#### Underdamped $Q>0.5$
+
+The point-wake oscillation can be written as $e^{-Bt}e^{iCt}=e^{-at}$
+with $a=B-iC$. Using the normalized Gaussian bunch profile
+$\lambda_\sigma$ defined below, completing the square gives
+
+$$
+K_\sigma(a,t)=\int_0^\infty e^{-as}\lambda_\sigma(t-s)\,ds
+=\frac{1}{2}e^{a^2\sigma^2/2-at}
+\operatorname{erfc}\left(\frac{a\sigma^2-t}{\sqrt{2}\sigma}\right).
+$$
+
+For $a=B-iC$, factor out the real decay and Gaussian envelope. The remaining
+complex factor is
 
 $$
 \mathcal{A}_\sigma(t)=e^{i(Ct-BC\sigma^2)}
@@ -126,7 +156,18 @@ $$
 \right).
 $$
 
-The single-resonator wake potential is
+Hence
+
+$$
+2K_\sigma(B-iC,t)=e^{(B^2-C^2)\sigma^2/2-Bt}
+\mathcal{A}_\sigma(t).
+$$
+
+The transverse sine is the imaginary part of $e^{iCt}$. Longitudinally, the
+real part of $(1+iB/C)e^{iCt}$ gives $\cos(Ct)-(B/C)\sin(Ct)$. Thus the same
+auxiliary factor supplies both wake-potential formulas.
+
+The longitudinal wake potential is
 
 $$
 W_{\parallel}(t)=
@@ -137,6 +178,46 @@ R_sB\,e^{(B^2-C^2)\sigma^2/2-Bt}
 \right].
 $$
 
+#### Critically damped $Q=0.5$
+
+At $Q=0.5$, the same decay parameter becomes real:
+$a=B-iC=\omega_r$. In the overdamped branch, the two real decay rates are
+$a=B-D$ and $a=B+D$. For a real rate $a>0$, define the Gaussian
+convolutions of $e^{-as}$ and its first-moment $s e^{-as}$ as:
+
+$$
+I_\sigma(a,t)=\int_0^\infty e^{-as}\lambda_\sigma(t-s)\,ds
+=\frac{1}{2}
+e^{a^2\sigma^2/2-at}
+\operatorname{erfc}\left(\frac{a\sigma^2-t}{\sqrt{2}\sigma}\right),
+$$
+
+$$
+J_\sigma(a,t)=\int_0^\infty s e^{-as}\lambda_\sigma(t-s)\,ds
+=-\frac{\partial I_\sigma(a,t)}{\partial a}
+=(t-a\sigma^2)I_\sigma(a,t)
++\frac{\sigma}{\sqrt{2\pi}}e^{-t^2/(2\sigma^2)}.
+$$
+
+At $Q=0.5$, $B=\omega_r$ and the longitudinal potential is
+
+$$
+W_\parallel(t)=2R_s\omega_r
+\left[I_\sigma(\omega_r,t)-\omega_rJ_\sigma(\omega_r,t)\right].
+$$
+
+#### Overdamped $0<Q<0.5$
+
+The two decay rates $B-D$ and $B+D$ give
+
+$$
+W_\parallel(t)=\frac{R_s\omega_r}{2Q}
+\left[
+\left(1-\frac{B}{D}\right)I_\sigma(B-D,t)
++\left(1+\frac{B}{D}\right)I_\sigma(B+D,t)
+\right].
+$$
+
 For multiple resonators, the contributions add linearly:
 
 $$
@@ -144,8 +225,8 @@ $$
 \sum^{N}_{n=1}W_{\parallel}(t,R_{s,n},Q_n,\omega_{r,n},\sigma).
 $$
 
-These formulas are implemented by `Resonator_longitudinal_wake_potential` and
-`n_Resonator_longitudinal_wake_potential`.
+All three branches are implemented by `Resonator_longitudinal_wake_potential`
+and `n_Resonator_longitudinal_wake_potential`.
 
 ## Transverse Resonator formalism
 
@@ -236,13 +317,29 @@ ripples are both consequences of the abrupt wake truncation.
 
 ### Wake function resonator formula
 
-The transverse wake function supports all $Q>0$ through underdamped,
-critically damped, and overdamped branches. For the underdamped range $Q>0.5$,
-the single-resonator expression is
+The transverse point wake is also zero for $t<0$. For $t>0$:
+
+#### Underdamped $Q>0.5$
 
 $$
 w_\perp(t)=
 R_s\frac{\omega_r^2}{QC}e^{-Bt}\sin(Ct).
+$$
+
+#### Critically damped $Q=0.5$
+
+Using $\sin(Ct)/C\to t$ gives
+
+$$
+w_\perp(t)=2R_s\omega_r^2t e^{-\omega_rt}.
+$$
+
+#### Overdamped $0<Q<0.5$
+
+With $C=iD$, the sine becomes a hyperbolic sine:
+
+$$
+w_\perp(t)=R_s\frac{\omega_r^2}{QD}e^{-Bt}\sinh(Dt).
 $$
 
 For multiple resonators,
@@ -257,15 +354,31 @@ These formulas are implemented by `Resonator_transverse_wake` and
 
 ### Wake potential resonator formula
 
-The analytical transverse wake potential for a Gaussian bunch currently
-supports the underdamped range $Q>0.5$. Using the same auxiliary factor
-$\mathcal{A}_\sigma(t)$ defined above, the single-resonator wake potential is
+The transverse wake potential uses the same Gaussian bunch profile and the
+same $I_\sigma$ and $J_\sigma$ defined for the longitudinal potential.
+
+#### Underdamped $Q>0.5$
+
+Using $\mathcal{A}_\sigma(t)$ defined above,
 
 $$
 W_\perp(t)=
 R_s\frac{\omega_rB}{C}
 e^{(B^2-C^2)\sigma^2/2-Bt}
 \operatorname{Im}\mathcal{A}_\sigma(t).
+$$
+
+#### Critically damped $Q=0.5$
+
+$$
+W_\perp(t)=2R_s\omega_r^2J_\sigma(\omega_r,t).
+$$
+
+#### Overdamped $0<Q<0.5$
+
+$$
+W_\perp(t)=\frac{R_s\omega_r^2}{2QD}
+\left[I_\sigma(B-D,t)-I_\sigma(B+D,t)\right].
 $$
 
 For multiple resonators,
@@ -275,8 +388,8 @@ $$
 \sum^{N}_{n=1}W_\perp(t,R_{s,n},Q_n,\omega_{r,n},\sigma).
 $$
 
-These formulas are implemented by `Resonator_transverse_wake_potential` and
-`n_Resonator_transverse_wake_potential`.
+All three branches are implemented by `Resonator_transverse_wake_potential`
+and `n_Resonator_transverse_wake_potential`.
 
 ## Relations between wake, wake potential, and impedance
 

@@ -858,11 +858,31 @@ class SmartBoundDetermination:
     def inspect(
         self,
         show_bounds: bool = False,
-        show_components: bool = False,
+        show_components: bool = True,
     ) -> None:
-        """Plot detected peaks, bounds, and estimated resonator components."""
+        """Display the detected resonances and their estimated impedance curves.
+
+        The plot shows the analyzed impedance trace, numbered peaks, and the
+        one-sided crossings used to estimate each resonance. It uses the real
+        part or magnitude of the impedance according to ``impedance_type``.
+
+        Parameters
+        ----------
+        show_bounds : bool, optional
+            Shade each estimated resonant-frequency interval and mark its
+            central estimate and peak-width crossing. Defaults to False.
+        show_components : bool, optional
+            Plot each estimated resonator impedance and their sum on the
+            analysis frequency grid. Defaults to True. Set both options to
+            True to display components and frequency bounds together.
+
+        Returns
+        -------
+        None
+            Displays a Matplotlib figure without returning it.
+        """
         # Input trace and optional component data
-        plt.figure()
+        plt.figure(figsize=(10, 5))
         plt.plot(
             self.analysis_frequency_data,
             self.analysis_impedance_data,
