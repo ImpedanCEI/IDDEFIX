@@ -7,6 +7,7 @@ path. PyFDE option forwarding is checked separately because it is optional.
 import sys
 from types import ModuleType
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
@@ -22,6 +23,78 @@ def resonance():
     impedance = iddefix.Impedances.Resonator_longitudinal_imp(frequency, *parameters)
     bounds = [(80.0, 120.0), (1.5, 2.5), (0.9e9, 1.1e9)]
     return frequency, parameters, impedance, bounds
+
+
+@pytest.mark.parametrize("fit_function", ["impedance", "wake"])
+def test_large_input_preserves_samples(fit_function):
+    """Oversized inputs remain intact so callers control any downsampling."""
+    x_data = np.linspace(1.0, 20.0, 2001)
+    y_data = np.ones_like(x_data)
+
+    model = iddefix.EvolutionaryAlgorithm(x_data, y_data, fitFunction=fit_function)
+
+    assert model.x_data is x_data
+    assert model.y_data is y_data
+
+
+@pytest.mark.parametrize(
+    ("fit_function", "x_alias", "y_alias"),
+    [
+        ("impedance", "frequency_data", "impedance_data"),
+        ("wake", "time_data", "wake_data"),
+        ("wake potential", "time_data", "wake_potential_data"),
+    ],
+)
+def test_downsample_keeps_paired_samples(fit_function, x_alias, y_alias):
+    """Fitting and domain-specific data use the same regularly spaced subset."""
+    x_data = np.arange(11.0)
+    y_data = x_data + 1j * x_data
+    model = iddefix.EvolutionaryAlgorithm(x_data, y_data, fitFunction=fit_function)
+
+    model.downsample_data(3)
+
+    np.testing.assert_array_equal(model.x_data, x_data[::3])
+    np.testing.assert_array_equal(model.y_data, y_data[::3])
+    assert getattr(model, x_alias) is model.x_data
+    assert getattr(model, y_alias) is model.y_data
+
+
+@pytest.mark.parametrize("factor", [0, -1, 1.5, True, 11])
+def test_downsample_rejects_invalid_factor(factor):
+    """Invalid factors leave the stored input untouched."""
+    x_data = np.arange(10.0)
+    model = iddefix.EvolutionaryAlgorithm(x_data, x_data)
+
+    with pytest.raises(ValueError, match="factor"):
+        model.downsample_data(factor)
+
+    assert model.x_data is x_data
+    assert model.y_data is x_data
+
+
+@pytest.mark.parametrize("complex_data", [False, True])
+def test_downsample_preview_shows_retained_traces(monkeypatch, complex_data):
+    """The comparison uses one panel per real or imaginary data component."""
+    x_data = np.linspace(0.5e9, 1.5e9, 10)
+    y_data = np.arange(10, dtype=float)
+    if complex_data:
+        y_data = y_data + 1j * np.arange(10, 20)
+    model = iddefix.EvolutionaryAlgorithm(x_data, y_data)
+    figures = []
+    monkeypatch.setattr(plt, "show", lambda: figures.append(plt.gcf()))
+
+    model.downsample_data(3, show=True)
+
+    fig = figures[0]
+    assert len(fig.axes) == (2 if complex_data else 1)
+    np.testing.assert_array_equal(fig.axes[0].lines[0].get_xdata(), x_data)
+    np.testing.assert_array_equal(fig.axes[0].lines[1].get_xdata(), x_data[::3])
+    np.testing.assert_array_equal(fig.axes[0].lines[1].get_ydata(), y_data.real[::3])
+    if complex_data:
+        np.testing.assert_array_equal(
+            fig.axes[1].lines[1].get_ydata(), y_data.imag[::3]
+        )
+    plt.close(fig)
 
 
 @pytest.mark.parametrize("plane", ["longitudinal", "transverse"])

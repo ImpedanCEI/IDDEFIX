@@ -132,27 +132,42 @@ class EvolutionaryAlgorithm:
                     used for both single-resonator and multi-resonator systems.
             - The optimization is performed using an evolutionary algorithm, with results
                     stored in `minimizationParameters`.
+            - Inputs with more than 2000 samples print a yellow warning because fitting
+              time grows with the number of samples. Around 2000 samples are
+              often sufficient for impedance data spanning 20 GHz, provided
+              narrow resonances remain resolved.
 
         Examples
         --------
         >>> import numpy as np
         >>> import iddefix
-        >>> freq = np.linspace(1e9, 5e9, 100)  # Frequency range from 1 GHz to 5 GHz
-        >>> Z = iddefix.Impedances.Resonator_longitudinal_imp(freq, 400, 30, 0.2e9) # Rs, Q, fr
-        >>> bounds = [(10, 1000), (1, 100), (1e9, 5e9)]  # Example bounds for Rs, Q, fr
+        >>> # Create a resonator impedance (freqs, Rs, Q, fr)
+        >>> freqs = np.linspace(0.5e9, 1.5e9, 401)
+        >>> Z = iddefix.Impedances.Resonator_longitudinal_imp(freqs, 100, 8, 1e9)
         >>> model = iddefix.EvolutionaryAlgorithm(
-        ...     x_data=freq,
-        ...     y_data=Z,
-        ...     N_resonators=1,
-        ...     parameterBounds=bounds,
+        ...    x_data=freqs,
+        ...    y_data=Z
         ... )
-        >>> print(model.plane)
-        'longitudinal'
-        >>> model.run_differential_evolution(maxiter=100, popsize=10)
+        >>> model.estimate_bounds(
+        ...     minimum_peak_height=50,
+        ...     show_table=True,
+        ...     show_inspect=True
+        ... )
+        >>> model.downsample_data(factor=2, show=True)
+        >>> model.run_cmaes(maxiter=100, popsize=10)
         """
 
         self.x_data = x_data
         self.y_data = y_data
+
+        if len(x_data) > 2000:
+            print(
+                f"\033[93m[!] Warning: Fitting {len(x_data)} samples may be slow. "
+                "Consider downsampling "
+                "with downsample_data(factor, show=True), while preserving narrow "
+                "resonances. Around 2000 samples are often sufficient for "
+                "impedance data spanning 20 GHz.\033[0m"
+            )
 
         if N_resonators is None and parameterBounds is not None:
             if len(parameterBounds) == 0 or len(parameterBounds) % 3:
@@ -266,6 +281,81 @@ class EvolutionaryAlgorithm:
                 raise Exception("Algorithm needs N_resonartors >= 1")
             self.frequency_data = x_data
             self.impedance_data = y_data
+
+    def downsample_data(self, factor: int, show: bool = False) -> None:
+        """Keep every ``factor``-th input pair, starting with the first sample.
+
+        Updates the stored fitting data in place. With ``show=True``, compare
+        the original and retained y samples against x. Complex data use
+        separate real and imaginary subplots.
+        Call this before fitting; narrow resonances may need a smaller factor.
+        """
+        if (
+            isinstance(factor, (bool, np.bool_))
+            or not isinstance(factor, (int, np.integer))
+            or factor < 1
+        ):
+            raise ValueError("factor must be a positive integer")
+
+        x_data = np.asarray(self.x_data)
+        y_data = np.asarray(self.y_data)
+        if x_data.ndim != 1 or y_data.ndim != 1 or x_data.shape != y_data.shape:
+            raise ValueError(
+                "x_data and y_data must be matching one-dimensional arrays"
+            )
+        indices = np.arange(0, len(x_data), factor)
+        if len(indices) < 2:
+            raise ValueError("factor must retain at least two samples")
+
+        if show:
+            import matplotlib.pyplot as plt
+
+            components = (
+                (("Real", np.real), ("Imaginary", np.imag))
+                if np.iscomplexobj(y_data)
+                else (("", np.real),)
+            )
+            fig, axes = plt.subplots(
+                len(components),
+                1,
+                figsize=(10, 5 * len(components)),
+                sharex=True,
+                squeeze=False,
+            )
+            for axis, (name, component) in zip(axes[:, 0], components):
+                axis.plot(x_data, component(y_data), label="Input")
+                axis.plot(
+                    x_data[indices],
+                    component(y_data[indices]),
+                    "o",
+                    label="Downsampled",
+                )
+                axis.set_ylabel(f"{name} y_data" if name else "y_data")
+                axis.legend()
+            axes[-1, 0].set(
+                xlabel="Frequency [Hz]"
+                if self.fitFunctionType == "impedance"
+                else "Time [s]",
+            )
+            fig.tight_layout()
+
+        self.x_data = x_data[indices]
+        self.y_data = y_data[indices]
+        if self.fitFunctionType == "impedance":
+            self.frequency_data = self.x_data
+            self.impedance_data = self.y_data
+        elif self.fitFunctionType == "wake":
+            self.time_data = self.x_data
+            self.wake_data = self.y_data
+        else:
+            self.time_data = self.x_data
+            self.wake_potential_data = self.y_data
+        self.evolutionParametersUncertainties = None
+        self.minimizationParametersUncertainties = None
+        self.flagged_params = None
+
+        if show:
+            plt.show()
 
     def estimate_bounds(
         self,
