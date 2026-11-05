@@ -20,7 +20,7 @@ MinimizationFunction = Callable[[np.ndarray], float]
 
 
 class ProgressBarCallback:
-    def __init__(self, max_generations: int, desc: str = "Optimization") -> None:
+    def __init__(self, max_generations: int | None, desc: str = "Optimization") -> None:
         self.max_generations = max_generations
         self.current_generation = 0
         self.pbar = tqdm(total=max_generations, desc=desc, unit="gen")
@@ -279,8 +279,8 @@ class Solvers:
             parameterBounds: A list of tuples representing the bounds for each parameter.
             minimization_function: The function to be minimized.
             sigma: The initial standard deviation for the CMA-ES algorithm.
-            maxiter: The CMA-ES internal iteration limit; the reported pymoo
-                generation count can exceed it.
+            maxiter: The CMA-ES iteration limit per run. With restarts,
+                the reported pymoo generation count can exceed it.
             popsize: CMA-ES population size, passed as pymoo's ``pop_size``.
             verbose: Show pymoo's progress output.
             x0: Initial parameter vector. If None, use the midpoint of each
@@ -337,14 +337,21 @@ class Solvers:
             pop_size=popsize,
             maxiter=maxiter,
             seed=42,
-            restarts=3,
+            restarts=0,
             restart_from_best=True,
         )
         cmaes_options.update(kwargs)
         solver = CMAES(**cmaes_options)
 
         if not verbose:
-            cb = ProgressBarCallback(maxiter, desc="CMA-ES evolution")
+            # Pymoo also calls back for the initial and final evaluations of
+            # each run, beyond CMA-ES's internal maxiter generations.
+            total_generations = (
+                (maxiter + 2) * (cmaes_options["restarts"] + 1)
+                if maxiter is not None
+                else None
+            )
+            cb = ProgressBarCallback(total_generations, desc="CMA-ES evolution")
             res = minimize(
                 problem,
                 solver,
