@@ -12,7 +12,7 @@ from typing import Any, Callable
 import numpy as np
 import numpy.typing as npt
 from scipy.optimize import differential_evolution
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 ArrayLike = npt.ArrayLike
 ParameterBounds = list[tuple[float, float]]
@@ -40,11 +40,16 @@ class ProgressBarCallback:
         # --- pymoo minimize: (algorithm) ---
         elif len(args) == 1:
             algorithm = args[0]
+            F = np.atleast_1d(algorithm.pop.get("F"))
+            # CMA-ES evaluates one candidate before each run and one after
+            # the last run. Only population evaluations count as iterations.
+            if F.size == 1:
+                return None
+
             self.current_generation += 1
             self.pbar.update(1)
 
             # compute convergence metric
-            F = np.atleast_1d(algorithm.pop.get("F"))
             gap = float(np.mean(F) - np.min(F))
             self._gap0 = getattr(self, "_gap0", gap if gap > 0 else 1.0)
             convergence = float(np.clip(1.0 - gap / (self._gap0 + 1e-12), 0.0, 1.0))
@@ -279,8 +284,10 @@ class Solvers:
             parameterBounds: A list of tuples representing the bounds for each parameter.
             minimization_function: The function to be minimized.
             sigma: The initial standard deviation for the CMA-ES algorithm.
-            maxiter: The CMA-ES iteration limit per run. With restarts,
-                the reported pymoo generation count can exceed it.
+            maxiter: The CMA-ES iteration limit per run. None removes this
+                limit and displays an iteration counter without a percentage.
+                With restarts, the reported generation count can exceed a
+                specified limit.
             popsize: CMA-ES population size, passed as pymoo's ``pop_size``.
             verbose: Show pymoo's progress output.
             x0: Initial parameter vector. If None, use the midpoint of each
@@ -335,7 +342,7 @@ class Solvers:
             x0=x0,
             sigma=sigma,
             pop_size=popsize,
-            maxiter=maxiter,
+            maxiter=np.inf if maxiter is None else maxiter,
             seed=42,
             restarts=0,
             restart_from_best=True,
@@ -344,10 +351,8 @@ class Solvers:
         solver = CMAES(**cmaes_options)
 
         if not verbose:
-            # Pymoo also calls back for the initial and final evaluations of
-            # each run, beyond CMA-ES's internal maxiter generations.
             total_generations = (
-                (maxiter + 2) * (cmaes_options["restarts"] + 1)
+                maxiter * (cmaes_options["restarts"] + 1)
                 if maxiter is not None
                 else None
             )
@@ -372,10 +377,13 @@ class Solvers:
             cb.close()
 
         solution = res.X
-        message = (
-            "Convergence achieved"
-            if res.algorithm.n_gen < maxiter
-            else "Maximum iterations reached"
-        )
+        if maxiter is None:
+            message = "CMA-ES stopped"
+        else:
+            message = (
+                "Convergence achieved"
+                if res.algorithm.n_gen < maxiter
+                else "Maximum iterations reached"
+            )
 
         return solution, message, res

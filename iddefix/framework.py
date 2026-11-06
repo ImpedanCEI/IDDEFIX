@@ -627,7 +627,7 @@ class EvolutionaryAlgorithm:
 
     def run_cmaes(
         self,
-        maxiter: int = 1000,
+        maxiter: int | None = None,
         popsize: int = 50,
         sigma: float = 0.6,
         verbose: bool = False,
@@ -644,9 +644,11 @@ class EvolutionaryAlgorithm:
 
         Parameters
         ----------
-        maxiter : int, optional
-            CMA-ES iteration limit per run. Default is 1000. With restarts,
-            pymoo's reported generation count can exceed this value.
+        maxiter : int or None, optional
+            CMA-ES iteration limit per run. By default, there is no iteration
+            limit; CMA-ES stops according to its convergence and other stopping
+            criteria. With restarts, the total generation count can exceed a
+            specified limit.
         popsize : int, optional
             Population size for the CMA-ES algorithm. Default is 50.
         sigma : float, optional
