@@ -20,6 +20,21 @@ ParameterDict = dict[int, Sequence[float]]
 ParsType = ParameterDict | ArrayLike
 
 
+def _overdamped_wake_terms(
+    times: np.ndarray, omega_r: float, Q: float
+) -> tuple[np.ndarray, np.ndarray, float]:
+    """Return the damped cosh and sinh/D terms without large intermediates."""
+    B = omega_r / (2 * Q)
+    D = omega_r * np.sqrt(1 / (4 * Q**2) - 1)
+    fast_rate = B + D
+    slow_rate = omega_r**2 / fast_rate
+    slow_decay = np.exp(-slow_rate * times)
+    fast_to_slow = np.exp(-2 * D * times)
+    decay_cosh = slow_decay * (1 + fast_to_slow) / 2
+    decay_sinh_over_D = slow_decay * (-np.expm1(-2 * D * times)) / (2 * D)
+    return decay_cosh, decay_sinh_over_D, B
+
+
 class Wakes:
     # Longitudinal and transverse wake functions
     def Resonator_longitudinal_wake(
@@ -66,26 +81,27 @@ class Wakes:
             >>> plt.show()
         """
 
+        times = np.asarray(times)
+        positive_times = np.maximum(times, 0)
         omega_r = 2 * np.pi * resonant_frequency
         if Q == 0.5:
-            Wl = 2 * Rs * omega_r * np.exp(-omega_r * times) * (1 - omega_r * times)
-        elif Q < 0.5:
-            omega_r_bar = omega_r * np.sqrt((1 / (4 * Q**2)) - 1)
-            cos_term = np.cosh(omega_r_bar * times)
-            sin_term = np.sinh(omega_r_bar * times)
-            exp_term = np.exp(-omega_r * times / (2 * Q))
             Wl = (
-                Rs
+                2
+                * Rs
                 * omega_r
-                / Q
-                * exp_term
-                * (cos_term - omega_r / (2 * Q * omega_r_bar) * sin_term)
+                * np.exp(-omega_r * positive_times)
+                * (1 - omega_r * positive_times)
             )
+        elif Q < 0.5:
+            decay_cosh, decay_sinh_over_D, B = _overdamped_wake_terms(
+                positive_times, omega_r, Q
+            )
+            Wl = Rs * omega_r / Q * (decay_cosh - B * decay_sinh_over_D)
         else:
             omega_r_bar = omega_r * np.sqrt(1 - (1 / (4 * Q**2)))
-            cos_term = np.cos(omega_r_bar * times)
-            sin_term = np.sin(omega_r_bar * times)
-            exp_term = np.exp(-omega_r * times / (2 * Q))
+            cos_term = np.cos(omega_r_bar * positive_times)
+            sin_term = np.sin(omega_r_bar * positive_times)
+            exp_term = np.exp(-omega_r * positive_times / (2 * Q))
             Wl = (
                 Rs
                 * omega_r
@@ -141,19 +157,20 @@ class Wakes:
             >>> plt.show()
         """
 
+        times = np.asarray(times)
+        positive_times = np.maximum(times, 0)
         omega_r = 2 * np.pi * resonant_frequency
-        exp_term = np.exp(-omega_r * times / 2 / Q)
         if Q == 0.5:
-            Wt = omega_r**2 * Rs / Q * exp_term * times
+            exp_term = np.exp(-omega_r * positive_times / 2 / Q)
+            Wt = omega_r**2 * Rs / Q * exp_term * positive_times
         elif Q < 0.5:
-            omega_r_bar = omega_r * np.sqrt((1 / (4 * Q**2)) - 1)
-            sqrt_term = np.sqrt((1 / (4 * Q * Q)) - 1)
-            sin_term = np.sinh(omega_r * sqrt_term * times)
-            Wt = omega_r**2 * Rs / (Q * omega_r_bar) * exp_term * sin_term
+            _, decay_sinh_over_D, _ = _overdamped_wake_terms(positive_times, omega_r, Q)
+            Wt = omega_r**2 * Rs / Q * decay_sinh_over_D
         else:
             omega_r_bar = omega_r * np.sqrt(1 - (1 / (4 * Q**2)))
             sqrt_term = np.sqrt(1 - (1 / (4 * Q * Q)))
-            sin_term = np.sin(omega_r * sqrt_term * times)
+            sin_term = np.sin(omega_r * sqrt_term * positive_times)
+            exp_term = np.exp(-omega_r * positive_times / 2 / Q)
             Wt = omega_r**2 * Rs / (Q * omega_r_bar) * exp_term * sin_term
         Wt[times < 0] = 0.0
 

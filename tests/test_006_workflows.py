@@ -5,7 +5,7 @@ path. PyFDE option forwarding is checked separately because it is optional.
 """
 
 import sys
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -258,6 +258,34 @@ def test_solver_fits_complex_impedance_with_public_options(resonance, solver, ca
     fitted_loss = np.sum(np.abs(fitted - target) ** 2)
     assert np.isfinite(model.evolutionParameters).all()
     assert fitted_loss < initial_loss
+
+
+@pytest.mark.parametrize(("restarts", "expected_runs"), [(None, 1), (2, 3)])
+def test_cmaes_restart_progress(monkeypatch, restarts, expected_runs):
+    """The default has one run; requested restarts enlarge the progress budget."""
+    import pymoo.algorithms.soo.nonconvex.cmaes as cmaes_module
+    import pymoo.optimize as pymoo_optimize
+
+    observed = {}
+
+    class FakeCMAES:
+        def __init__(self, **options):
+            observed["restarts"] = options["restarts"]
+
+    def fake_minimize(problem, solver, **options):
+        observed["progress_total"] = options["callback"].pbar.total
+        return SimpleNamespace(X=np.array([0.5]), algorithm=SimpleNamespace(n_gen=1))
+
+    monkeypatch.setattr(cmaes_module, "CMAES", FakeCMAES)
+    monkeypatch.setattr(pymoo_optimize, "minimize", fake_minimize)
+    options = {} if restarts is None else {"restarts": restarts}
+
+    Solvers.run_pymoo_cmaes_solver(
+        [(0.0, 1.0)], lambda x: x[0] ** 2, maxiter=10, **options
+    )
+
+    assert observed["restarts"] == expected_runs - 1
+    assert observed["progress_total"] == 12 * expected_runs
 
 
 @pytest.mark.parametrize(
