@@ -11,6 +11,7 @@ from typing import Sequence
 import numpy as np
 import numpy.typing as npt
 from scipy import special as sp
+from scipy.constants import c
 
 from .utils import pars_to_dict
 
@@ -490,14 +491,14 @@ class Impedances:
             (https://cds.cern.ch/record/192684/files/198812060.pdf) and can
             be used for any real positive value of `Q`.
 
-            The partially decayed formula uses the formula derived in
-            (Joly, S. thesis not published yet!)
+            The partially decayed formula is the finite Fourier transform of
+            the longitudinal wake and supports any real positive value of `Q`.
 
-            Moreover, it sets the impedance value to zero for zero frequencies
-            in both cases.
+            The fully decayed formula sets the impedance value to zero at zero
+            frequency. A finite wake can have a nonzero value there.
 
             Units for this formula are:
-                Rs: Ohm/m
+                Rs: Ohm
                 Q: dimensionless
                 resonant_frequency: Hz
                 wake_length: m
@@ -515,66 +516,57 @@ class Impedances:
         """
         if wake_length is None:
             # Fully decayed wake
-            zero_index = np.where(frequencies > 0)[0]  # find index of non-zero element
-            if zero_index.size < frequencies.size:
-                Zl = np.zeros_like(frequencies, dtype=complex)  # initialize Zl as 0
-                Zl[zero_index] = Rs / (
-                    1
-                    + 1j
-                    * Q
-                    * (
-                        frequencies[zero_index] / resonant_frequency
-                        - resonant_frequency / frequencies[zero_index]
-                    )
-                )  # calculate all Zl for non-zero frequencies
-            else:
-                Zl = Rs / (
-                    1
-                    + 1j
-                    * Q
-                    * (
-                        frequencies / resonant_frequency
-                        - resonant_frequency / frequencies
-                    )
+            positive = frequencies > 0
+            Zl = np.zeros_like(frequencies, dtype=complex)
+            selected_frequencies = frequencies[positive]
+            Zl[positive] = (
+                Rs
+                * selected_frequencies
+                * resonant_frequency
+                / (
+                    selected_frequencies * resonant_frequency
+                    + 1j * Q * (selected_frequencies**2 - resonant_frequency**2)
                 )
+            )
 
         else:
             # Partially decayed wake
             omega = 2 * np.pi * frequencies
             omega_r = 2 * np.pi * resonant_frequency
-            c = 299792458.0  # speed of light in vacuum
-
-            if Q < 0.5:
-                raise ValueError(
-                    "Quality factor Q must be larger than 0.5."
-                    "The wake is unlikely to be partially decayed"
-                    "for such a low quality factor otherwise."
-                )
 
             B = omega_r / 2 / Q
-            C = omega_r * np.sqrt(1 - 1 / 4 / Q**2)
             T = wake_length / c
-
-            zero_index = np.where(frequencies > 0)[0]  # find index of non-zero element
-            if zero_index.size < frequencies.size:
-                # A = Rs * omega_r / 2 / Q
-                A = (
-                    Rs * omega[zero_index] / 2 / Q
-                )  # correct scaling to fit with usual formula
-                exp_term = np.exp(-(B - 1j * (C - omega[zero_index])) * T)
-                numerator = A * (1 - exp_term)
-                denominator = B - 1j * (C - omega[zero_index])
-                Zl = np.zeros_like(frequencies, dtype=complex)  # initialize Zl as 0
-                # calculate all Zl for non-zero frequencies
-                Zl[zero_index] = numerator / denominator
-
+            s = B + 1j * omega
+            if Q < 0.5:
+                D = omega_r * np.sqrt(1 / 4 / Q**2 - 1)
+                fast_rate = B + D
+                # B - D = omega_r**2 / (B + D) avoids cancellation at low Q.
+                slow_rate = omega_r**2 / fast_rate
+                slow_decay = np.exp(-slow_rate * T)
+                fast_to_slow = np.exp(-2 * D * T)
+                phase = np.exp(-1j * omega * T)
+                decay_cosh = phase * slow_decay * (1 + fast_to_slow) / 2
+                decay_sinh_over_D = (
+                    phase * slow_decay * (-np.expm1(-2 * D * T)) / (2 * D)
+                )
+                numerator = (
+                    1j * omega
+                    - 1j * omega * decay_cosh
+                    + (omega_r**2 + 1j * B * omega) * decay_sinh_over_D
+                )
+                denominator = (slow_rate + 1j * omega) * (fast_rate + 1j * omega)
             else:
-                # A = Rs * omega_r / 2 / Q
-                A = Rs * omega / 2 / Q  # correct scaling to fit with usual formula
-                exp_term = np.exp(-(B - 1j * (C - omega)) * T)
-                numerator = A * (1 - exp_term)
-                denominator = B - 1j * (C - omega)
-                Zl = numerator / denominator
+                # The formula remains finite at the critical value Q = 0.5.
+                C = omega_r * np.sqrt(1 - 1 / 4 / Q**2)
+                exp_term = np.exp(-s * T)
+                cos_term = np.cos(C * T)
+                # sin(C*T)/C has the finite limit T at the critical Q = 0.5.
+                sin_over_C = T * np.sinc(C * T / np.pi)
+                numerator = 1j * omega + exp_term * (
+                    -1j * omega * cos_term + C**2 * sin_over_C + B * s * sin_over_C
+                )
+                denominator = C**2 + s**2
+            Zl = Rs * omega_r / Q * numerator / denominator
 
         return Zl
 
@@ -609,11 +601,12 @@ class Impedances:
             (https://cds.cern.ch/record/192684/files/198812060.pdf) and can
             be used for any real positive value of `Q`.
 
-            The partially decayed formula uses the formula derived in
-            (Joly, S. thesis not published yet!)
+            The partially decayed formula is the finite Fourier transform of
+            the transverse wake and supports any real positive value of `Q`.
 
-            Moreover, it sets the impedance value to zero for zero frequencies
-            in both cases.
+            At zero frequency, the fully decayed impedance has the analytical
+            value ``1j * Rs / Q``. The partially decayed value is the finite
+            transverse wake area multiplied by ``1j`` and is generally nonzero.
 
             Units for this formula are:
                 Rs: Ohm/m
@@ -623,76 +616,48 @@ class Impedances:
         """
         if wake_length is None:
             # Fully decayed wake
-            zero_index = np.where(frequencies > 0)[0]  # find index of non-zero element
-            if zero_index.size < frequencies.size:
-                Zt = np.zeros_like(frequencies, dtype=complex)  # initialize Zt as 0
-                Zt[zero_index] = (
-                    resonant_frequency
-                    / frequencies[zero_index]
-                    * Rs
-                    / (
-                        1
-                        + 1j
-                        * Q
-                        * (
-                            frequencies[zero_index] / resonant_frequency
-                            - resonant_frequency / frequencies[zero_index]
-                        )
-                    )
-                )  # calculate all Zt for non-zero frequencies
-
-            else:
-                Zt = (
-                    resonant_frequency
-                    / frequencies
-                    * Rs
-                    / (
-                        1
-                        + 1j
-                        * Q
-                        * (
-                            frequencies / resonant_frequency
-                            - resonant_frequency / frequencies
-                        )
-                    )
+            Zt = (
+                Rs
+                * resonant_frequency**2
+                / (
+                    frequencies * resonant_frequency
+                    + 1j * Q * (frequencies**2 - resonant_frequency**2)
                 )
+            )
 
         else:
             # Partially decayed wake
             omega = 2 * np.pi * frequencies
             omega_r = 2 * np.pi * resonant_frequency
-            c = 299792458.0  # speed of light in vacuum
 
-            if Q < 0.5:
-                raise ValueError(
-                    "Quality factor Q must be larger than 0.5."
-                    "The wake is unlikely to be partially decayed"
-                    "for such a low quality factor otherwise."
-                )
-
-            A = Rs * omega_r / (Q * np.sqrt(1 - 1 / 4 / Q**2))
             B = omega_r / 2 / Q
-            C = omega_r * np.sqrt(1 - 1 / 4 / Q**2)
             T = wake_length / c
-
-            zero_index = np.where(frequencies > 0)[0]  # find index of non-zero element
-            if zero_index.size < frequencies.size:
-                exp_term = np.exp(-T * (B + 1j * omega[zero_index]))
-                cos_term = np.cos(C * T)
-                sin_term = (B + 1j * omega[zero_index]) / C * np.sin(C * T)
-                denominator = C**2 + (B + 1j * omega[zero_index]) ** 2
-                Zt = np.zeros_like(frequencies, dtype=complex)  # initialize Zt as 0
-                # calculate all Zt for non-zero frequencies
-                Zt[zero_index] = (
-                    1j * A * C / denominator * (1 - exp_term * (cos_term + sin_term))
+            AC = Rs * omega_r**2 / Q
+            if Q < 0.5:
+                D = omega_r * np.sqrt(1 / 4 / Q**2 - 1)
+                fast_rate = B + D
+                slow_rate = omega_r**2 / fast_rate
+                slow_decay = np.exp(-slow_rate * T)
+                fast_to_slow = np.exp(-2 * D * T)
+                phase = np.exp(-1j * omega * T)
+                decay_cosh = phase * slow_decay * (1 + fast_to_slow) / 2
+                decay_sinh_over_D = (
+                    phase * slow_decay * (-np.expm1(-2 * D * T)) / (2 * D)
                 )
+                s = B + 1j * omega
+                denominator = (slow_rate + 1j * omega) * (fast_rate + 1j * omega)
+                Zt = 1j * AC / denominator * (1 - decay_cosh - s * decay_sinh_over_D)
 
             else:
-                exp_term = np.exp(-T * (B + 1j * omega))
+                C = omega_r * np.sqrt(1 - 1 / 4 / Q**2)
+                # A*C and sin(C*T)/C have finite limits at the critical Q = 0.5.
+                sin_over_C = T * np.sinc(C * T / np.pi)
+                s = B + 1j * omega
+                exp_term = np.exp(-T * s)
                 cos_term = np.cos(C * T)
-                sin_term = (B + 1j * omega) / C * np.sin(C * T)
-                denominator = C**2 + (B + 1j * omega) ** 2
-                Zt = 1j * A * C / denominator * (1 - exp_term * (cos_term + sin_term))
+                sin_term = s * sin_over_C
+                denominator = C**2 + s**2
+                Zt = 1j * AC / denominator * (1 - exp_term * (cos_term + sin_term))
 
         return Zt
 

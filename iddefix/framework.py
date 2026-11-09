@@ -7,6 +7,7 @@ Created on Mon Mar 23 13:20:11 2020
 @modified by: MaltheRaschke, edelafue
 """
 
+import re
 from functools import partial
 from typing import Any, Callable, Sequence
 
@@ -14,13 +15,16 @@ import numpy as np
 import numpy.typing as npt
 from scipy.optimize import minimize
 
+from ._table import display_resonator_table
 from .objectiveFunctions import ObjectiveFunctions as obj
 from .resonatorFormulas import Impedances as imp
 from .resonatorFormulas import Wakes as wak
+from .smartBoundDetermination import SmartBoundDetermination
 from .solvers import Solvers
-from .uncertainties import get_uncertainties
+from .uncertainties import get_uncertainties as calculate_uncertainties
 from .utils import compute_fft
 
+# type-checking aliases
 ArrayLike = npt.ArrayLike
 ParameterBounds = list[tuple[float, float]]
 ObjectiveCallable = Callable[..., float]
@@ -31,14 +35,16 @@ class EvolutionaryAlgorithm:
         self,
         x_data: ArrayLike,
         y_data: ArrayLike,
-        N_resonators: int,
-        parameterBounds: ParameterBounds,
+        N_resonators: int | None = None,
+        parameterBounds: ParameterBounds | None = None,
         plane: str = "longitudinal",
         fitFunction: str = "impedance",
         objectiveFunction: ObjectiveCallable | str | None = None,
         wake_length: float | None = None,
         sigma: float | None = None,
         uncertainty_warning: float = 0.2,
+        parameterEstimates: ArrayLike | None = None,
+        compute_uncertainties: bool = True,
     ) -> None:
         """
         Implements an evolutionary algorithm for fitting impedance models to data.
@@ -54,11 +60,13 @@ class EvolutionaryAlgorithm:
             times for wake function and wake potential [s]
         y_data : numpy.ndarray
             Stores the input y data: impedance data [Ohm] or Wake function/potential [V/C/s]
-        N_resonators : int
-            Number of resonators in the model.
-        parameterBounds : list of tuple
+        N_resonators : int or None, optional
+            Number of resonators in the model. If omitted, inferred from
+            ``parameterBounds`` or a subsequently loaded parameter table.
+        parameterBounds : list of tuple or None, optional
             List of parameter bounds for the optimization. Each resonator has three
             parameters: Rs (shunt resistance), Q (quality factor), and fr (resonant frequency).
+            May be omitted when loading a table for evaluation or plotting.
         fitFunction: str, optional
             Specify which fitFunction to use: ["impedance", "wake", "wake_potential"]
         plane : str, optional
@@ -79,16 +87,32 @@ class EvolutionaryAlgorithm:
             Threshold for relative uncertainty warning. Default is 0.2 -->20%
             If any parameter has a relative uncertainty (sigma/value) above this
             threshold, a warning is printed after optimization.
+        parameterEstimates : array-like, optional
+            Initial parameter vector in the same flattened order as
+            ``parameterBounds``. The value is stored unchanged. Individual
+            solver calls can override it with ``x0``.
+        compute_uncertainties : bool, optional
+            Compute parameter uncertainties automatically after fitting.
+            Default is True. Set to False to skip this calculation; call
+            ``get_uncertainties()`` later if needed.
 
         Attributes
         ----------
         fitFunction : callable
-            Partial function used to compute impedance based on the chosen model
-            (`imp.Resonator_longitudinal_imp`, `imp.n_Resonator_longitudinal_imp`, etc.).
+            Function used to evaluate the selected impedance, wake, or
+            wake-potential model.
+        fitFunctionType : str
+            Selected model domain: ``"impedance"``, ``"wake"``, or
+            ``"wake potential"``.
         evolutionParameters : dict or None
             Stores parameters of the evolutionary optimization algorithm.
         minimizationParameters : numpy.ndarray or None
             Stores the best-fit parameters obtained from the optimization.
+        minimizationBounds : list of tuple or None
+            Bounds used by the most recent local minimization. They are derived
+            from ``margin`` around ``evolutionParameters``, or equal to
+            ``parameterBounds`` for a minimization-only run. They are cleared
+            when stored parameters are manually changed.
         time_data : numpy.ndarray
             Stores the input x data: times for wake function and wake potential [s]
         wake_data : numpy.ndarray
@@ -130,12 +154,21 @@ class EvolutionaryAlgorithm:
         self.x_data = x_data
         self.y_data = y_data
 
+        if N_resonators is None and parameterBounds is not None:
+            if len(parameterBounds) == 0 or len(parameterBounds) % 3:
+                raise ValueError(
+                    "parameterBounds must contain three pairs per resonator"
+                )
+            N_resonators = len(parameterBounds) // 3
         self.N_resonators = N_resonators
         self.parameterBounds = parameterBounds
+        self.parameterEstimates = parameterEstimates
+        self.compute_uncertainties = compute_uncertainties
         self.objectiveFunction = objectiveFunction
         self.wake_length = wake_length
         self.plane = plane
         self.sigma = sigma
+        self.fitFunctionType = "impedance"
 
         self.time_data = None
         self.wake_data = None
@@ -146,6 +179,7 @@ class EvolutionaryAlgorithm:
         self.evolutionParametersUncertainties = None
         self.minimizationParameters = None
         self.minimizationParametersUncertainties = None
+        self.minimizationBounds = None
         self.flagged_params = None
 
         # Threshold on relative uncertainty (sigma/|value|) above which a
@@ -166,12 +200,13 @@ class EvolutionaryAlgorithm:
                     `iddefix.objectiveFunctions.sumOfSquaredErrorReal` \
                     for real-valued only data"
                 )
-        elif type(self.objectiveFunction) is str:
-            if self.objectiveFunction.lower() == "complex":
+        elif isinstance(self.objectiveFunction, str):
+            objective_name = self.objectiveFunction.lower()
+            if objective_name == "complex":
                 self.objectiveFunction = obj.sumOfSquaredError
-            if self.objectiveFunction.lower() == "real":
+            elif objective_name == "real":
                 self.objectiveFunction = obj.sumOfSquaredErrorReal
-            elif self.objectiveFunction.lower() == "abs":
+            elif objective_name == "abs":
                 self.objectiveFunction = obj.sumOfSquaredErrorAbs
             else:
                 print(
@@ -181,6 +216,7 @@ class EvolutionaryAlgorithm:
                 self.objectiveFunction = obj.sumOfSquaredError
 
         if fitFunction == "wake" or fitFunction == "wake function":
+            self.fitFunctionType = "wake"
             if plane == "longitudinal":
                 self.fitFunction = wak.n_Resonator_longitudinal_wake
             elif plane == "transverse":
@@ -191,6 +227,7 @@ class EvolutionaryAlgorithm:
             self.wake_data = y_data
 
         elif fitFunction == "wake potential":
+            self.fitFunctionType = "wake potential"
             if self.sigma is None:
                 print("[!] sigma not specified, using the default sigma=1e-10 s")
                 self.sigma = 1e-10
@@ -230,6 +267,93 @@ class EvolutionaryAlgorithm:
             self.frequency_data = x_data
             self.impedance_data = y_data
 
+    def estimate_bounds(
+        self,
+        impedance_type: str | None = "real",
+        show_table: bool = True,
+        show_inspect: bool = True,
+        **kwargs: Any,
+    ) -> SmartBoundDetermination:
+        """Estimate resonator search bounds from the stored impedance data.
+
+        The detected bounds, estimates, and resonator count are stored on this
+        model. The model's plane and wake length are used for estimation.
+
+        Parameters
+        ----------
+        impedance_type : {"absolute", "real"} or None, optional
+            Use the magnitude or real part of the stored impedance. Defaults
+            to ``"real"`` for both planes. ``None`` also selects this default.
+        show_table : bool, optional
+            Display the estimated bounds with ``to_table()``. Default is True.
+        show_inspect : bool, optional
+            Plot detected peaks and estimated resonator components with
+            ``inspect(show_components=True)``. Default is True.
+        **kwargs
+            Automatic peak-finding options passed to
+            :class:`SmartBoundDetermination`:
+
+            - ``minimum_peak_height``: Minimum peak height; default 1.0.
+            - ``threshold``, ``distance``, ``prominence``: Criteria passed to
+              ``scipy.signal.find_peaks``; each defaults to None. ``distance``
+              counts samples on the analysis grid.
+            - ``Rs_bounds`` and ``Q_bounds``: Lower and upper multipliers for
+              the estimated Rs and Q; each defaults to ``[0.1, 10]``.
+            - ``fres_bounds``: Lower and upper multiples of the estimated
+              resonator half-width; defaults to ``[-1, 1]``.
+            - ``samples``: Number of equally spaced analysis samples; by
+              default, use the stored frequency samples.
+            - ``q_side``: ``"auto"``, ``"left"``, ``"right"``, or a list with
+              one choice per peak; defaults to ``"auto"``.
+
+            Interactive selection is not supported by this method.
+
+        Returns
+        -------
+        SmartBoundDetermination
+            Estimator containing the detected peaks and bounds, available for
+            inspection with ``inspect()`` or ``to_table()``.
+
+        Raises
+        ------
+        ValueError
+            If the model contains wake data, no peaks are detected, or
+            interactive selection is requested.
+        """
+        if self.fitFunctionType != "impedance":
+            raise ValueError("estimate_bounds requires impedance data")
+        if kwargs.get("interactive", False):
+            raise ValueError("estimate_bounds does not support interactive selection")
+
+        if impedance_type is None:
+            impedance_type = "real"
+        if impedance_type == "absolute":
+            impedance = np.abs(self.impedance_data)
+        elif impedance_type == "real":
+            impedance = np.real(self.impedance_data)
+        else:
+            raise ValueError("impedance_type must be 'absolute' or 'real'")
+
+        bounds = SmartBoundDetermination(
+            self.frequency_data,
+            impedance,
+            impedance_type=impedance_type,
+            plane=self.plane,
+            wake_length=self.wake_length,
+            **kwargs,
+        )
+        if not bounds.N_resonators:
+            raise ValueError("No resonance peaks found in the impedance data")
+
+        self.N_resonators = bounds.N_resonators
+        self.parameterBounds = bounds.parameterBounds
+        self.parameterEstimates = bounds.parameterEstimates
+        if show_table:
+            bounds.to_table()
+        if show_inspect:
+            bounds.inspect(show_components=True)
+        return bounds
+
     def check_y_data(self) -> None:
         """
         Small function to avoid 0 frequency leading to zero division when
@@ -239,7 +363,7 @@ class EvolutionaryAlgorithm:
         self.x_data = self.x_data[mask]
         self.y_data = self.y_data[mask]
 
-    def generate_Initial_Parameters(
+    def _solve_differential_evolution(
         self,
         parameterBounds: ParameterBounds,
         objectiveFunction: ObjectiveCallable,
@@ -252,62 +376,9 @@ class EvolutionaryAlgorithm:
         crossover_rate: float = 0.8,
         tol: float = 0.01,
         solver: str = "scipy",
+        **kwargs: Any,
     ) -> tuple[np.ndarray, str]:
-        """
-        Generates initial parameter estimates using a
-        Differential Evolution (DE) solver.
-
-        This function applies a DE optimization method to identify
-        suitable initial parameters for resonance fitting.
-        These parameters can be further refined using local minimization.
-
-        Parameters
-        ----------
-        parameterBounds : list of tuple
-            A list of (min, max) bounds for each parameter.
-        objectiveFunction : callable
-            The objective function to minimize. It should accept parameters,
-            a fitting function, x-data, and y-data.
-        fitFunction : callable
-            The fitting function that models the impedance response.
-        x_values_data : numpy.ndarray
-            Array containing x-values of the data (frequency points).
-        y_values_data : numpy.ndarray
-            Array containing y-values of the data (impedance magnitudes).
-        maxiter : int, optional
-            Maximum number of iterations for the DE solver. Default is 2000.
-        popsize : int, optional
-            Population size for the DE algorithm. Default is 150.
-        mutation : tuple of float, optional
-            Range of mutation factors that control parameter variation.
-            Default is (0.1, 0.5).
-        crossover_rate : float, optional
-            Probability of recombining individuals in the DE algorithm.
-            Default is 0.8.
-        tol : float, optional
-            Convergence tolerance for stopping criteria. Default is 0.01.
-        solver : str, optional
-            The solver to use for differential evolution. Available options:
-            - `"scipy"`: Uses SciPy's built-in DE solver.
-            - `"pyfde"`: Uses `pyfde`, an alternative DE implementation.
-            - `"pyfde_jade"`: Uses JADE, a self-adaptive DE variant
-            (automatically adjusts `mutation` and `crossover_rate`).
-            Default is `"scipy"`.
-
-        Returns
-        -------
-        tuple
-            - **solution** : numpy.ndarray
-                Optimized parameter estimates found by the DE solver.
-            - **message** : str
-                Solver status message.
-
-        Notes
-        -----
-        - Calls the appropriate solver function based on the `solver` argument.
-        - If `solver='pyfde_jade'`, mutation and crossover rates are automatically adjusted.
-        - The result can be used as an initial guess for further optimization.
-        """
+        """Prepare the objective and dispatch it to the selected DE backend."""
 
         objective_function = partial(
             objectiveFunction,
@@ -324,23 +395,139 @@ class EvolutionaryAlgorithm:
         }
 
         solver_function = solver_functions.get(solver)
-        if solver == "pyfde_jade":
-            mutation, crossover_rate = None, None
-
         if not solver_function:
             raise ValueError(f"Invalid solver name: {solver}")
 
+        solver_options = dict(maxiter=maxiter, popsize=popsize, tol=tol, **kwargs)
+        if solver != "pyfde_jade":
+            solver_options.update(mutation=mutation, crossover_rate=crossover_rate)
         solution, message = solver_function(
-            parameterBounds,
-            objective_function,
+            parameterBounds, objective_function, **solver_options
+        )
+
+        return solution, message
+
+    def _require_fit_bounds(self) -> ParameterBounds:
+        """Require finite search bounds for a global optimizer."""
+        if self.N_resonators is None or self.parameterBounds is None:
+            raise ValueError("Set N_resonators and parameterBounds before fitting")
+        bounds = np.asarray(self.parameterBounds, dtype=float)
+        if (
+            bounds.shape != (3 * self.N_resonators, 2)
+            or not np.all(np.isfinite(bounds))
+            or np.any(bounds[:, 0] > bounds[:, 1])
+        ):
+            raise ValueError(
+                "Fitting requires finite parameterBounds for each resonator"
+            )
+        return self.parameterBounds
+
+    def run_differential_evolution(
+        self,
+        maxiter: int = 2000,
+        popsize: int = 15,
+        mutation: tuple[float, float] = (0.1, 0.5),
+        crossover_rate: float = 0.8,
+        tol: float = 0.01,
+        solver: str = "scipy",
+        x0: ArrayLike | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """
+        Runs the differential evolution (DE) algorithm to estimate optimal
+        resonance parameters.
+
+        This function applies a global optimization technique using a DE solver
+        to determine the best-fitting parameters for the given impedance data.
+        The results can later be refined using a local minimization algorithm.
+
+        Parameters
+        ----------
+        maxiter : int, optional
+            Maximum number of iterations for the DE solver. Default is 2000.
+        popsize : int, optional
+            Population multiplier per free parameter. Default is 15.
+        mutation : tuple of float, optional
+            Range of mutation factors controlling parameter variation.
+            Default is (0.1, 0.5).
+        crossover_rate : float, optional
+            Probability of recombining individuals in the DE algorithm.
+            Default is 0.8.
+        tol : float, optional
+            Convergence tolerance for stopping criteria. Default is 0.01.
+        solver : str, optional
+            Specifies the DE solver to use. Valid options are:
+            - `"scipy"`: Uses SciPy's built-in DE solver.
+            - `"pyfde"`: Uses `pyfde`, an alternative DE implementation.
+            - `"pyfde_jade"`: Uses JADE, a self-adaptive DE variant.
+            Default is `"scipy"`.
+        x0 : array-like, optional
+            Initial parameter vector for SciPy differential evolution. Defaults
+            to ``parameterEstimates`` stored on the model. PyFDE backends do not
+            currently support an explicit initial vector. If both are ``None``,
+            SciPy uses its configured population initializer.
+        **kwargs : Any
+            Additional options for the selected solver. With ``solver="scipy"``,
+            options such as ``strategy``, ``init``, ``atol``, ``workers``, and
+            ``seed`` are passed to
+            ``scipy.optimize.differential_evolution``. IDDEFIX defaults to
+            ``strategy="rand1bin"``, ``workers=-1``, and ``polish=False``;
+            supplied keywords override these defaults. ``popsize`` is a
+            multiplier of the number of free parameters for SciPy.
+
+            With ``solver="pyfde"`` or ``"pyfde_jade"``, constructor options
+            such as ``seed`` are passed to PyFDE. Batch objectives are not
+            supported by the IDDEFIX objective functions. See the solver docs:
+            https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.differential_evolution.html
+            https://pyfde.readthedocs.io/en/latest/tutorial.html
+
+        Notes
+        -----
+        - Uses `_solve_differential_evolution()` to dispatch the selected
+          differential evolution backend.
+        - The optimized parameters are stored in `self.evolutionParameters`.
+        - Calls `self.display_resonator_parameters()` to present the estimated
+          parameters.
+
+        Returns
+        -------
+        None
+            The optimized parameters are stored in `self.evolutionParameters`.
+        """
+        solver_options = dict(kwargs)
+        if solver == "scipy":
+            solver_options["x0"] = self.parameterEstimates if x0 is None else x0
+
+        evolutionParameters, warning = self._solve_differential_evolution(
+            self._require_fit_bounds(),
+            self.objectiveFunction,
+            self.fitFunction,
+            self.x_data,
+            self.y_data,
             maxiter=maxiter,
             popsize=popsize,
             mutation=mutation,
             crossover_rate=crossover_rate,
             tol=tol,
+            solver=solver,
+            **solver_options,
         )
 
-        return solution, message
+        self.evolutionParameters = evolutionParameters
+        self.evolutionParametersUncertainties = None
+        self.flagged_params = None
+        if self.compute_uncertainties:
+            self.get_uncertainties(
+                use_minimization=False, parameterBounds=self.parameterBounds
+            )
+
+        self.warning = warning
+        self.display_resonator_parameters(
+            params=self.evolutionParameters,
+            to_markdown=False,
+            uncertainties=self.evolutionParametersUncertainties,
+            display_warnings=True,
+        )
 
     def run_cmaes(
         self,
@@ -348,6 +535,7 @@ class EvolutionaryAlgorithm:
         popsize: int = 50,
         sigma: float = 0.6,
         verbose: bool = False,
+        x0: ArrayLike | None = None,
         **kwargs: Any,
     ) -> Any:
         """
@@ -361,13 +549,30 @@ class EvolutionaryAlgorithm:
         Parameters
         ----------
         maxiter : int, optional
-            Maximum number of iterations for the CMA-ES solver. Default is 1000.
+            CMA-ES internal iteration limit. Default is 1000. Pymoo's
+            reported generation count can exceed this value.
         popsize : int, optional
             Population size for the CMA-ES algorithm. Default is 50.
         sigma : float, optional
-            Initial standard deviation for the sampling distribution. Default is 0.1.
-        **kwargs : dict, optional
-            Additional arguments passed to the `pymoo.CMAES` solver.
+            Initial standard deviation for the sampling distribution. Default is 0.6.
+        verbose : bool, optional
+            Show pymoo's progress output instead of IDDEFIX's progress bar.
+        x0 : array-like, optional
+            Initial parameter vector. Defaults to ``parameterEstimates`` stored
+            on the model. If both are ``None``, CMA-ES uses the bounds midpoint.
+        **kwargs : Any
+            Additional options passed to ``pymoo.algorithms.soo.nonconvex.cmaes.CMAES``.
+            For example, ``tolfun``, ``tolx``, ``maxfevals``, ``restarts``,
+            ``restart_from_best``, and ``seed``. IDDEFIX defaults to three
+            restarts and seed 42; a supplied keyword overrides these defaults.
+            Use ``popsize`` above for the population size. Pymoo's
+            internal stopping and restarts do not make ``maxiter`` a strict
+            outer generation cap.
+
+            Pymoo CMA-ES options are documented at
+            https://pymoo.org/_modules/pymoo/algorithms/soo/nonconvex/cmaes.html.
+            Other CMA-ES options passed through to its underlying strategy
+            depend on the installed pymoo version.
 
         Returns
         -------
@@ -389,121 +594,32 @@ class EvolutionaryAlgorithm:
         )
 
         solution, message, res = Solvers.run_pymoo_cmaes_solver(
-            self.parameterBounds,
+            self._require_fit_bounds(),
             objective_function,
             sigma=sigma,
             maxiter=maxiter,
             popsize=popsize,
             verbose=verbose,
+            x0=self.parameterEstimates if x0 is None else x0,
             **kwargs,
         )
 
         self.evolutionParameters = solution
-        self.evolutionParametersUncertainties = get_uncertainties(
-            self.evolutionParameters,
-            self.fitFunction,
-            self.x_data,
-            self.y_data,
-        )
+        self.evolutionParametersUncertainties = None
+        self.flagged_params = None
+        if self.compute_uncertainties:
+            self.get_uncertainties(
+                use_minimization=False, parameterBounds=self.parameterBounds
+            )
         self.warning = message
-        self._warn_large_uncertainties(
-            self.evolutionParameters,
-            self.evolutionParametersUncertainties,
-        )
         self.display_resonator_parameters(
             params=self.evolutionParameters,
             to_markdown=False,
             uncertainties=self.evolutionParametersUncertainties,
+            display_warnings=True,
         )
 
         return res
-
-    def run_differential_evolution(
-        self,
-        maxiter: int = 2000,
-        popsize: int = 15,
-        mutation: tuple[float, float] = (0.1, 0.5),
-        crossover_rate: float = 0.8,
-        tol: float = 0.01,
-        solver: str = "scipy",
-    ) -> None:
-        """
-        Runs the differential evolution (DE) algorithm to estimate optimal
-        resonance parameters.
-
-        This function applies a global optimization technique using a DE solver
-        to determine the best-fitting parameters for the given impedance data.
-        The results can later be refined using a local minimization algorithm.
-
-        Parameters
-        ----------
-        maxiter : int, optional
-            Maximum number of iterations for the DE solver. Default is 2000.
-        popsize : int, optional
-            Population size for the DE algorithm. Default is 15.
-        mutation : tuple of float, optional
-            Range of mutation factors controlling parameter variation.
-            Default is (0.1, 0.5).
-        crossover_rate : float, optional
-            Probability of recombining individuals in the DE algorithm.
-            Default is 0.8.
-        tol : float, optional
-            Convergence tolerance for stopping criteria. Default is 0.01.
-        solver : str, optional
-            Specifies the DE solver to use. Valid options are:
-            - `"scipy"`: Uses SciPy's built-in DE solver.
-            - `"pyfde"`: Uses `pyfde`, an alternative DE implementation.
-            - `"pyfde_jade"`: Uses JADE, a self-adaptive DE variant.
-            Default is `"scipy"`.
-
-        Notes
-        -----
-        - Uses `generate_Initial_Parameters()` to perform the differential
-          evolution process.
-        - The optimized parameters are stored in `self.evolutionParameters`.
-        - Calls `self.display_resonator_parameters()` to present the estimated
-          parameters.
-
-        Returns
-        -------
-        None
-            The optimized parameters are stored in `self.evolutionParameters`.
-        """
-        evolutionParameters, warning = self.generate_Initial_Parameters(
-            self.parameterBounds,
-            self.objectiveFunction,
-            self.fitFunction,
-            self.x_data,
-            self.y_data,
-            maxiter=maxiter,
-            popsize=popsize,
-            mutation=mutation,
-            crossover_rate=crossover_rate,
-            tol=tol,
-            solver=solver,
-            # workers=workers,
-            # vectorized=vectorized,
-            # iteration_convergence=iteration_convergence,
-        )
-
-        self.evolutionParameters = evolutionParameters
-        self.evolutionParametersUncertainties = get_uncertainties(
-            self.evolutionParameters,
-            self.fitFunction,
-            self.x_data,
-            self.y_data,
-        )
-
-        self.warning = warning
-        self._warn_large_uncertainties(
-            self.evolutionParameters,
-            self.evolutionParametersUncertainties,
-        )
-        self.display_resonator_parameters(
-            params=self.evolutionParameters,
-            to_markdown=False,
-            uncertainties=self.evolutionParametersUncertainties,
-        )
 
     def run_minimization_algorithm(
         self,
@@ -516,7 +632,8 @@ class EvolutionaryAlgorithm:
         This function refines the parameters obtained from the Differential
         Evolution (DE) algorithm by using a local optimization method.
         If the DE algorithm has not been run, it directly minimizes the
-        objective function using initial parameter bounds.
+        objective function from ``parameterEstimates``, falling back to the
+        midpoint of ``parameterBounds`` when no estimate is available.
 
         Each parameter is allowed to vary within a specified margin, where:
         - Rs values use `margin[0]`
@@ -534,10 +651,12 @@ class EvolutionaryAlgorithm:
 
         Notes
         -----
-        - The optimization is constrained within `minimizationBounds`, which
-        are computed using `margin` and the current `evolutionParameters`.
+        - The optimization is constrained within ``self.minimizationBounds``,
+          which are computed using ``margin`` and the current
+          ``evolutionParameters``. For a minimization-only run, they equal
+          ``self.parameterBounds``.
         - If the DE algorithm has not been run, the function initializes parameters
-        using `self.parameterBounds` and minimizes the objective function.
+          from `self.parameterEstimates` or the midpoint of `self.parameterBounds`.
         - The minimization results are stored in `self.minimizationParameters`.
         - Calls `self.display_resonator_parameters()` to display the refined parameters.
 
@@ -578,9 +697,18 @@ class EvolutionaryAlgorithm:
             )
         else:
             print("Differential Evolution algorithm not run, minimization only")
+            if self.parameterBounds is None:
+                raise ValueError(
+                    "Set parameterBounds before fitting without loaded parameters"
+                )
+            initial_parameters = (
+                np.mean(self.parameterBounds, axis=1)
+                if self.parameterEstimates is None
+                else self.parameterEstimates
+            )
             minimizationParameters = minimize(
                 objective_function,
-                x0=np.mean(self.parameterBounds, axis=1),
+                x0=initial_parameters,
                 bounds=self.parameterBounds,
                 method=method,
                 tol=1,
@@ -592,21 +720,70 @@ class EvolutionaryAlgorithm:
                 },
             )
         self.minimizationParameters = minimizationParameters.x
-        self.minimizationParametersUncertainties = get_uncertainties(
-            self.minimizationParameters,
-            self.fitFunction,
-            self.x_data,
-            self.y_data,
+        self.minimizationBounds = (
+            minimizationBounds
+            if self.evolutionParameters is not None
+            else self.parameterBounds
         )
-        self._warn_large_uncertainties(
-            self.minimizationParameters,
-            self.minimizationParametersUncertainties,
-        )
+        self.minimizationParametersUncertainties = None
+        self.flagged_params = None
+        if self.compute_uncertainties:
+            self.get_uncertainties(parameterBounds=self.minimizationBounds)
         self.display_resonator_parameters(
             params=self.minimizationParameters,
             to_markdown=False,
             uncertainties=self.minimizationParametersUncertainties,
+            display_warnings=True,
         )
+
+    def get_uncertainties(
+        self,
+        use_minimization: bool = True,
+        x_data: ArrayLike | None = None,
+        y_data: ArrayLike | None = None,
+        parameterBounds: ArrayLike | None = None,
+    ) -> np.ndarray:
+        """Recompute and store uncertainties for the current resonator parameters.
+
+        By default, use minimization results when available, otherwise
+        evolutionary results. Input data defaults to the data stored on the
+        model. Derivatives use physical resonator bounds by default, so loaded
+        parameters need not lie within the original fitting bounds. Pass
+        ``parameterBounds`` to use different derivative bounds.
+        """
+        if use_minimization and self.minimizationParameters is not None:
+            parameters = self.minimizationParameters
+            uncertainty_attribute = "minimizationParametersUncertainties"
+        else:
+            parameters = self.evolutionParameters
+            uncertainty_attribute = "evolutionParametersUncertainties"
+
+        if parameters is None:
+            raise ValueError("No resonator parameters are available")
+
+        if x_data is None:
+            x_data = self.x_data
+        if y_data is None:
+            y_data = self.y_data
+        if parameterBounds is None:
+            parameterBounds = [
+                bound
+                for _ in range(self.N_resonators)
+                for bound in ((-np.inf, np.inf), (0.0, np.inf), (0.0, np.inf))
+            ]
+
+        uncertainties = calculate_uncertainties(
+            np.asarray(parameters),
+            self.fitFunction,
+            np.asarray(x_data),
+            np.asarray(y_data),
+            parameterBounds,
+        )
+        setattr(self, uncertainty_attribute, uncertainties)
+        self.flagged_params = self._compute_flagged_params_mask(
+            parameters, uncertainties
+        )
+        return uncertainties
 
     def display_resonator_parameters(
         self,
@@ -614,16 +791,16 @@ class EvolutionaryAlgorithm:
         to_markdown: bool = False,
         uncertainties: ArrayLike | None = None,
         display_uncertainties: bool = True,
+        display_warnings: bool = False,
     ) -> None:
-        """
-        Displays resonance parameters in a formatted table using ASCII characters.
+        """Display resonator parameters and their uncertainties.
 
-        Args:
-            solution: A NumPy array of resonator parameters, typically shaped
-            (n_resonators, 3).
+        Set ``display_warnings=True`` to print uncertainty and bound warnings
+        and highlight affected values. Fitting methods enable warnings for
+        their automatic parameter display.
         """
 
-        # Use self parameters if not provided as argument.
+        # Select the latest fitted stage and its matching uncertainties.
         if params is None:
             if self.minimizationParameters is not None:
                 params = self.minimizationParameters
@@ -638,82 +815,351 @@ class EvolutionaryAlgorithm:
                 print("[!] No parameters to display.")
                 return
 
+        # Find parameters that need uncertainty or bound warnings.
         flagged_mask = self._compute_flagged_params_mask(params, uncertainties)
+        if (
+            params is self.minimizationParameters
+            and self.minimizationBounds is not None
+        ):
+            bounds = self.minimizationBounds
+            bounds_name = "minimization"
+        else:
+            bounds = self.parameterBounds
+            bounds_name = "parameter"
+        lower_mask, upper_mask = self._compute_bound_proximity_masks(params, bounds)
+        bound_mask = lower_mask | upper_mask
+        blue = "\033[34m"
+        reset = "\033[0m"
+        if display_warnings:
+            self._warn_large_uncertainties(params, uncertainties)
+        else:
+            flagged_mask = None
+            bound_mask = np.zeros_like(bound_mask)
+        if display_warnings and np.any(bound_mask):
+            print(
+                f"{blue}[!] Warning: Fit within 1% of the {bounds_name} bounds. "
+                f"Consider widening the bounds before refitting.{reset}"
+            )
 
         if not display_uncertainties:
             uncertainties = None
             flagged_mask = None
 
+        # Format each parameter once before adding optional uncertainty text.
+        params_reshaped = params.reshape(-1, 3)
         if to_markdown:
-            print("\n")
-            print("| Resonator | Rs [Ohm/m or Ohm] | Q | fres [Hz] |")
-            print("|-----------|------------------|---|-----------|")
-            params_reshaped = params.reshape(-1, 3)
-            if uncertainties is not None:
-                uncert_reshaped = uncertainties.reshape(-1, 3)
-                for i, (p_row, u_row) in enumerate(
-                    zip(params_reshaped, uncert_reshaped)
-                ):
-                    rs, q, fres = p_row
-                    urs, uq, ufres = u_row
-                    print(
-                        f"| {i + 1} | {rs:.6g} ± {urs:.2g} | {q:.6g} ± {uq:.2g} | {fres:.6g} ± {ufres:.2g} |"
-                    )
-            else:
-                for i, parameters in enumerate(params_reshaped):
-                    print(
-                        f"| {i + 1} | {parameters[0]:.6g} | {parameters[1]:.6g} | {parameters[2]:.6g} |"
-                    )
+            frequency_format = ".6g"
+        elif uncertainties is not None:
+            frequency_format = ".2e"
         else:
-            print("\n")
-            print("-" * 76)
+            frequency_format = ".3e"
+        value_formats = (".6g", ".6g", frequency_format)
+        values = [
+            tuple(format(p_row[j], value_formats[j]) for j in range(3))
+            for p_row in params_reshaped
+        ]
 
-            # Print header
-            header_format = "{:^10}|{:^24}|{:^18}|{:^24}"
-            print(
-                header_format.format("Resonator", "Rs [Ohm/m or Ohm]", "Q", "fres [Hz]")
-            )
-            print("-" * 76)
-
-            # Print data
-            params_reshaped = params.reshape(-1, 3)
-            if uncertainties is not None:
-                uncert_reshaped = uncertainties.reshape(-1, 3)
-                if flagged_mask is not None:
-                    flagged_reshaped = flagged_mask.reshape(-1, 3)
-                else:
-                    flagged_reshaped = np.zeros_like(params_reshaped, dtype=bool)
-
-                for i, (p_row, u_row) in enumerate(
-                    zip(params_reshaped, uncert_reshaped)
-                ):
-                    rs, q, fres = p_row
-                    urs, uq, ufres = u_row
-
-                    rs_str = f"{rs:.2e} ± {urs:.1e}"
-                    q_str = f"{q:.2f} ± {uq:.2f}"
-                    fres_str = f"{fres:.2e} ± {ufres:.1e}"
-
-                    rs_cell = f"{rs_str:^24}"
-                    q_cell = f"{q_str:^18}"
-                    fres_cell = f"{fres_str:^24}"
-
-                    # Highlight cells whose relative uncertainty exceeds threshold.
-                    if flagged_reshaped[i, 0]:
-                        rs_cell = f"\033[31m{rs_cell}\033[0m"
-                    if flagged_reshaped[i, 1]:
-                        q_cell = f"\033[31m{q_cell}\033[0m"
-                    if flagged_reshaped[i, 2]:
-                        fres_cell = f"\033[31m{fres_cell}\033[0m"
-
-                    print(f"{i + 1:^10d}|{rs_cell}|{q_cell}|{fres_cell}")
+        if uncertainties is not None:
+            uncert_reshaped = uncertainties.reshape(-1, 3)
+            if to_markdown:
+                rows = [
+                    tuple(f"{value[j]} ± {u_row[j]:.1e}" for j in range(3))
+                    for value, u_row in zip(values, uncert_reshaped)
+                ]
             else:
-                for i, parameters in enumerate(params_reshaped):
-                    print(
-                        f"{i + 1:^10d}|{parameters[0]:^24.2e}|{parameters[1]:^18.2f}|{parameters[2]:^24.3e}"
+                # Align the ± signs across resonators in the text table.
+                value_widths = [
+                    max((len(row[j]) for row in values), default=0) for j in range(3)
+                ]
+                rows = [
+                    tuple(
+                        f"{value[j]:>{value_widths[j]}} ± {u_row[j]:>9.1e}"
+                        for j in range(3)
                     )
+                    for value, u_row in zip(values, uncert_reshaped)
+                ]
+        else:
+            rows = values
 
-            print("-" * 76)
+        # Bound and uncertainty highlighting applies to the text/HTML table.
+        if to_markdown:
+            display_resonator_table(rows, to_markdown=True)
+        else:
+            bound_reshaped = bound_mask.reshape(-1, 3)
+            minimum_widths = (26, 24, 26) if uncertainties is not None else (22, 12, 18)
+
+            flagged_reshaped = (
+                flagged_mask.reshape(-1, 3)
+                if flagged_mask is not None
+                else np.zeros_like(bound_reshaped)
+            )
+            colors = [
+                tuple(
+                    "blue"
+                    if bound_reshaped[i, j]
+                    else "red"
+                    if flagged_reshaped[i, j]
+                    else None
+                    for j in range(3)
+                )
+                for i in range(len(rows))
+            ]
+            display_resonator_table(rows, minimum_widths=minimum_widths, colors=colors)
+
+    def load_resonator_parameters(
+        self, table: str, use_minimization: bool = True
+    ) -> None:
+        """Load parameter values and uncertainties from a displayed table.
+
+        Accepts the ASCII or Markdown output of
+        ``display_resonator_parameters`` with or without uncertainties.
+        Missing uncertainties default to zero. Header and separator lines are
+        optional. ANSI highlighting, including its visible ``␛``
+        representation, is ignored. The number of rows must match
+        ``N_resonators`` when specified; otherwise it is inferred from the table.
+        Printed values have limited precision, so the
+        original fit arrays remain preferable when available.
+
+        By default the values are stored as minimization results, which are
+        selected by the impedance getters. Missing evolutionary parameters and
+        uncertainties are also populated from the table. Set
+        ``use_minimization=False`` to store evolutionary results instead.
+        """
+        clean_table = re.sub(r"(?:\x1b|␛)\[[0-9;]*m", "", table)
+        number = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
+        parameter_cell = re.compile(rf"\s*({number})(?:\s*±\s*({number}))?\s*")
+        values = []
+        uncertainties = []
+
+        for line in clean_table.splitlines():
+            cells = [cell.strip() for cell in line.split("|") if cell.strip()]
+            if not cells or not cells[0].isdigit():
+                continue
+            if len(cells) != 4:
+                raise ValueError(f"Invalid resonator row: {line}")
+
+            row_number = int(cells[0])
+            if row_number != len(values) // 3 + 1:
+                raise ValueError("Resonator rows must be numbered consecutively")
+
+            row_values = []
+            row_uncertainties = []
+            for cell in cells[1:]:
+                match = parameter_cell.fullmatch(cell)
+                if match is None:
+                    raise ValueError(f"Invalid parameter cell: {cell}")
+                row_values.append(float(match[1]))
+                row_uncertainties.append(float(match[2]) if match[2] else 0.0)
+            values.extend(row_values)
+            uncertainties.extend(row_uncertainties)
+
+        if not values:
+            raise ValueError("No resonator rows found in table")
+        if self.N_resonators is not None and len(values) != 3 * self.N_resonators:
+            raise ValueError(
+                f"Expected {self.N_resonators} resonator rows, found {len(values) // 3}"
+            )
+        if self.parameterBounds is not None and len(self.parameterBounds) != len(
+            values
+        ):
+            raise ValueError(
+                "parameterBounds must contain three pairs per loaded resonator"
+            )
+        if self.N_resonators is None:
+            self.N_resonators = len(values) // 3
+
+        parameters = np.asarray(values)
+        parameter_uncertainties = np.asarray(uncertainties)
+        self.minimizationBounds = None
+        if use_minimization:
+            self.minimizationParameters = parameters
+            self.minimizationParametersUncertainties = parameter_uncertainties
+            if self.evolutionParameters is None:
+                self.evolutionParameters = parameters.copy()
+                self.evolutionParametersUncertainties = parameter_uncertainties.copy()
+        else:
+            self.evolutionParameters = parameters
+            self.evolutionParametersUncertainties = parameter_uncertainties
+        self._update_parameter_flags()
+
+    def modify_resonator(
+        self,
+        resonator_number: int,
+        Rs: float | None = None,
+        Q: float | None = None,
+        fr: float | None = None,
+    ) -> None:
+        """Overwrite selected parameters of a resonator by its 1-based number.
+
+        ``None`` leaves a parameter unchanged. Both available fit stages are
+        updated; fitted uncertainties are cleared because they describe the
+        parameters before this manual edit. Call ``get_uncertainties`` to
+        estimate uncertainties for the modified model.
+        """
+        if (
+            isinstance(resonator_number, (bool, np.bool_))
+            or not isinstance(resonator_number, (int, np.integer))
+            or not 1 <= resonator_number <= self.N_resonators
+        ):
+            raise ValueError("resonator_number is outside the model")
+        if self.evolutionParameters is None and self.minimizationParameters is None:
+            raise ValueError("Load or fit resonator parameters before modifying a mode")
+
+        changes = {}
+        for offset, (name, value) in enumerate((("Rs", Rs), ("Q", Q), ("fr", fr))):
+            if value is None:
+                continue
+            try:
+                value = float(value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"{name} must be a finite real number") from exc
+            if not np.isfinite(value):
+                raise ValueError(f"{name} must be a finite real number")
+            changes[offset] = value
+
+        if not changes:
+            return
+        if 1 in changes and changes[1] <= 0:
+            raise ValueError("Q must be positive")
+        if 2 in changes and changes[2] <= 0:
+            raise ValueError("fr must be positive")
+
+        first_parameter = 3 * (resonator_number - 1)
+        for parameter_name, uncertainty_name in (
+            ("evolutionParameters", "evolutionParametersUncertainties"),
+            ("minimizationParameters", "minimizationParametersUncertainties"),
+        ):
+            parameters = getattr(self, parameter_name)
+            if parameters is None:
+                continue
+            parameters = np.asarray(parameters, dtype=float).copy()
+            for offset, value in changes.items():
+                parameters[first_parameter + offset] = value
+            setattr(self, parameter_name, parameters)
+            setattr(self, uncertainty_name, None)
+        if self.parameterEstimates is not None:
+            estimates = np.asarray(self.parameterEstimates, dtype=float).copy()
+            for offset, value in changes.items():
+                estimates[first_parameter + offset] = value
+            self.parameterEstimates = estimates
+        self.minimizationBounds = None
+        self._update_parameter_flags()
+
+    def remove_resonator(self, resonator_number: int) -> None:
+        """Remove a resonator by its 1-based number in the parameter table.
+
+        The corresponding values, uncertainties, and fit bounds are removed
+        from both evolution and minimization results when present. At least
+        one resonator must remain in the model.
+        """
+        if not 1 <= resonator_number <= self.N_resonators:
+            raise ValueError("resonator_number is outside the model")
+        if self.N_resonators == 1:
+            raise ValueError("The model must retain at least one resonator")
+
+        indices = np.arange(3 * (resonator_number - 1), 3 * resonator_number)
+        for name in (
+            "evolutionParameters",
+            "evolutionParametersUncertainties",
+            "minimizationParameters",
+            "minimizationParametersUncertainties",
+        ):
+            values = getattr(self, name)
+            if values is not None:
+                setattr(self, name, np.delete(values, indices))
+        if self.parameterEstimates is not None:
+            self.parameterEstimates = np.delete(self.parameterEstimates, indices)
+        self.minimizationBounds = None
+
+        first_bound = 3 * (resonator_number - 1)
+        if self.parameterBounds is not None:
+            self.parameterBounds = [
+                bound
+                for index, bound in enumerate(self.parameterBounds)
+                if not first_bound <= index < first_bound + 3
+            ]
+        self.N_resonators -= 1
+        self._update_parameter_flags()
+
+    def add_resonator(
+        self,
+        Rs: float,
+        Q: float,
+        fres: float,
+        uncertainty: float | Sequence[float] = 0,
+        parameter_bounds: ParameterBounds | None = None,
+    ) -> None:
+        """Append a resonator to the stored parameters and uncertainties.
+
+        ``uncertainty`` may be one value for all three parameters or a
+        sequence of three values in ``(Rs, Q, fres)`` order. The new mode is
+        appended to both result stages when both are present. Without explicit
+        ``parameter_bounds``, its fit bounds are open apart from Q > 0 and
+        fres >= 0; supply finite bounds before running another fit.
+        """
+        if self.evolutionParameters is None and self.minimizationParameters is None:
+            raise ValueError("Load or fit resonator parameters before adding a mode")
+
+        new_parameters = np.array([Rs, Q, fres], dtype=float)
+        new_uncertainties = np.broadcast_to(
+            np.asarray(uncertainty, dtype=float), (3,)
+        ).copy()
+        if Q <= 0 or fres <= 0:
+            raise ValueError("Q and fres must be positive")
+        if np.any(new_uncertainties < 0):
+            raise ValueError("uncertainties must be non-negative")
+        if parameter_bounds is None:
+            new_bounds = [(-np.inf, np.inf), (0.0, np.inf), (0.0, np.inf)]
+        else:
+            if len(parameter_bounds) != 3:
+                raise ValueError("parameter_bounds must contain three pairs")
+            new_bounds = list(parameter_bounds)
+
+        for parameter_name, uncertainty_name in (
+            ("evolutionParameters", "evolutionParametersUncertainties"),
+            ("minimizationParameters", "minimizationParametersUncertainties"),
+        ):
+            parameters = getattr(self, parameter_name)
+            if parameters is None:
+                continue
+            setattr(
+                self,
+                parameter_name,
+                np.concatenate((parameters, new_parameters)),
+            )
+            uncertainties = getattr(self, uncertainty_name)
+            if uncertainties is None:
+                uncertainties = np.zeros_like(parameters, dtype=float)
+            setattr(
+                self,
+                uncertainty_name,
+                np.concatenate((uncertainties, new_uncertainties)),
+            )
+        if self.parameterEstimates is not None:
+            self.parameterEstimates = np.concatenate(
+                (self.parameterEstimates, new_parameters)
+            )
+        self.minimizationBounds = None
+
+        if self.parameterBounds is not None:
+            self.parameterBounds = [*self.parameterBounds, *new_bounds]
+        elif parameter_bounds is not None:
+            open_bounds = [(-np.inf, np.inf), (0.0, np.inf), (0.0, np.inf)]
+            self.parameterBounds = open_bounds * self.N_resonators + new_bounds
+        self.N_resonators += 1
+        self._update_parameter_flags()
+
+    def _update_parameter_flags(self) -> None:
+        """Refresh uncertainty flags for the parameter stage used by getters."""
+        if self.minimizationParameters is not None:
+            parameters = self.minimizationParameters
+            uncertainties = self.minimizationParametersUncertainties
+        else:
+            parameters = self.evolutionParameters
+            uncertainties = self.evolutionParametersUncertainties
+        self.flagged_params = self._compute_flagged_params_mask(
+            parameters, uncertainties
+        )
 
     def _compute_flagged_params_mask(
         self,
@@ -738,6 +1184,32 @@ class EvolutionaryAlgorithm:
             rel_unc = np.abs(uncertainties / params)
 
         return np.isfinite(rel_unc) & (rel_unc >= threshold)
+
+    def _compute_bound_proximity_masks(
+        self, params: ArrayLike, bounds: ParameterBounds | None
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Find lower and upper bound hits, using log position for positive Rs/Q."""
+        params = np.asarray(params, dtype=float).ravel()
+        if bounds is None:
+            empty = np.zeros(params.shape, dtype=bool)
+            return empty, empty.copy()
+        bounds = np.asarray(bounds, dtype=float)
+        if bounds.shape != (params.size, 2):
+            empty = np.zeros(params.shape, dtype=bool)
+            return empty, empty.copy()
+
+        width = bounds[:, 1] - bounds[:, 0]
+        valid = np.all(np.isfinite(bounds), axis=1) & (width > 0)
+        position = np.zeros_like(params)
+        position[valid] = (params[valid] - bounds[valid, 0]) / width[valid]
+
+        multiplicative = (
+            valid & (np.arange(params.size) % 3 < 2) & (bounds[:, 0] > 0) & (params > 0)
+        )
+        position[multiplicative] = (
+            np.log(params[multiplicative]) - np.log(bounds[multiplicative, 0])
+        ) / (np.log(bounds[multiplicative, 1]) - np.log(bounds[multiplicative, 0]))
+        return valid & (position <= 0.01), valid & (position >= 0.99)
 
     def _warn_large_uncertainties(
         self,
@@ -768,7 +1240,7 @@ class EvolutionaryAlgorithm:
             rel_unc = np.abs(uncertainties / params)
         max_rel = float(np.nanmax(rel_unc[mask]))
         print(
-            f"[!] Warning: {n_flagged} parameter(s) have relative uncertainty >= {threshold:.2f} (max {max_rel:.2f})."
+            f"\033[31m[!] Warning: {n_flagged} parameter(s) have relative uncertainty >= {threshold:.2f} (max {max_rel:.2f}).\033[0m"
         )
 
     def get_wake(
@@ -797,9 +1269,9 @@ class EvolutionaryAlgorithm:
         elif self.plane == "transverse" and self.N_resonators > 1:
             wake_data = wak.n_Resonator_transverse_wake(time_data, pars)
         elif self.plane == "longitudinal" and self.N_resonators == 1:
-            wake_data = wak.Resonator_longitudinal_wake(time_data, pars)
+            wake_data = wak.Resonator_longitudinal_wake(time_data, *pars)
         elif self.plane == "transverse" and self.N_resonators == 1:
-            wake_data = wak.Resonator_transverse_wake(time_data, pars)
+            wake_data = wak.Resonator_transverse_wake(time_data, *pars)
 
         if self.wake_data is None:
             self.wake_data = wake_data
@@ -845,11 +1317,11 @@ class EvolutionaryAlgorithm:
             )
         elif self.plane == "longitudinal" and self.N_resonators == 1:
             wake_potential_data = wak.Resonator_longitudinal_wake_potential(
-                time_data, pars, sigma=sigma
+                time_data, *pars, sigma=sigma
             )
         elif self.plane == "transverse" and self.N_resonators == 1:
             wake_potential_data = wak.Resonator_transverse_wake_potential(
-                time_data, pars, sigma=sigma
+                time_data, *pars, sigma=sigma
             )
 
         return wake_potential_data
@@ -918,6 +1390,294 @@ class EvolutionaryAlgorithm:
             )
 
         return impedance_data
+
+    def get_resonator_components(
+        self,
+        x_data: ArrayLike | None = None,
+        use_minimization: bool = True,
+    ) -> np.ndarray:
+        """Return one fitted model contribution per resonator.
+
+        Each contribution is evaluated independently with the configured
+        impedance, wake, or wake-potential ``fitFunction``.
+        """
+        if x_data is None:
+            x_data = self.x_data
+        x_data = np.asarray(x_data)
+
+        if use_minimization and self.minimizationParameters is not None:
+            parameters = self.minimizationParameters
+        else:
+            parameters = self.evolutionParameters
+        if parameters is None:
+            raise ValueError("No resonator parameters are available")
+
+        return np.asarray(
+            [
+                self.fitFunction(x_data, resonator_parameters)
+                for resonator_parameters in np.asarray(parameters).reshape(-1, 3)
+            ]
+        )
+
+    def plot_resonator_components(
+        self,
+        x_data: ArrayLike | None = None,
+        y_data: ArrayLike | None = None,
+        use_minimization: bool = True,
+        cmap: str = "turbo",
+        figsize: tuple[float, float] | None = None,
+        dpi: float | None = None,
+        input_data_kwargs: dict[str, Any] | None = None,
+        component_kwargs: dict[str, Any] | None = None,
+        total_model_kwargs: dict[str, Any] | None = None,
+        **subplot_kwargs: Any,
+    ):
+        """Plot input data, individual resonators, and the total model.
+
+        ``input_data_kwargs``, ``component_kwargs``, and
+        ``total_model_kwargs`` override the default line styles. Remaining
+        keyword arguments are forwarded to ``matplotlib.pyplot.subplots``.
+        For 10 or more resonators, a shared colorbar replaces the component
+        entries in the legends.
+        """
+        import matplotlib.pyplot as plt
+
+        if x_data is None:
+            x_data = self.x_data
+        x_data = np.asarray(x_data)
+        if y_data is None and np.array_equal(x_data, self.x_data):
+            y_data = self.y_data
+        if y_data is not None:
+            y_data = np.asarray(y_data)
+            if y_data.shape != x_data.shape:
+                raise ValueError("x_data and y_data must have the same shape")
+
+        components = self.get_resonator_components(
+            x_data,
+            use_minimization=use_minimization,
+        )
+        if use_minimization and self.minimizationParameters is not None:
+            parameters = self.minimizationParameters
+        else:
+            parameters = self.evolutionParameters
+        total_model = self.fitFunction(x_data, parameters)
+        colors = plt.get_cmap(cmap, max(len(components), 1))
+
+        if self.fitFunctionType == "impedance":
+            figure_options = {
+                "figsize": (10, 7) if figsize is None else figsize,
+                "sharex": True,
+                **subplot_kwargs,
+            }
+            if dpi is not None:
+                figure_options["dpi"] = dpi
+            fig, axes = plt.subplots(2, 1, **figure_options)
+            units = r"[$\Omega$]" if self.plane == "longitudinal" else r"[$\Omega$/m]"
+            panels = (
+                (axes[0], np.real, r"Real part $\Re(Z)$ " + units, "red"),
+                (axes[1], np.imag, r"Imaginary part $\Im(Z)$ " + units, "blue"),
+            )
+            xlabel = "Frequency [Hz]"
+        else:
+            figure_options = {
+                "figsize": (10, 5) if figsize is None else figsize,
+                **subplot_kwargs,
+            }
+            if dpi is not None:
+                figure_options["dpi"] = dpi
+            fig, axis = plt.subplots(**figure_options)
+            axes = np.asarray([axis])
+            ylabel = "Wake" if self.fitFunctionType == "wake" else "Wake potential"
+            units = "[V/C]" if self.plane == "longitudinal" else "[V/C/m]"
+            panels = ((axis, np.real, ylabel + " " + units, "red"),)
+            xlabel = "Time [s]"
+
+        for axis, values, ylabel, input_color in panels:
+            if y_data is not None:
+                input_style = {
+                    "linestyle": "-",
+                    "color": input_color,
+                    "linewidth": 2.0,
+                    "label": "Input data",
+                }
+                input_style.update(input_data_kwargs or {})
+                axis.plot(
+                    x_data,
+                    values(y_data),
+                    **input_style,
+                )
+
+            total_style = {
+                "linestyle": "--",
+                "color": "black",
+                "linewidth": 2.0,
+                "alpha": 0.8,
+                "label": "Total model",
+            }
+            total_style.update(total_model_kwargs or {})
+            axis.plot(
+                x_data,
+                values(total_model),
+                **total_style,
+            )
+            for index, component in enumerate(components):
+                component_style = {
+                    "linestyle": "-",
+                    "color": colors(index),
+                    "linewidth": 1.5,
+                    "alpha": 0.7,
+                    "label": f"Resonator {index + 1}",
+                }
+                component_style.update(component_kwargs or {})
+                axis.plot(
+                    x_data,
+                    values(component),
+                    **component_style,
+                )
+            axis.set_ylabel(ylabel)
+
+        axes[-1].set_xlabel(xlabel)
+        if len(components) >= 10:
+            from matplotlib.cm import ScalarMappable
+            from matplotlib.colors import BoundaryNorm
+
+            for axis in axes:
+                legend_lines = axis.lines[: 2 if y_data is not None else 1]
+                axis.legend(handles=legend_lines, loc="upper right", frameon=False)
+            fig.tight_layout()
+
+            boundaries = np.arange(0.5, len(components) + 1.5)
+            colorbar = fig.colorbar(
+                ScalarMappable(
+                    norm=BoundaryNorm(boundaries, len(components)), cmap=colors
+                ),
+                ax=axes,
+                boundaries=boundaries,
+                ticks=np.arange(1, len(components) + 1),
+                fraction=0.035,
+                pad=0.025,
+                aspect=30,
+            )
+            colorbar.set_label("Resonator number")
+            colorbar.ax.tick_params(length=0)
+            colorbar.ax.invert_yaxis()
+        else:
+            for axis in axes:
+                axis.legend(ncol=3, frameon=False)
+            fig.tight_layout()
+        plt.show()
+        return fig, axes
+
+    def get_impedance_uncertainty(
+        self,
+        frequency_data: ArrayLike | None = None,
+        use_minimization: bool = True,
+        wake_length: float | None = None,
+        n_sigma: float = 1.0,
+        q_samples: int = 33,
+        vary: str = "both",
+        max_factor: float = 2.0,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Return pointwise sensitivity bounds on the real impedance.
+
+        ``vary`` selects Rs, Q, or both. The selected parameters vary by up to
+        ``n_sigma`` fitted standard deviations, limited to a multiplicative
+        range between ``value / max_factor`` and ``value * max_factor``.
+        Varied Q stays positive, and resonant frequencies stay fixed.
+        Fitting search bounds are not used. These are sensitivity scenarios,
+        not confidence intervals.
+
+        Extrema are found per resonator and frequency, so the envelopes need
+        not represent one parameter set across the frequency range. For
+        partially decayed wakes, Q is sampled on ``q_samples`` points and
+        the extrema are approximate. The nominal Q is always sampled.
+
+        The nominal complex impedance remains available from ``get_impedance``.
+
+        Returns
+        -------
+        lower_bound, upper_bound : tuple of numpy.ndarray
+            Pointwise bounds on the real impedance, in the same units as
+            ``get_impedance``. These are not bounds on its imaginary part.
+        """
+        if n_sigma < 0:
+            raise ValueError("n_sigma must be non-negative")
+        if max_factor < 1:
+            raise ValueError("max_factor must be at least 1")
+        if wake_length is not None and q_samples < 2:
+            raise ValueError("q_samples must be at least 2")
+        vary = vary.lower()
+        if vary not in ("r", "rs", "q", "both"):
+            raise ValueError("vary must be 'R', 'Q', or 'both'")
+
+        if frequency_data is None:
+            if self.frequency_data is None:
+                raise AttributeError("Provide frequency data array")
+            frequency_data = self.frequency_data
+
+        if use_minimization and self.minimizationParameters is not None:
+            parameters = self.minimizationParameters
+            uncertainties = self.minimizationParametersUncertainties
+        else:
+            parameters = self.evolutionParameters
+            uncertainties = self.evolutionParametersUncertainties
+
+        if parameters is None or uncertainties is None:
+            raise AttributeError("Fit parameters and uncertainties are required")
+
+        parameters = np.asarray(parameters, dtype=float).reshape(-1, 3)
+        uncertainties = np.asarray(uncertainties, dtype=float).reshape(-1, 3)
+        frequency_data = np.asarray(frequency_data, dtype=float)
+        lower_bound = np.zeros_like(frequency_data)
+        upper_bound = np.zeros_like(frequency_data)
+
+        resonator_impedance = (
+            imp.Resonator_longitudinal_imp
+            if self.plane == "longitudinal"
+            else imp.Resonator_transverse_imp
+        )
+
+        def capped_limits(value: float, uncertainty: float) -> tuple[float, float]:
+            factor_limits = sorted((value / max_factor, value * max_factor))
+            return (
+                max(value - n_sigma * uncertainty, factor_limits[0]),
+                min(value + n_sigma * uncertainty, factor_limits[1]),
+            )
+
+        for (rs, q, resonant_frequency), (rs_sigma, q_sigma, _) in zip(
+            parameters, uncertainties
+        ):
+            rs_values = capped_limits(rs, rs_sigma) if vary != "q" else (rs,)
+            if vary in ("q", "both"):
+                q_lower, q_upper = capped_limits(q, q_sigma)
+                q_lower = max(q_lower, np.nextafter(0.0, 1.0))
+                if wake_length is None:
+                    q_values = (q_lower, q_upper)
+                else:
+                    q_values = np.unique(
+                        np.append(np.linspace(q_lower, q_upper, q_samples), q)
+                    )
+            else:
+                q_values = (q,)
+
+            mode_lower = np.full_like(frequency_data, np.inf)
+            mode_upper = np.full_like(frequency_data, -np.inf)
+            for candidate_q in q_values:
+                for candidate_rs in rs_values:
+                    real_impedance = resonator_impedance(
+                        frequency_data,
+                        candidate_rs,
+                        candidate_q,
+                        resonant_frequency,
+                        wake_length,
+                    ).real
+                    np.minimum(mode_lower, real_impedance, out=mode_lower)
+                    np.maximum(mode_upper, real_impedance, out=mode_upper)
+
+            lower_bound += mode_lower
+            upper_bound += mode_upper
+
+        return lower_bound, upper_bound
 
     def get_impedance_from_fft(
         self,

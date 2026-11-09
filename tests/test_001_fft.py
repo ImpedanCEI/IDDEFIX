@@ -1,13 +1,130 @@
-import sys
+"""FFT workflows for converting wake data into impedance spectra.
+
+These tests compare reconstructed wakes and impedances with reference data.
+
+Run ``pytest tests/test_001_fft.py --debug-plots`` to display the asserted
+values in a dedicated debug plot.
+"""
+
 from io import StringIO
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 from scipy.constants import c as c_light
 
-sys.path.append("../")
 import iddefix
+
+
+@pytest.mark.parametrize(
+    "time_origin",
+    [0.0, 3.5e-11, -4.0e-11, 0.5e-11],
+    ids=["zero", "positive", "negative", "midpoint"],
+)
+def test_fft_preserves_time_origin_phase(time_origin, debug_plot):
+    """Shifting the sample times produces the Fourier time-shift phase."""
+    step = 1e-11
+    time = np.arange(1000) * step
+    wake = np.exp(-time / 2e-9) * np.cos(2 * np.pi * 0.8e9 * time)
+
+    frequency, impedance = iddefix.compute_fft(time, wake, fmax=2e9, samples=200)
+    shifted_frequency, shifted_impedance = iddefix.compute_fft(
+        time + time_origin, wake, fmax=2e9, samples=200
+    )
+
+    np.testing.assert_allclose(shifted_frequency, frequency, rtol=1e-14)
+    expected = impedance * np.exp(-2j * np.pi * frequency * time_origin)
+    debug_plot(
+        frequency,
+        shifted_impedance,
+        expected,
+        title=f"FFT with sample origin $t_0={time_origin:.1e}$ s",
+        xlabel="Frequency [Hz]",
+        ylabel="Z(f)",
+        expected_label="Fourier time-shift reference",
+    )
+    np.testing.assert_allclose(shifted_impedance, expected, rtol=1e-12, atol=1e-12)
+
+
+def test_ineffint_can_enforce_causality(monkeypatch, capsys):
+    """Causal mode zeros negative-time wake samples but retains t=0."""
+    import neffint
+
+    # Isolate IDDEFIX's causality handling from Neffint 1.1's t=0 integration bug.
+    monkeypatch.setattr(
+        neffint,
+        "fourier_integral_fixed_sampling",
+        lambda **kwargs: np.pi * np.array([1.0, 2.0, 3.0]),
+    )
+    time = np.array([-1.0, 0.0, 1.0])
+    frequency = np.array([0.0, 1.0])
+    impedance = np.array([1.0, 2.0])
+
+    _, wake = iddefix.compute_ineffint(
+        frequency, impedance, times=time, adaptative=False
+    )
+    output = capsys.readouterr().out
+    assert "\033[93m[!] Warning:" in output
+    assert "Wake is nonzero for t < 0" in output
+    assert np.all(wake[:2] != 0)
+
+    _, causal_wake = iddefix.compute_ineffint(
+        frequency, impedance, times=time, adaptative=False, enforce_causality=True
+    )
+    assert capsys.readouterr().out == ""
+    assert causal_wake[0] == 0.0
+    assert causal_wake[1] == wake[1]
+    assert causal_wake[2] == wake[2]
+
+
+@pytest.mark.parametrize("error", ["Abs", "rms"])
+@pytest.mark.parametrize("direction", ["impedance_to_wake", "wake_to_impedance"])
+def test_adaptive_neffint_paths(error, direction):
+    """Adaptive transforms use Neffint and evaluate on the requested grid."""
+    source_grid = np.array([0.0, 2.0])
+    source_values = np.array([1.0, 3.0])
+    target_grid = np.array([0.25, 0.75])
+
+    if direction == "impedance_to_wake":
+        returned_grid, result = iddefix.compute_ineffint(
+            source_grid,
+            source_values,
+            times=target_grid,
+            adaptative=True,
+            interpolation="linear",
+            error=error,
+        )
+    else:
+        returned_grid, result = iddefix.compute_neffint(
+            source_grid,
+            source_values,
+            frequencies=target_grid,
+            adaptative=True,
+            interpolation="linear",
+            error=error,
+        )
+
+    np.testing.assert_array_equal(returned_grid, target_grid)
+    assert result.shape == target_grid.shape
+    assert np.all(np.isfinite(result))
+
+
+def test_interpolation_error_metrics():
+    """Interpolation metrics handle scalar complex values and vector outputs."""
+    expected = np.array([1.0, 2.0])
+    scalar_error = iddefix.utils.interpolation_error_abs(
+        np.array([1.0 + 1.0j, 3.0]), np.array([2.0 + 1.0j, 1.0])
+    )
+    np.testing.assert_array_equal(scalar_error, expected)
+
+    vector_error = iddefix.utils.interpolation_error_rms(
+        np.array([[1.0 + 1.0j, 3.0], [0.0, 2.0]]),
+        np.array([[2.0 + 1.0j, 1.0], [3.0, 6.0]]),
+    )
+    np.testing.assert_allclose(vector_error, [np.sqrt(2.5), np.sqrt(12.5)])
+    scalar_rms_error = iddefix.utils.interpolation_error_rms(
+        np.array([1.0 + 1.0j, 3.0]), np.array([2.0 + 1.0j, 1.0])
+    )
+    np.testing.assert_array_equal(scalar_rms_error, expected)
 
 
 def _load_data():
@@ -62,7 +179,7 @@ def load_data():
     return _load_data()
 
 
-def test_compare_wakes(load_data, plot=False, adaptative=False):
+def test_compare_wakes(load_data, debug_plot, adaptative=False):
     """Check that neffint wake and DE model wake are consistent."""
     DE_model, _, _, _ = load_data
     time = np.linspace(1e-11, 50e-9, 1000)
@@ -81,22 +198,19 @@ def test_compare_wakes(load_data, plot=False, adaptative=False):
 
     # Test numerical similarity (correlation > 0.95)
     corr = np.corrcoef(W_de, W)[0, 1]
+    debug_plot(
+        time,
+        W,
+        W_de,
+        title="Wake reconstructed with iNeffint",
+        xlabel="Time [s]",
+        ylabel="Wake [V/C/m]",
+        expected_label="DE wake",
+    )
     assert corr > 0.95, f"Wake correlation too low: {corr:.3f}"
 
-    if plot:
-        fig, ax = plt.subplots(figsize=(12, 5))
-        ax.plot(time, W_de, lw=2, c="tab:red", label="DE wake")
-        ax.plot(time, W, lw=1.5, c="tab:blue", ls="--", label="neffint wake")
-        ax.legend(fontsize=14)
-        ax.grid()
-        ax.set_xlabel("t [s]")
-        ax.set_ylabel("Wake [V/C/m]")
-        fig.tight_layout()
-        plt.show()
-        fig.savefig("001_compare_wakes_adaptative.png")
 
-
-def test_compare_impedances(load_data, plot=False, adaptative=False):
+def test_compare_impedances(load_data, debug_plot, adaptative=False):
     """Compare impedance computed from DE model, FFT, and neffint."""
     DE_model, _, _, _ = load_data
     f_de = np.linspace(1, 5e9, 10000)
@@ -118,113 +232,29 @@ def test_compare_impedances(load_data, plot=False, adaptative=False):
 
     # Test that |Z| distributions are roughly consistent
     rel_error = np.mean(np.abs(np.abs(Z_nft) - np.abs(Z_de))) / np.mean(np.abs(Z_de))
+    debug_plot(
+        f_de,
+        Z_nft,
+        Z_de,
+        title="Impedance reconstructed with Neffint",
+        xlabel="Frequency [Hz]",
+        ylabel="Transverse impedance [Ohm/m]",
+        expected_label="Analytical resonator impedance",
+    )
+    for name, frequency, impedance in (
+        ("FFT of the resonator wake", f_fft, Z_fft),
+        ("FFT of the reconstructed wake", f_inft, Z_inft),
+    ):
+        reference = np.interp(frequency, f_de, Z_de.real) + 1j * np.interp(
+            frequency, f_de, Z_de.imag
+        )
+        debug_plot(
+            frequency,
+            impedance,
+            reference,
+            title=name,
+            xlabel="Frequency [Hz]",
+            ylabel="Transverse impedance [Ohm/m]",
+            expected_label="Analytical resonator impedance",
+        )
     assert rel_error < 0.1, f"Relative impedance error too high: {rel_error:.2%}"
-
-    if plot:
-        fig = plt.figure(figsize=(12, 7))
-        plt.plot(
-            f_de,
-            np.real(Z_de),
-            color="tab:red",
-            lw=3,
-            alpha=0.7,
-            label="Fully decayed real impedance",
-        )
-        plt.plot(
-            f_de,
-            np.imag(Z_de),
-            color="tab:blue",
-            lw=3,
-            alpha=0.7,
-            label="Fully decayed imag. impedance",
-        )
-        plt.plot(
-            f_de,
-            np.abs(Z_de),
-            color="tab:green",
-            lw=3,
-            alpha=0.7,
-            label="Fully decayed Abs. impedance",
-        )
-
-        plt.plot(
-            f_fft,
-            np.real(Z_fft),
-            color="tab:red",
-            ls="--",
-            label="numpy FFT real impedance",
-        )
-        plt.plot(
-            f_fft,
-            np.imag(Z_fft),
-            color="tab:blue",
-            ls="--",
-            label="numpy FFT imag. impedance",
-        )
-        plt.plot(
-            f_fft,
-            np.abs(Z_fft),
-            color="tab:green",
-            ls="--",
-            label="numpy FFT Abs. impedance",
-        )
-
-        plt.plot(
-            f_inft,
-            np.real(Z_inft),
-            color="tab:red",
-            ls="-.",
-            label="iNeffint real impedance",
-        )
-        plt.plot(
-            f_inft,
-            np.imag(Z_inft),
-            color="tab:blue",
-            ls="-.",
-            label="iNeffint imag. impedance",
-        )
-        plt.plot(
-            f_inft,
-            np.abs(Z_inft),
-            color="tab:green",
-            ls="-.",
-            label="iNeffint Abs. impedance",
-        )
-
-        plt.plot(
-            f_nft,
-            np.real(Z_nft),
-            color="tab:red",
-            ls=":",
-            label="Neffint real impedance",
-        )
-        plt.plot(
-            f_nft,
-            np.imag(Z_nft),
-            color="tab:blue",
-            ls=":",
-            label="Neffint imag. impedance",
-        )
-        plt.plot(
-            f_nft,
-            np.abs(Z_nft),
-            color="tab:green",
-            ls=":",
-            label="Neffint Abs. impedance",
-        )
-
-        plt.legend()
-        plt.xlabel("f [Hz]")
-        plt.ylabel(r"$Z_{Transverse}$ [$\Omega$]")
-        plt.show()
-        fig.savefig("001_compare_imp_adaptative.png")
-
-
-if __name__ == "__main__":
-    # Run with plots for visual inspection
-    print("Running wake and impedance comparison plots...")
-    adaptative = False  # Set to True to use adaptative neffint
-    test_compare_wakes(_load_data(), plot=True, adaptative=adaptative)
-    test_compare_impedances(_load_data(), plot=True, adaptative=adaptative)
-    test_compare_impedances(_load_data(), plot=True, adaptative=adaptative)
-    test_compare_impedances(_load_data(), plot=True, adaptative=adaptative)

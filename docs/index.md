@@ -31,6 +31,7 @@ The source code is available in the `IDDEFIX` [GitHub repository](https://github
 :caption: IDDEFIX
 :maxdepth: 2
 theory.md
+smartbounds.md
 iddefix.rst
 ```
 

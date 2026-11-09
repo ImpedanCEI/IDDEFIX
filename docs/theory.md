@@ -1,7 +1,11 @@
 Theory
 ===
 
-## Resonator formalism
+```{contents}
+:depth: 3
+```
+
+## Longitudinal Resonator formalism
 
 
 The longitudinal impedance of a purely resonant structure can be modeled by an equivalent
@@ -9,42 +13,403 @@ parallel RLC (Resistor, Inductor, Capacitor) resonator circuit.
 
 ### Impedance resonator formula
 
-#### Single:
-\begin{equation}
-        Z_{\parallel}(\omega, R_s, Q, \omega_r) = \frac{R_S}{1+iQ(\frac{\omega_r}{\omega}-\frac{\omega}{\omega_r})}
-\end{equation}
+The longitudinal shunt impedance $R_s$ and impedance $Z_\parallel$ are measured
+in ohms. Both the fully decayed and finite formulas support $Q>0$. For a fully
+decayed wake, the single-resonator impedance is
 
+$$
+Z_{\parallel}(\omega)=
+\frac{R_s}{1+iQ\left(\frac{\omega}{\omega_r}-\frac{\omega_r}{\omega}\right)}.
+$$
 
+For a wake truncated after the length $L$, define
 
-#### Multiple:
+$$
+B=\frac{\omega_r}{2Q}, \qquad
+C=\omega_r\sqrt{1-\frac{1}{4Q^2}}, \qquad
+T=\frac{L}{c}, \qquad
+p=B+i\omega.
+$$
 
-\begin{equation}
- \bar Z_{\parallel}(\omega) = \sum^{N}_{n=1}Z_{\parallel}(\omega, R_{s,n}, Q_n, \omega_{r,n})
-\end{equation}
+#### Underdamped $Q\geq0.5$
+
+For $Q\geq0.5$, its finite Fourier transform is
+
+$$
+Z_{\parallel,T}(\omega)=
+\frac{R_s\omega_r}{Q}
+\frac{i\omega+e^{-pT}\left[-i\omega\cos(CT)
++\left(C^2+Bp\right)\frac{\sin(CT)}{C}\right]}
+{C^2+p^2}.
+$$
+
+#### Critically damped $Q=0.5$
+
+At $Q=0.5$, $C=0$ and the finite ratio is evaluated using
+
+$$
+\lim_{C\to0}\frac{\sin(CT)}{C}=T.
+$$
+
+#### Overdamped $Q<0.5$
+
+For the overdamped branch, $0<Q<0.5$, define
+
+$$
+D=\omega_r\sqrt{\frac{1}{4Q^2}-1}.
+$$
+
+The finite transform is then
+
+$$
+Z_{\parallel,T}(\omega)=
+\frac{R_s\omega_r}{Q}
+\frac{i\omega+e^{-pT}\left[-i\omega\cosh(DT)
++\left(-D^2+Bp\right)\frac{\sinh(DT)}{D}\right]}
+{p^2-D^2}.
+$$
+
+This follows from the substitutions
+$$
+C^2=-D^2, \quad \cos(CT)=\cosh(DT), \quad \sin(CT)/C=\sinh(DT)/D
+$$
+
+The implementation combines the hyperbolic terms with $e^{-BT}$ through the
+positive decay rates $B-D$ and $B+D$ to avoid numerical overflow.
+
+For multiple resonators, the contributions add linearly:
+
+$$
+\bar Z_{\parallel}(\omega)=
+\sum^{N}_{n=1}Z_{\parallel}(\omega,R_{s,n},Q_n,\omega_{r,n}).
+$$
 
 Both found in the `Impedances` class as the functions `Resonator_longitudinal_imp` and `n_Resonator_longitudinal_imp`.
 
-The three key parameters to characterize a resonator’s impedance: shunt resistance ($R_s$), quality factor ($Q$), and resonant frequency ($f_r = ω_r/2π$ ).
+The three parameters are the shunt impedance $R_s$, quality factor $Q$, and
+resonant frequency $f_r=\omega_r/(2\pi)$.
 
-Equivialently, the wake function can be described by these three parameters.
+Equivalently, the wake function can be described by these three parameters.
 
 ### Wake function resonator formula
 
+The longitudinal wake function supports all $Q>0$ through underdamped,
+critically damped, and overdamped branches. The expression below shows the
+underdamped branch, $Q>0.5$.
+
 #### Single:
 
-\begin{equation}
-W_{||}(t)=R_s \frac{\omega_r}{Q} e^{-\omega_r \frac{t}{2Q}} [\text{cos}(\bar \omega_r t)- \frac{\omega_r}{2Q \bar \omega_r}\text{sin}(\bar \omega_r t)],\qquad t=\mathrm{s/c}
-\end{equation}
+$$
+w_{\parallel}(t)=R_s\frac{\omega_r}{Q}e^{-Bt}
+\left[\cos(Ct)-\frac{B}{C}\sin(Ct)\right].
+$$
 
 #### Multiple:
 
-\begin{equation}
-\bar W_{\parallel}(s) = \sum^{N}_{n=1}W_{\parallel}(s, R_{s,n}, Q_n, \omega_{r,n})
-\end{equation}
+$$
+\bar w_{\parallel}(t)=
+\sum^{N}_{n=1}w_{\parallel}(t,R_{s,n},Q_n,\omega_{r,n}).
+$$
 
 Both found in the `Wakes` class as the functions `Resonator_longitudinal_wake` and `n_Resonator_longitudinal_wake`.
 
-Transverse functions are available as `Resonator_transverse_wake`, `n_Resonator_transverse_wake`, `Resonator_transverse_imp` and `n_Resonator_transverse_imp`.
+### Wake potential resonator formula
+
+The analytical longitudinal wake potential for a Gaussian bunch currently
+supports the underdamped range $Q>0.5$. Let $\sigma$ be the RMS bunch length in
+seconds and define the auxiliary factor
+
+$$
+\mathcal{A}_\sigma(t)=e^{i(Ct-BC\sigma^2)}
+\operatorname{erfc}\left(
+-\frac{t-B\sigma^2+iC\sigma^2}{\sqrt{2}\sigma}
+\right).
+$$
+
+The single-resonator wake potential is
+
+$$
+W_{\parallel}(t)=
+R_sB\,e^{(B^2-C^2)\sigma^2/2-Bt}
+\left[
+\operatorname{Re}\mathcal{A}_\sigma(t)
+-\frac{B}{C}\operatorname{Im}\mathcal{A}_\sigma(t)
+\right].
+$$
+
+For multiple resonators, the contributions add linearly:
+
+$$
+\bar W_{\parallel}(t)=
+\sum^{N}_{n=1}W_{\parallel}(t,R_{s,n},Q_n,\omega_{r,n},\sigma).
+$$
+
+These formulas are implemented by `Resonator_longitudinal_wake_potential` and
+`n_Resonator_longitudinal_wake_potential`.
+
+## Transverse Resonator formalism
+
+The transverse shunt impedance $R_s$ and impedance $Z_\perp$ are measured in
+ohms per metre. Both the fully decayed and finite formulas support $Q>0$. For
+a fully decayed wake, the single-resonator impedance is
+
+$$
+Z_\perp(\omega)=
+\frac{\omega_r}{\omega}
+\frac{R_s}{1+iQ\left(\frac{\omega}{\omega_r}-\frac{\omega_r}{\omega}\right)}.
+$$
+
+Using the definitions of $B$, $C$, $T$, and $p$ above, the finite transverse
+impedance for $Q\geq0.5$ is
+
+$$
+Z_{\perp,T}(\omega)=
+\frac{iR_s\omega_r^2}{Q\left(C^2+p^2\right)}
+\left[
+1-e^{-pT}\left(\cos(CT)+p\frac{\sin(CT)}{C}\right)
+\right].
+$$
+
+At $Q=0.5$, the same limit $\sin(CT)/C\to T$ keeps this expression finite.
+For $0<Q<0.5$, the transverse expression becomes
+
+$$
+Z_{\perp,T}(\omega)=
+\frac{iR_s\omega_r^2}{Q\left(p^2-D^2\right)}
+\left[
+1-e^{-pT}\left(\cosh(DT)+p\frac{\sinh(DT)}{D}\right)
+\right].
+$$
+
+It is also evaluated using the stable decay-rate form. For multiple resonators,
+
+$$
+\bar Z_\perp(\omega)=
+\sum^{N}_{n=1}Z_\perp(\omega,R_{s,n},Q_n,\omega_{r,n}).
+$$
+
+These formulas are implemented by `Resonator_transverse_imp` and
+`n_Resonator_transverse_imp`.
+
+### Behavior around zero frequency
+
+The apparent singularities in the fully decayed formulas are removable. With
+$x=\omega/\omega_r$ and the Fourier convention used here, their low-frequency
+behavior is
+
+$$
+Z_\parallel(\omega)=\frac{iR_s}{Q}x+R_s\mathcal{O}(x^2),
+\qquad
+Z_\perp(\omega)=\frac{iR_s}{Q}+\frac{R_s}{Q^2}x+R_s\mathcal{O}(x^2).
+$$
+
+Consequently, their analytical DC values are
+
+$$
+Z_\parallel(0)=0,
+\qquad
+Z_\perp(0)=\frac{iR_s}{Q}.
+$$
+
+Truncating a wake at time $T$ changes its area. The finite longitudinal DC
+value is the truncation boundary term
+
+$$
+Z_{\parallel,T}(0)=\frac{R_s\omega_r}{Q}
+\begin{cases}
+e^{-BT}\dfrac{\sin(CT)}{C}, & Q>0.5, \\
+Te^{-BT}, & Q=0.5, \\
+e^{-BT}\dfrac{\sinh(DT)}{D}, & 0<Q<0.5.
+\end{cases}
+$$
+
+It is generally nonzero and real, but converges to zero as $T\to\infty$. The
+finite transverse DC value is generally nonzero and imaginary,
+
+$$
+Z_{\perp,T}(0)=i\int_0^T W_\perp(t)\,dt,
+$$
+
+and converges to $iR_s/Q$ as $T\to\infty$. At $T=0$, both finite transforms
+vanish. The nonzero finite longitudinal value and the associated impedance
+ripples are both consequences of the abrupt wake truncation.
+
+### Wake function resonator formula
+
+The transverse wake function supports all $Q>0$ through underdamped,
+critically damped, and overdamped branches. For the underdamped range $Q>0.5$,
+the single-resonator expression is
+
+$$
+w_\perp(t)=
+R_s\frac{\omega_r^2}{QC}e^{-Bt}\sin(Ct).
+$$
+
+For multiple resonators,
+
+$$
+\bar w_\perp(t)=
+\sum^{N}_{n=1}w_\perp(t,R_{s,n},Q_n,\omega_{r,n}).
+$$
+
+These formulas are implemented by `Resonator_transverse_wake` and
+`n_Resonator_transverse_wake`.
+
+### Wake potential resonator formula
+
+The analytical transverse wake potential for a Gaussian bunch currently
+supports the underdamped range $Q>0.5$. Using the same auxiliary factor
+$\mathcal{A}_\sigma(t)$ defined above, the single-resonator wake potential is
+
+$$
+W_\perp(t)=
+R_s\frac{\omega_rB}{C}
+e^{(B^2-C^2)\sigma^2/2-Bt}
+\operatorname{Im}\mathcal{A}_\sigma(t).
+$$
+
+For multiple resonators,
+
+$$
+\bar W_\perp(t)=
+\sum^{N}_{n=1}W_\perp(t,R_{s,n},Q_n,\omega_{r,n},\sigma).
+$$
+
+These formulas are implemented by `Resonator_transverse_wake_potential` and
+`n_Resonator_transverse_wake_potential`.
+
+## Relations between wake, wake potential, and impedance
+
+Let $u$ denote either the longitudinal plane $\parallel$ or the transverse
+plane $\perp$, and define
+
+$$
+\kappa_\parallel=1, \qquad \kappa_\perp=i.
+$$
+
+### Wake and impedance
+
+With $\omega=2\pi f$, the IDDEFIX convention relates impedance and wake through
+
+$$
+Z_u(\omega)=
+\kappa_u\mathcal{F}\!\left\{w_u\right\}(\omega)=
+\kappa_u\int_{-\infty}^{\infty}w_u(t)e^{-i\omega t}\,dt.
+$$
+
+#### Numerical FFT
+
+The Fourier transform is evaluated numerically by `compute_fft`. For evenly
+spaced samples $t_n=t_0+n\Delta t$, it computes
+
+$$
+Z^{\mathrm{FFT}}(f_k)=
+\Delta s\,e^{-2\pi i f_k t_0}
+\sum_{n=0}^{N-1}x_n e^{-2\pi i f_k n\Delta t},
+\qquad \Delta s=c\Delta t.
+$$
+
+The factor $\Delta s$ normalizes NumPy's unnormalized FFT as an integral over
+distance. Therefore, when $x_n$ contains a wake sampled as a function of time,
+pass $x_n=w_u(t_n)/c$ to approximate the time integral above. The phase factor
+$e^{-2\pi i f_k t_0}$ restores the physical origin of the samples because
+`numpy.fft.fft` treats the first array element as if it occurred at $t=0$.
+
+#### Finite wakes
+
+The transverse convention requires the additional factor $i$. The transverse
+relation applies at nonzero frequency because IDDEFIX defines $Z_\perp(0)=0$.
+Since the wakes are causal, a wake truncated at $T$ gives
+
+$$
+Z_{u,T}(\omega)=
+\kappa_u\int_0^T w_u(t)e^{-i\omega t}\,dt.
+$$
+
+### Wake potential and convolution
+
+For either plane, the wake potential is the convolution of the wake function
+with the normalized Gaussian bunch profile
+
+$$
+\lambda_\sigma(t)=
+\frac{1}{\sqrt{2\pi}\sigma}
+e^{-t^2/(2\sigma^2)},
+$$
+
+so that
+
+$$
+W_u(t)=
+\left(w_u*\lambda_\sigma\right)(t)=
+\int_{-\infty}^{\infty}
+w_u(t-\tau)\lambda_\sigma(\tau)\,d\tau.
+$$
+
+This convolution is implemented by `compute_convolution`. The convolution
+theorem gives
+
+$$
+\mathcal{F}\!\left\{W_u\right\}(\omega)=
+\frac{Z_u(\omega)}{\kappa_u}
+\mathcal{F}\!\left\{\lambda_\sigma\right\}(\omega).
+$$
+
+### Impedance from wake-potential deconvolution
+
+Consequently, deconvolution of a wake potential recovers the impedance through
+
+$$
+Z_u(\omega)=
+\kappa_u
+\frac{\mathcal{F}\!\left\{W_u\right\}(\omega)}
+{\mathcal{F}\!\left\{\lambda_\sigma\right\}(\omega)}.
+$$
+
+Because `compute_deconvolution` builds a Gaussian profile containing a `1/c`
+factor, pass `W_u / c` to recover the normalization above; multiply the
+transverse result by $i$.
+
+### Sign and coordinate conventions
+
+```{important}
+**Conventions when exchanging wake data**
+
+IDDEFIX uses $t>0$ behind the source, lowercase $w$ for the point-charge
+wake function, and uppercase $W$ for the bunch wake potential. Its
+longitudinal wake is positive for energy loss, while a positive transverse
+wake gives a positive kick for a positive source offset. Check all three
+conventions before importing data:
+
+- **Xsuite/Xwakes:** the resonator signs and the time-domain convention agree
+  with IDDEFIX. Xwakes also provides the beam coordinate $\zeta$, for which
+  $t=-\zeta/(\beta c)$; trailing particles therefore have $\zeta<0$.
+- **PyHEADTAIL:** trailing particles have $\Delta t<0$. With
+  $t=-\Delta t$, the conversion is
+  $w_\parallel^{\mathrm{IDDEFIX}}(t)=w_\parallel^{\mathrm{PyHEADTAIL}}(-t)$
+  and
+  $w_\perp^{\mathrm{IDDEFIX}}(t)=-w_\perp^{\mathrm{PyHEADTAIL}}(-t)$.
+- **CST:** exported wake data are bunch wake potentials $W$, so they must be
+  deconvolved to recover a point-charge impedance. Check the sign and the
+  transverse offset normalization recorded by the selected CST result before
+  importing it.
+- **Wakis:** wake data are also bunch wake potentials. Wakis uses $s>0$
+  behind the source and
+  $Z_\parallel=-\widetilde W_\parallel/(v\widetilde\lambda)$,
+  whereas IDDEFIX uses the positive longitudinal transform. Therefore,
+  negate a Wakis longitudinal wake potential before using the IDDEFIX
+  deconvolution convention. Both use the factor $i$ for the transverse
+  impedance. Wakis `Zx` and `Zy` describe the simulated source offset in
+  ohms; divide a dipolar result by that offset before fitting it in IDDEFIX
+  as an impedance in ohms per metre. The same normalization is required for
+  an offset-dependent CST transverse result.
+
+See the [Xwakes wakefield definitions](https://xsuite.readthedocs.io/en/doc-theme/xwakes.html#wakefield-definitions),
+[PyHEADTAIL wake implementations](https://github.com/PyCOMPLETE/PyHEADTAIL/blob/539408fceaf250cea5f4c838bcce5035ba19ed80/PyHEADTAIL/impedances/wakes.py),
+[CST Wakefield Solver example](https://indico.cern.ch/event/1466612/contributions/6449147/attachments/3090656/5474622/CST%20tutorial%20SPS%20wire%20scanners.pdf),
+and the [Wakis physics guide](https://wakis.readthedocs.io/physicsguide.html#from-wake-to-impedance)
+for the native definitions.
+```
 
 ## Fitting Resonators with Differential Evolution
 
@@ -60,7 +425,7 @@ $$
         \textbf{x}_i = [x_{i,1},x_{i,2},...,x_{i,D}], \qquad i=1,2,...,N
 $$
 
-where $D$ is the dimensionality of the roblem. Each variable $x_{i,j}$ is to be initialized by some stochastic process like a uniform distribution or by some sampling that tries to maximize coverage of the available parameter space. `SciPy` uses Latin Hypercube sampling to maximize coverage and avoid clustering. In either case, boundary constraints of the variable are needed:
+where $D$ is the dimensionality of the problem. Each variable $x_{i,j}$ is to be initialized by some stochastic process like a uniform distribution or by some sampling that tries to maximize coverage of the available parameter space. `SciPy` uses Latin Hypercube sampling to maximize coverage and avoid clustering. In either case, boundary constraints of the variable are needed:
 
 $$
         x_{j}^{min} \leq x_{j}\leq x_{j}^{max}
@@ -107,3 +472,146 @@ $\mathbf{f(\cdot)}$ is the **objective function** to be minimized.
 * A maximum number of generations or function evaluations
 * Convergence tolerance (e.g., minimal change in the best solution across generations)
 * Achieving a target fitness value
+
+## Fitting Resonators with CMA-ES
+
+The Covariance Matrix Adaptation Evolution Strategy (CMA-ES) is a stochastic,
+derivative-free optimizer for continuous, nonlinear problems. Instead of
+mutating individual parameter vectors independently, it learns a multivariate
+normal search distribution from the best candidates in each generation. This
+allows the search to adapt to correlations between resonator parameters such
+as $R_s$, $Q$, and $f_r$.
+
+For generation $g$, candidate parameter vectors are sampled as
+
+$$
+\mathbf{x}^{(g)}_k=
+\mathbf{m}^{(g)}+\sigma^{(g)}
+\mathcal{N}\!\left(\mathbf{0},\mathbf{C}^{(g)}\right),
+\qquad k=1,\ldots,\lambda,
+$$
+
+where $\mathbf{m}^{(g)}$ is the distribution mean, $\sigma^{(g)}$ is the
+global step size, $\mathbf{C}^{(g)}$ is the covariance matrix, and $\lambda$
+is the population size. After evaluating the objective function, CMA-ES uses a
+weighted combination of the best $\mu$ candidates to update the mean:
+
+$$
+\mathbf{m}^{(g+1)}=
+\sum_{k=1}^{\mu}a_k\mathbf{x}^{(g)}_{k:\lambda},
+\qquad
+\sum_{k=1}^{\mu}a_k=1,
+$$
+
+where $\mathbf{x}^{(g)}_{k:\lambda}$ denotes the candidate with rank $k$ and
+$a_k>0$ are recombination weights. The covariance matrix expands along
+successful search directions and contracts along unsuccessful ones, while the
+step-size update controls the overall search radius.
+
+### IDDEFIX implementation
+
+IDDEFIX runs the [pymoo CMA-ES implementation](https://pymoo.org/algorithms/soo/cmaes.html)
+through `EvolutionaryAlgorithm.run_cmaes`. The fitted vector contains the
+triplet $(R_s,Q,f_r)$ for each resonator. The initial mean is the midpoint of
+each parameter bound. Pymoo normalizes bounded variables by default, so
+`sigma` normally describes the initial search width in the normalized search
+space rather than in ohms, hertz, or physical $Q$ units.
+
+The main arguments are:
+
+- `sigma`: initial global standard deviation.
+- `popsize`: number $\lambda$ of candidates sampled per generation.
+- `maxiter`: internal CMA-ES iteration limit.
+- `verbose`: select pymoo output or the IDDEFIX progress bar.
+
+Additional keyword arguments are passed to pymoo's `CMAES` constructor. Useful
+options include `tolfun`, `tolx`, `maxfevals`, `restarts`,
+`restart_from_best`, `incpopsize`, `bipop`, and `seed`. IDDEFIX defaults to
+three restarts from the best solution and seed 42; supplied keywords override
+these defaults.
+
+```{important}
+`maxiter` is not a strict limit on pymoo's reported generation count. CMA-ES
+has its own convergence criteria, and enabled restarts create additional runs
+whose generations are included in `res.algorithm.n_gen`. Use `maxfevals` for a
+direct limit on objective-function evaluations, or set `restarts=0` when a
+single CMA-ES run is required.
+```
+
+The optimized parameters are stored in `evolutionParameters`. As with a DE
+fit, `run_minimization_algorithm` can subsequently refine this solution with a
+local minimizer.
+
+## Parameter uncertainty estimates
+
+After fitting, IDDEFIX can estimate the uncertainty of each resonator
+parameter. This is a local covariance estimate around the fitted parameter
+vector $\hat{\theta}=(R_{s,1},Q_1,f_{r,1},\ldots)$. It describes how much
+the parameters could vary while remaining consistent with the residuals and
+the model's local response. It does not repeat the optimization or explore the
+full range of possible fits.
+
+### Residual Jacobian
+
+Let $r_i(\theta)$ be the difference between a measured value and the model
+prediction. IDDEFIX estimates the Jacobian $J$ numerically using three-point
+finite differences:
+
+$$
+J_{ij}=\frac{\partial r_i}{\partial \theta_j}.
+$$
+
+For real measurements, the residual vector contains the real residuals. When
+the input contains nonzero imaginary parts, the real and imaginary residuals
+are stacked into one real-valued vector. Derivative probes are restricted to
+the bounds supplied to the uncertainty calculation. By default,
+`get_uncertainties()` uses physical bounds for the derivatives: $R_s$ is
+unbounded, while $Q>0$ and $f_r>0$.
+
+### Covariance and reported uncertainties
+
+Under a local linear approximation, the unscaled covariance is the
+pseudoinverse of $J^\mathsf{T}J$. IDDEFIX scales it by the residual variance
+estimated from the fit:
+
+$$
+\widehat{\mathrm{Cov}}(\hat{\theta}) \approx
+\frac{\sum_{i=1}^{M} r_i^2}{M-N} (J^\mathsf{T}J)^{+},
+$$
+
+where $M$ is the number of real residual values and $N$ is the number of
+parameters. The degrees of freedom $M-N$ must be positive for this estimate to
+be meaningful. The residual variance is inferred from the fit; the calculation
+does not accept per-measurement uncertainties or weights. Consequently, model
+mismatch and systematic errors also affect the estimated scale.
+
+The pseudoinverse is computed using an SVD. Singular directions below the
+numerical precision threshold are discarded. If the Jacobian is rank
+deficient, this does not make the corresponding parameter combinations
+identifiable; the reported marginal errors may fail to capture uncertainty in
+those directions. The reported uncertainty for parameter $\theta_j$ is
+
+$$
+\sigma_{\theta_j}=\sqrt{\widehat{\mathrm{Cov}}(\hat{\theta})_{jj}}.
+$$
+
+It is an approximate one-standard-deviation error in the same units as that
+parameter. In the table it is shown as `value ± uncertainty`. The table shows
+only the diagonal errors; correlations between fitted parameters are not
+displayed. Under a well-behaved, approximately Gaussian local fit, a value plus
+or minus one such error is often treated as an approximate 68% interval. This
+interpretation is unreliable for strongly nonlinear fits, poorly identifiable
+parameters, or parameters near bounds, where the local symmetric covariance
+approximation does not describe the constrained parameter region well.
+
+By default, fitting methods calculate these uncertainties automatically. Set
+`compute_uncertainties=False` to skip that calculation, then call
+`model.get_uncertainties()` to calculate them later. The table's large-error
+warning uses the relative error $|\sigma_{\theta}/\theta|$ and defaults to
+a threshold of 0.20. This ratio is not useful for parameters at or near zero.
+
+`get_impedance_uncertainty()` uses the parameter errors to produce a separate
+pointwise sensitivity envelope for the real impedance. It varies selected
+parameters over their uncertainty ranges, subject to configured multiplicative
+limits. The envelope is a sensitivity scenario; it is not a confidence
+interval for the impedance.
