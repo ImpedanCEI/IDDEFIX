@@ -154,6 +154,26 @@ def test_estimate_bounds_from_magnitude():
     assert model.N_resonators == 1
 
 
+def test_estimate_bounds_uses_hann_for_finite_wake():
+    """EA passes complex impedance to Hann detection and retains raw estimates."""
+    frequency = np.linspace(0.98e9, 1.02e9, 20001)
+    impedance = iddefix.Impedances.Resonator_longitudinal_imp(
+        frequency, 100.0, 5000.0, 1e9, wake_length=300.0
+    )
+    model = iddefix.EvolutionaryAlgorithm(frequency, impedance, wake_length=300.0)
+
+    bounds = model.estimate_bounds(
+        minimum_peak_height=1.0,
+        prominence=0.5,
+        show_table=False,
+        show_inspect=False,
+    )
+
+    assert bounds.N_resonators == 1
+    np.testing.assert_allclose(bounds.analysis_impedance_data, impedance.real)
+    np.testing.assert_allclose(model.parameterEstimates, bounds.parameterEstimates)
+
+
 def test_estimate_bounds_requires_detected_impedance_peak():
     """An empty detection leaves any existing fitting setup untouched."""
     frequency = np.linspace(0.5e9, 1.5e9, 101)
