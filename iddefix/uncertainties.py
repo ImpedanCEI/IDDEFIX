@@ -76,6 +76,10 @@ def build_jacobian(
     bounds = (-np.inf, np.inf)
     if parameterBounds is not None:
         bounds = tuple(np.asarray(parameterBounds, dtype=float).T)
+        values = np.asarray(parameters, dtype=float)
+        # Include tiny solver roundoff at a bound; reject larger violations.
+        if np.allclose(values, np.clip(values, *bounds), rtol=1e-13, atol=0):
+            bounds = (np.minimum(bounds[0], values), np.maximum(bounds[1], values))
 
     jac = approx_derivative(
         lambda p: StackedResiduals(p, x, fitFunction, y),

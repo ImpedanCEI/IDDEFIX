@@ -66,7 +66,9 @@ class TestAnalyticalImpedance:
             plane="longitudinal",
             objectiveFunction="real",
         )
-        cls.CMAES_model.run_cmaes(maxiter=5000, popsize=50, sigma=0.6, verbose=False)
+        cls.CMAES_model.run_cmaes(
+            maxiter=5000, popsize=50, sigma=0.6, verbose=False, restarts=3
+        )
         cls.CMAES_model.run_minimization_algorithm()
         print(cls.CMAES_model.warning)
 
@@ -438,6 +440,45 @@ def test_partial_overdamped_wake_fft_matches_impedance(plane, debug_plot):
         expected_label="Analytical impedance",
     )
     _assert_complex_spectrum_matches(transformed[useful_band], analytical[useful_band])
+
+
+@pytest.mark.parametrize(
+    "wake",
+    [
+        iddefix.Wakes.Resonator_longitudinal_wake,
+        iddefix.Wakes.Resonator_transverse_wake,
+    ],
+)
+def test_overdamped_wake_remains_finite(wake):
+    """A low-Q wake has a finite late tail even when sinh alone overflows."""
+    Rs, Q, fr = 100.0, 0.01, 1e9
+    times = np.array([-0.5e-9, 10e-12, 16e-9, 17e-9])
+    with np.errstate(over="raise", invalid="raise"):
+        values = wake(times, Rs, Q, fr)
+
+    assert values[0] == 0
+    assert np.all(np.isfinite(values))
+
+    omega_r = 2 * np.pi * fr
+    B = omega_r / (2 * Q)
+    D = np.sqrt(B**2 - omega_r**2)
+    t = times[1]
+    if wake is iddefix.Wakes.Resonator_longitudinal_wake:
+        expected = (
+            Rs
+            * omega_r
+            / Q
+            * np.exp(-B * t)
+            * (np.cosh(D * t) - B / D * np.sinh(D * t))
+        )
+    else:
+        expected = omega_r**2 * Rs / (Q * D) * np.exp(-B * t) * np.sinh(D * t)
+    assert values[1] == pytest.approx(expected)
+
+    slow_rate = omega_r**2 / (B + D)
+    assert values[3] / values[2] == pytest.approx(
+        np.exp(-slow_rate * (times[3] - times[2]))
+    )
 
 
 @pytest.mark.parametrize("plane", ["longitudinal", "transverse"])

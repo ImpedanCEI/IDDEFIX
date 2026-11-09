@@ -5,7 +5,7 @@ path. PyFDE option forwarding is checked separately because it is optional.
 """
 
 import sys
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -258,6 +258,67 @@ def test_solver_fits_complex_impedance_with_public_options(resonance, solver, ca
     fitted_loss = np.sum(np.abs(fitted - target) ** 2)
     assert np.isfinite(model.evolutionParameters).all()
     assert fitted_loss < initial_loss
+
+
+@pytest.mark.parametrize("maxiter", [None, 10])
+@pytest.mark.parametrize(("restarts", "expected_runs"), [(None, 1), (2, 3)])
+def test_cmaes_progress(monkeypatch, maxiter, restarts, expected_runs):
+    """Finite limits show a budget; convergence-led runs count iterations."""
+    import pymoo.algorithms.soo.nonconvex.cmaes as cmaes_module
+    import pymoo.optimize as pymoo_optimize
+
+    observed = {}
+
+    class FakeCMAES:
+        def __init__(self, **options):
+            observed["restarts"] = options["restarts"]
+            observed["maxiter"] = options["maxiter"]
+
+    def fake_minimize(problem, solver, **options):
+        callback = options["callback"]
+        observed["progress_total"] = callback.pbar.total
+        for _ in range(expected_runs):
+            callback(SimpleNamespace(pop=SimpleNamespace(get=lambda _: [0.0])))
+            for _ in range(10):
+                callback(SimpleNamespace(pop=SimpleNamespace(get=lambda _: [0.0, 1.0])))
+        callback(SimpleNamespace(pop=SimpleNamespace(get=lambda _: [0.0])))
+        observed["iterations"] = callback.pbar.n
+        return SimpleNamespace(X=np.array([0.5]), algorithm=SimpleNamespace(n_gen=1))
+
+    monkeypatch.setattr(cmaes_module, "CMAES", FakeCMAES)
+    monkeypatch.setattr(pymoo_optimize, "minimize", fake_minimize)
+    options = {} if restarts is None else {"restarts": restarts}
+
+    Solvers.run_pymoo_cmaes_solver(
+        [(0.0, 1.0)], lambda x: x[0] ** 2, maxiter=maxiter, **options
+    )
+
+    assert observed["restarts"] == expected_runs - 1
+    if maxiter is None:
+        assert np.isinf(observed["maxiter"])
+        assert observed["progress_total"] is None
+    else:
+        assert observed["maxiter"] == maxiter
+        assert observed["progress_total"] == maxiter * expected_runs
+    assert observed["iterations"] == 10 * expected_runs
+
+
+def test_cmaes_without_iteration_limit(resonance):
+    """The public default lets CMA-ES stop at another configured criterion."""
+    frequency, parameters, target, bounds = resonance
+    model = iddefix.EvolutionaryAlgorithm(
+        frequency,
+        target,
+        N_resonators=1,
+        parameterBounds=bounds,
+        parameterEstimates=parameters,
+        compute_uncertainties=False,
+    )
+
+    result = model.run_cmaes(popsize=8, maxfevals=30)
+
+    assert np.isfinite(model.evolutionParameters).all()
+    assert result.algorithm.n_gen >= 1
 
 
 @pytest.mark.parametrize(

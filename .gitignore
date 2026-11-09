@@ -11,7 +11,6 @@
 *.txt
 *.dat
 notes/*
-!notes/HIGH_Q_FINITE_WAKE_IDEAS.md
 
 # Compiled source #
 ###################
