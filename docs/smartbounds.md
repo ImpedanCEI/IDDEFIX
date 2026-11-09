@@ -340,20 +340,15 @@ Here `fres_bounds=[-2, 2]` allows two estimated half-widths on either side of
 the estimated $f_r$. Omit it to use the default `[-1, 1]`.
 
 For longitudinal impedance, use `plane="longitudinal"` and choose
-`impedance_type="real"` (the default) for $\Re(Z)$ or `"absolute"` for $|Z|$. If the input
+`impedance_type="real"` for $\Re(Z)$ or `"absolute"` for $|Z|$. If the input
 impedance comes from a finite wake, also pass `wake_length=L` in meters. This
-uses a Hann trace to find peaks when `impedance_type="real"`, then estimates
-$R_s$ and $Q$ from the original trace. It also applies the $R_s$ correction
-described above; leaving out `wake_length` uses fully decayed estimates.
-With `impedance_type="absolute"`, peak finding uses the original magnitude
-trace and prints a yellow message. `prominence` is passed directly to SciPy in
-the detection trace's units and defaults to None. Set `minimum_peak_height`
-when needed for the trace.
+applies the $R_s$ correction described above; leaving it out uses the fully
+decayed estimates. Set peak-finding options such as `minimum_peak_height` when
+needed for the trace.
 
 ### Inspect the estimates
 
-The standard `inspect()` plot shows the input trace, the Hann detection trace
-when a finite wake is supplied, and the detected peaks and crossings. Calling
+The standard `inspect()` plot shows the detected peaks and crossings. Calling
 `inspect(show_bounds=True)` also shows each estimated $f_r$ and its
 frequency-bound interval. In this view, each resonator uses one color for all
 its markers, with the numbered peaks providing the legend. Use the plot to

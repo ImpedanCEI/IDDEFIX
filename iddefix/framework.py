@@ -162,9 +162,11 @@ class EvolutionaryAlgorithm:
 
         if len(x_data) > 2000:
             print(
-                f"\033[93m[!] Fitting {len(x_data)} samples may be slow. "
+                f"\033[93m[!] Warning: Fitting {len(x_data)} samples may be slow. "
                 "Consider downsampling "
-                "with downsample_data(factor, show=True).\033[0m"
+                "with downsample_data(factor, show=True), while preserving narrow "
+                "resonances. Around 2000 samples are often sufficient for "
+                "impedance data spanning 20 GHz.\033[0m"
             )
 
         if N_resonators is None and parameterBounds is not None:
@@ -286,7 +288,6 @@ class EvolutionaryAlgorithm:
         Updates the stored fitting data in place. With ``show=True``, compare
         the original and retained y samples against x. Complex data use
         separate real and imaginary subplots.
-        Prints the number of samples retained after downsampling.
         Call this before fitting; narrow resonances may need a smaller factor.
         """
         if (
@@ -353,10 +354,6 @@ class EvolutionaryAlgorithm:
         self.minimizationParametersUncertainties = None
         self.flagged_params = None
 
-        print(
-            f"[*] Downsampled data to {len(self.x_data)} points (from {len(x_data)})."
-        )
-
         if show:
             plt.show()
 
@@ -386,14 +383,10 @@ class EvolutionaryAlgorithm:
             Automatic peak-finding options passed to
             :class:`SmartBoundDetermination`:
 
-            - ``minimum_peak_height``: Minimum peak height; defaults to None,
-              meaning no height filter.
-            - ``threshold`` and ``distance``: Criteria passed to
-              ``scipy.signal.find_peaks``; both default to None. ``distance``
+            - ``minimum_peak_height``: Minimum peak height; default 1.0.
+            - ``threshold``, ``distance``, ``prominence``: Criteria passed to
+              ``scipy.signal.find_peaks``; each defaults to None. ``distance``
               counts samples on the analysis grid.
-            - ``prominence``: Minimum prominence in the detection trace's
-              units, passed directly to ``scipy.signal.find_peaks``; defaults
-              to None.
             - ``Rs_bounds`` and ``Q_bounds``: Lower and upper multipliers for
               the estimated Rs and Q; each defaults to ``[0.1, 10]``.
             - ``fres_bounds``: Lower and upper multiples of the estimated
@@ -402,9 +395,6 @@ class EvolutionaryAlgorithm:
               default, use the stored frequency samples.
             - ``q_side``: ``"auto"``, ``"left"``, ``"right"``, or a list with
               one choice per peak; defaults to ``"auto"``.
-
-            With ``impedance_type="real"`` and a finite ``wake_length``, peak
-            finding uses a Hann trace; parameter estimates use the original data.
 
             Interactive selection is not supported by this method.
 
@@ -427,12 +417,16 @@ class EvolutionaryAlgorithm:
 
         if impedance_type is None:
             impedance_type = "real"
-        if impedance_type not in ("absolute", "real"):
+        if impedance_type == "absolute":
+            impedance = np.abs(self.impedance_data)
+        elif impedance_type == "real":
+            impedance = np.real(self.impedance_data)
+        else:
             raise ValueError("impedance_type must be 'absolute' or 'real'")
 
         bounds = SmartBoundDetermination(
             self.frequency_data,
-            self.impedance_data,
+            impedance,
             impedance_type=impedance_type,
             plane=self.plane,
             wake_length=self.wake_length,
