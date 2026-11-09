@@ -162,11 +162,9 @@ class EvolutionaryAlgorithm:
 
         if len(x_data) > 2000:
             print(
-                f"\033[93m[!] Warning: Fitting {len(x_data)} samples may be slow. "
+                f"\033[93m[!] Fitting {len(x_data)} samples may be slow. "
                 "Consider downsampling "
-                "with downsample_data(factor, show=True), while preserving narrow "
-                "resonances. Around 2000 samples are often sufficient for "
-                "impedance data spanning 20 GHz.\033[0m"
+                "with downsample_data(factor, show=True).\033[0m"
             )
 
         if N_resonators is None and parameterBounds is not None:
@@ -288,6 +286,7 @@ class EvolutionaryAlgorithm:
         Updates the stored fitting data in place. With ``show=True``, compare
         the original and retained y samples against x. Complex data use
         separate real and imaginary subplots.
+        Prints the number of samples retained after downsampling.
         Call this before fitting; narrow resonances may need a smaller factor.
         """
         if (
@@ -354,6 +353,10 @@ class EvolutionaryAlgorithm:
         self.minimizationParametersUncertainties = None
         self.flagged_params = None
 
+        print(
+            f"[*] Downsampled data to {len(self.x_data)} points (from {len(x_data)})."
+        )
+
         if show:
             plt.show()
 
@@ -362,6 +365,7 @@ class EvolutionaryAlgorithm:
         impedance_type: str | None = "real",
         show_table: bool = True,
         show_inspect: bool = True,
+        remove_baseline: bool | float = False,
         **kwargs: Any,
     ) -> SmartBoundDetermination:
         """Estimate resonator search bounds from the stored impedance data.
@@ -379,14 +383,24 @@ class EvolutionaryAlgorithm:
         show_inspect : bool, optional
             Plot detected peaks and estimated resonator components with
             ``inspect(show_components=True)``. Default is True.
+        remove_baseline : bool or float, optional
+            If True, fit the real slope of a finite wake baseline
+            ``slope * time`` from the complex impedance by least squares.
+            A numeric value supplies the slope in wake units per second.
+            Subtract its analytic impedance for bound estimation. Requires
+            the model's ``wake_length``. Default is False.
         **kwargs
             Automatic peak-finding options passed to
             :class:`SmartBoundDetermination`:
 
-            - ``minimum_peak_height``: Minimum peak height; default 1.0.
-            - ``threshold``, ``distance``, ``prominence``: Criteria passed to
-              ``scipy.signal.find_peaks``; each defaults to None. ``distance``
+            - ``minimum_peak_height``: Minimum peak height; defaults to None,
+              meaning no height filter.
+            - ``threshold`` and ``distance``: Criteria passed to
+              ``scipy.signal.find_peaks``; both default to None. ``distance``
               counts samples on the analysis grid.
+            - ``prominence``: Minimum prominence in the detection trace's
+              units, passed directly to ``scipy.signal.find_peaks``; defaults
+              to None.
             - ``Rs_bounds`` and ``Q_bounds``: Lower and upper multipliers for
               the estimated Rs and Q; each defaults to ``[0.1, 10]``.
             - ``fres_bounds``: Lower and upper multiples of the estimated
@@ -395,6 +409,9 @@ class EvolutionaryAlgorithm:
               default, use the stored frequency samples.
             - ``q_side``: ``"auto"``, ``"left"``, ``"right"``, or a list with
               one choice per peak; defaults to ``"auto"``.
+
+            With ``impedance_type="real"`` and a finite ``wake_length``, peak
+            finding uses a Hann trace; parameter estimates use the original data.
 
             Interactive selection is not supported by this method.
 
@@ -417,19 +434,16 @@ class EvolutionaryAlgorithm:
 
         if impedance_type is None:
             impedance_type = "real"
-        if impedance_type == "absolute":
-            impedance = np.abs(self.impedance_data)
-        elif impedance_type == "real":
-            impedance = np.real(self.impedance_data)
-        else:
+        if impedance_type not in ("absolute", "real"):
             raise ValueError("impedance_type must be 'absolute' or 'real'")
 
         bounds = SmartBoundDetermination(
             self.frequency_data,
-            impedance,
+            self.impedance_data,
             impedance_type=impedance_type,
             plane=self.plane,
             wake_length=self.wake_length,
+            remove_baseline=remove_baseline,
             **kwargs,
         )
         if not bounds.N_resonators:
@@ -621,7 +635,7 @@ class EvolutionaryAlgorithm:
 
     def run_cmaes(
         self,
-        maxiter: int = 1000,
+        maxiter: int | None = None,
         popsize: int = 50,
         sigma: float = 0.6,
         verbose: bool = False,
@@ -638,9 +652,11 @@ class EvolutionaryAlgorithm:
 
         Parameters
         ----------
-        maxiter : int, optional
-            CMA-ES internal iteration limit. Default is 1000. Pymoo's
-            reported generation count can exceed this value.
+        maxiter : int or None, optional
+            CMA-ES iteration limit per run. By default, there is no iteration
+            limit; CMA-ES stops according to its convergence and other stopping
+            criteria. With restarts, the total generation count can exceed a
+            specified limit.
         popsize : int, optional
             Population size for the CMA-ES algorithm. Default is 50.
         sigma : float, optional
@@ -653,7 +669,7 @@ class EvolutionaryAlgorithm:
         **kwargs : Any
             Additional options passed to ``pymoo.algorithms.soo.nonconvex.cmaes.CMAES``.
             For example, ``tolfun``, ``tolx``, ``maxfevals``, ``restarts``,
-            ``restart_from_best``, and ``seed``. IDDEFIX defaults to three
+            ``restart_from_best``, and ``seed``. IDDEFIX defaults to zero
             restarts and seed 42; a supplied keyword overrides these defaults.
             Use ``popsize`` above for the population size. Pymoo's
             internal stopping and restarts do not make ``maxiter`` a strict

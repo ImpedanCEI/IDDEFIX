@@ -7,12 +7,14 @@ Created on Sat Dec  5 16:34:10 2020
 """
 
 import asyncio
+from numbers import Real
 
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
 from scipy.constants import c
+from scipy.interpolate import CubicSpline
 from scipy.signal import find_peaks
 
 from ._table import display_resonator_table
@@ -27,19 +29,20 @@ class SmartBoundDetermination:
         self,
         frequency_data: ArrayLike,
         impedance_data: ArrayLike,
-        minimum_peak_height: float = 1.0,
+        plane: str = "longitudinal",
+        wake_length: float | None = None,
+        impedance_type: str = "real",
+        prominence: float | None = None,
+        minimum_peak_height: float | np.ndarray | None = None,
         threshold: float | None = None,
         distance: float | None = None,
-        prominence: float | None = None,
         Rs_bounds: list[float] = [0.1, 10],
         Q_bounds: list[float] = [0.1, 10],
         fres_bounds: list[float] = [-1.0, 1.0],
         samples: int | None = None,
         q_side: str | list[str] = "auto",
-        impedance_type: str = "absolute",
         interactive: bool = False,
-        plane: str = "longitudinal",
-        wake_length: float | None = None,
+        remove_baseline: bool | float = False,
     ) -> None:
         """
         Automatically determines parameter bounds for resonance fitting
@@ -54,9 +57,27 @@ class SmartBoundDetermination:
         frequency_data : numpy.ndarray
             Frequency data in Hz.
         impedance_data : numpy.ndarray
-            Impedance magnitude or real impedance data in Ohms.
-        minimum_peak_height : float, optional
-            Minimum height for a peak to be considered a resonance. Default is 1.0.
+            Impedance magnitude, real impedance, or complex impedance in Ohms.
+            Real impedance data with ``wake_length`` use a Hann trace for peak
+            detection when ``impedance_type="real"``.
+        plane : {"longitudinal", "transverse"}, optional
+            Impedance plane used to convert each detected peak and crossing
+            into estimates of Rs, Q, and fres. Transverse estimation currently
+            supports real impedance only. Default is "longitudinal".
+        wake_length : float, optional
+            Length in meters of the wake used to calculate the input impedance.
+            Corrects the Rs estimate with the effective wake-envelope decay
+            factor. Q and fres retain their fully decayed estimates.
+        impedance_type : {"absolute", "real"}, optional
+            Type of impedance supplied. Absolute impedance uses the 3 dB
+            amplitude level (peak / sqrt(2)); real impedance uses the
+            half-maximum level (peak / 2). Default is "real".
+        prominence : float, optional
+            Minimum peak prominence in the units of the detection trace.
+            Passed directly to `scipy.signal.find_peaks`. Default is None.
+        minimum_peak_height : float or numpy.ndarray, optional
+            Minimum height for a peak to be considered a resonance. Default is
+            None, so no height filter is applied.
         threshold : float, optional
             Required vertical distance between a peak and its neighboring values
             to be considered a peak. Passed to `scipy.signal.find_peaks`.
@@ -65,11 +86,6 @@ class SmartBoundDetermination:
             Required minimum horizontal distance (in indices) between peaks.
             Passed to `scipy.signal.find_peaks`. When ``samples`` is set, this
             counts samples on the interpolated grid. Default is None.
-        prominence : float, optional
-            Required prominence of peaks. The prominence measures how much a peak
-            stands out compared to its surrounding values. Passed to
-            `scipy.signal.find_peaks`.
-            Default is None.
         Rs_bounds : list, optional
             Scaling factors [min, max] for Rs bounds. Default is [0.1, 10].
         Q_bounds : list, optional
@@ -88,10 +104,6 @@ class SmartBoundDetermination:
             for each detected peak, in increasing frequency order. If the
             selected side has no crossing, the Q estimate defaults to 1;
             the configured scaling factors can still produce a bound below 0.5.
-        impedance_type : {"absolute", "real"}, optional
-            Type of impedance supplied. Absolute impedance uses the 3 dB
-            amplitude level (peak / sqrt(2)); real impedance uses the
-            half-maximum level (peak / 2). Default is "absolute".
         interactive : bool, optional
             Select resonances by clicking on the impedance plot. With an
             ipympl notebook backend, zoom or pan first, then enable Pick and
@@ -101,21 +113,24 @@ class SmartBoundDetermination:
             use automatic peak detection instead. Clicks are mapped to the
             nearest analysis sample. Peak-finding settings are ignored during
             interactive selection. Default is False.
-        plane : {"longitudinal", "transverse"}, optional
-            Impedance plane used to convert each detected peak and crossing
-            into estimates of Rs, Q, and fres. Transverse estimation currently
-            supports real impedance only. Default is "longitudinal".
-        wake_length : float, optional
-            Length in meters of the wake used to calculate the input impedance.
-            Corrects the Rs estimate with the effective wake-envelope decay
-            factor. Q and fres retain their fully decayed estimates.
+        remove_baseline : bool or float, optional
+            If True, fit the real slope of a wake baseline ``slope * time``
+            by least squares against the complex impedance. A numeric value
+            supplies the slope in wake units per second. Subtract the finite
+            wake transform before peak detection and parameter estimation.
+            Requires ``wake_length``. Default is False.
         Attributes
         ----------
         peaks : numpy.ndarray or None
             Indices of detected peaks on the analysis frequency grid.
         analysis_frequency_data, analysis_impedance_data : numpy.ndarray
-            Frequency grid and impedance used for peak finding. These equal the
-            inputs when ``samples`` is None.
+            Frequency grid and scalar impedance used for parameter estimation.
+            When ``remove_baseline`` is enabled, this is the corrected trace.
+        baseline_slope : float or None
+            Fitted or supplied wake baseline slope, or None without correction.
+        hann_trace : numpy.ndarray or None
+            Hann trace used to find peaks on the analysis grid, with NaN at
+            frequencies where a shifted input is unavailable.
         peaks_height : dict or None
             Peak properties containing the detected heights under
             ``"peak_heights"``.
@@ -143,17 +158,17 @@ class SmartBoundDetermination:
 
         Methods
         -------
-        find(frequency_data=None, impedance_data=None, minimum_peak_height=None,
-            threshold=None, distance=None, prominence=None, samples=None,
-            q_side=None, impedance_type=None, interactive=None, plane=None,
-            wake_length=None)
+        find(frequency_data=None, impedance_data=None, plane=None,
+            wake_length=None, impedance_type=None, prominence=None,
+            minimum_peak_height=None, threshold=None, distance=None,
+            samples=None, q_side=None, interactive=None, remove_baseline=None)
             Detects impedance peaks and determines fitting parameter bounds
             automatically or from interactive selections.
 
         inspect(show_bounds=False, show_components=False)
-            Plots the impedance data and highlights detected resonance peaks
-            along with their selected crossing levels, bounds, and estimated
-            resonator components.
+            Plots the input impedance, Hann detection trace when used, and
+            detected resonance peaks with their crossings, bounds, and
+            estimated resonator components.
 
         add_peak(frequency, q_side=None, Q=None)
             Adds a peak at the nearest analysis frequency and recomputes all
@@ -190,6 +205,7 @@ class SmartBoundDetermination:
         self.interactive = interactive
         self.plane = plane
         self.wake_length = wake_length
+        self.remove_baseline = remove_baseline
 
         # Results populated by peak detection and bound estimation
         self.peaks = None
@@ -200,6 +216,8 @@ class SmartBoundDetermination:
         self.N_resonators = None
         self.analysis_frequency_data = None
         self.analysis_impedance_data = None
+        self.hann_trace = None
+        self.baseline_slope = None
         self.q_sides_used = None
         # Interactive selection state
         self._selection_done = asyncio.Event()
@@ -218,47 +236,50 @@ class SmartBoundDetermination:
         self,
         frequency_data: ArrayLike | None = None,
         impedance_data: ArrayLike | None = None,
-        minimum_peak_height: float | None = None,
-        threshold: float | None = None,
-        distance: float | None = None,
-        prominence: float | None = None,
-        samples: int | None = None,
-        q_side: str | list[str] | None = None,
-        impedance_type: str | None = None,
-        interactive: bool | None = None,
         plane: str | None = None,
         wake_length: float | None = None,
+        impedance_type: str | None = None,
+        prominence: float | None = None,
+        minimum_peak_height: float | np.ndarray | None = None,
+        threshold: float | None = None,
+        distance: float | None = None,
+        samples: int | None = None,
+        q_side: str | list[str] | None = None,
+        interactive: bool | None = None,
+        remove_baseline: bool | float | None = None,
     ) -> ParameterBounds | None:
         """Recompute bounds; retained for compatibility with legacy workflows."""
         return self._find(
             frequency_data=frequency_data,
             impedance_data=impedance_data,
+            plane=plane,
+            wake_length=wake_length,
+            impedance_type=impedance_type,
+            prominence=prominence,
             minimum_peak_height=minimum_peak_height,
             threshold=threshold,
             distance=distance,
-            prominence=prominence,
             samples=samples,
             q_side=q_side,
-            impedance_type=impedance_type,
             interactive=interactive,
-            plane=plane,
-            wake_length=wake_length,
+            remove_baseline=remove_baseline,
         )
 
     def _find(
         self,
         frequency_data: ArrayLike | None = None,
         impedance_data: ArrayLike | None = None,
-        minimum_peak_height: float | None = None,
-        threshold: float | None = None,
-        distance: float | None = None,
-        prominence: float | None = None,
-        samples: int | None = None,
-        q_side: str | list[str] | None = None,
-        impedance_type: str | None = None,
-        interactive: bool | None = None,
         plane: str | None = None,
         wake_length: float | None = None,
+        impedance_type: str | None = None,
+        prominence: float | None = None,
+        minimum_peak_height: float | np.ndarray | None = None,
+        threshold: float | None = None,
+        distance: float | None = None,
+        samples: int | None = None,
+        q_side: str | list[str] | None = None,
+        interactive: bool | None = None,
+        remove_baseline: bool | float | None = None,
     ) -> ParameterBounds | None:
         """Detect peaks and update the stored parameter estimates and bounds."""
 
@@ -285,6 +306,11 @@ class SmartBoundDetermination:
         interactive = self.interactive if interactive is None else interactive
         plane = self.plane if plane is None else plane
         wake_length = self.wake_length if wake_length is None else wake_length
+        remove_baseline = (
+            self.remove_baseline if remove_baseline is None else remove_baseline
+        )
+        if isinstance(remove_baseline, np.bool_):
+            remove_baseline = bool(remove_baseline)
 
         # Validate and store the impedance interpretation
         if plane not in ("longitudinal", "transverse"):
@@ -296,6 +322,20 @@ class SmartBoundDetermination:
         ):
             raise ValueError("wake_length must be a finite positive value")
         self.wake_length = wake_length
+        if remove_baseline is not False and remove_baseline is not None:
+            if wake_length is None:
+                raise ValueError("remove_baseline requires wake_length")
+            if remove_baseline is not True and (
+                not isinstance(remove_baseline, Real)
+                or not np.isfinite(remove_baseline)
+            ):
+                raise ValueError("remove_baseline must be a finite slope")
+        self.remove_baseline = remove_baseline
+        if wake_length is not None and impedance_type == "absolute":
+            print(
+                "\033[93m[!] Warning: Hann peak detection requires "
+                "impedance_type='real'; using the original magnitude trace.\033[0m"
+            )
         if plane == "transverse" and impedance_type == "absolute":
             print(
                 "[!] Warning: Transverse SmartBounds estimation is derived "
@@ -306,29 +346,65 @@ class SmartBoundDetermination:
         # Build the analysis grid used for both peaks and crossings
         frequency_data = np.asarray(frequency_data)
         impedance_data = np.asarray(impedance_data)
+        self.baseline_slope = None
+        if remove_baseline is not False and remove_baseline is not None:
+            kernel = self._linear_baseline_impedance(
+                frequency_data, 1.0, wake_length, plane
+            )
+            if remove_baseline is True:
+                fit_kernel = kernel if np.iscomplexobj(impedance_data) else kernel.real
+                norm = np.vdot(fit_kernel, fit_kernel).real
+                if norm == 0 or not np.isfinite(norm):
+                    raise ValueError("Cannot fit baseline on this frequency grid")
+                slope = np.vdot(fit_kernel, impedance_data).real / norm
+            else:
+                slope = float(remove_baseline)
+            self.baseline_slope = slope
+            baseline = slope * kernel
+            impedance_data = impedance_data - (
+                baseline if np.iscomplexobj(impedance_data) else baseline.real
+            )
+        use_hann = wake_length is not None and impedance_type == "real"
+        scalar_impedance = (
+            impedance_data.real
+            if impedance_type == "real"
+            else np.abs(impedance_data)
+            if np.iscomplexobj(impedance_data)
+            else impedance_data
+        )
         if samples is not None:
-            analysis_frequency_data = np.linspace(
-                frequency_data[0], frequency_data[-1], samples
-            )
-            analysis_impedance_data = np.interp(
-                analysis_frequency_data, frequency_data, impedance_data
-            )
+            frequency = np.linspace(frequency_data[0], frequency_data[-1], samples)
+            impedance = np.interp(frequency, frequency_data, scalar_impedance)
             if (
                 isinstance(minimum_peak_height, np.ndarray)
                 and minimum_peak_height.shape == frequency_data.shape
             ):
                 minimum_peak_height = np.interp(
-                    analysis_frequency_data,
+                    frequency,
                     frequency_data,
                     minimum_peak_height,
                 )
         else:
-            analysis_frequency_data = frequency_data
-            analysis_impedance_data = impedance_data
+            frequency = frequency_data
+            impedance = scalar_impedance
 
-        self.analysis_frequency_data = analysis_frequency_data
-        self.analysis_impedance_data = analysis_impedance_data
+        self.analysis_frequency_data = frequency
+        self.analysis_impedance_data = impedance
+        self.hann_trace = None
         self._peak_q_estimates = {}
+
+        valid_detection = None
+        if use_hann:
+            print("[*] Using Hann trace to avoid truncation ripples in peak detection")
+            windowed, valid_detection = self._hann_impedance(
+                frequency_data,
+                scalar_impedance,
+                frequency,
+                wake_length,
+                plane,
+            )
+            self.hann_trace = np.full(len(frequency), np.nan)
+            self.hann_trace[valid_detection] = windowed
 
         # Select peaks interactively or with scipy.signal.find_peaks
         if interactive and "inline" in matplotlib.get_backend().lower():
@@ -348,14 +424,72 @@ class SmartBoundDetermination:
             self._start_interactive_selection(q_side, impedance_type, plane)
             return self.parameterBounds
 
+        search_data = windowed if valid_detection is not None else impedance
+        search_height = minimum_peak_height
+        if valid_detection is not None and isinstance(minimum_peak_height, np.ndarray):
+            search_height = minimum_peak_height[valid_detection]
         peaks, _ = find_peaks(
-            analysis_impedance_data,
-            height=minimum_peak_height,
+            search_data,
+            height=search_height,
             threshold=threshold,
             distance=distance,
             prominence=prominence,
         )
+        if valid_detection is not None:
+            peaks = np.flatnonzero(valid_detection)[peaks]
         return self._bounds_from_peaks(peaks, q_side, impedance_type, plane)
+
+    @staticmethod
+    def _linear_baseline_impedance(
+        frequency: np.ndarray,
+        slope: float,
+        wake_length: float,
+        plane: str,
+    ) -> np.ndarray:
+        """Transform ``slope * time`` over the finite wake interval."""
+        duration = wake_length / c
+        x = -2j * np.pi * frequency * duration
+        integral = np.empty_like(x, dtype=complex)
+        small = np.abs(x) < 1e-3
+        xs = x[small]
+        integral[small] = 0.5 + xs / 3 + xs**2 / 8 + xs**3 / 30 + xs**4 / 144
+        xl = x[~small]
+        integral[~small] = (1 + np.exp(xl) * (xl - 1)) / xl**2
+        baseline = c * slope * duration**2 * integral
+        return 1j * baseline if plane == "transverse" else baseline
+
+    @staticmethod
+    def _hann_impedance(
+        frequency_data: np.ndarray,
+        impedance_data: np.ndarray,
+        frequency: np.ndarray,
+        wake_length: float,
+        plane: str,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Apply a Hann window to real finite-wake impedance on valid frequencies."""
+        shift = c / wake_length
+        valid = (frequency >= frequency_data[0]) & (
+            frequency + shift <= frequency_data[-1]
+        )
+        if np.count_nonzero(valid) < 3:
+            raise ValueError("frequency range is too narrow for Hann detection")
+
+        # Use symmetry rules for DC treatment
+        sign = 1 if plane == "longitudinal" else -1
+        frequency_extended = np.concatenate((-frequency_data[:0:-1], frequency_data))
+        impedance_extended = np.concatenate(
+            (sign * np.conj(impedance_data[:0:-1]), impedance_data)
+        )
+
+        # Interpolate the impedance
+        selected_frequency = frequency[valid]
+        interpolate = CubicSpline(frequency_extended, impedance_extended)
+        windowed = (
+            0.5 * interpolate(selected_frequency)
+            - 0.25 * interpolate(selected_frequency - shift)
+            - 0.25 * interpolate(selected_frequency + shift)
+        )
+        return windowed, valid
 
     def _bounds_from_peaks(
         self,
@@ -859,18 +993,34 @@ class SmartBoundDetermination:
         self,
         show_bounds: bool = False,
         show_components: bool = False,
+        figsize: tuple[float, float] = (10, 6),
     ) -> None:
-        """Plot detected peaks, bounds, and estimated resonator components."""
+        """Plot input and Hann traces, peaks, bounds, and resonator components."""
         # Input trace and optional component data
-        plt.figure()
-        plt.plot(
+        fig = plt.figure(figsize=figsize)
+        input_label = (
+            "Baseline-corrected data"
+            if self.baseline_slope is not None
+            else "Input data"
+        )
+        input_line = plt.plot(
             self.analysis_frequency_data,
             self.analysis_impedance_data,
             "-",
             color="tab:blue" if show_components else None,
             linewidth=2.0 if show_components else None,
-            label="Input data" if show_components else None,
-        )
+            label=input_label
+            if show_bounds or show_components or self.hann_trace is not None
+            else None,
+        )[0]
+        if self.hann_trace is not None:
+            hann_line = plt.plot(
+                self.analysis_frequency_data,
+                self.hann_trace,
+                linewidth=0.6,
+                color="tab:blue",
+                label="Hann detection",
+            )[0]
 
         if self.peaks is not None:
             color_map = (
@@ -970,7 +1120,7 @@ class SmartBoundDetermination:
                     resonance_handles.append(component_handle)
             # Sum the same components to show the complete estimated model
             if components is not None:
-                plt.plot(
+                total_handle = plt.plot(
                     self.analysis_frequency_data,
                     component_values(components.sum(axis=0)),
                     color="black",
@@ -978,15 +1128,68 @@ class SmartBoundDetermination:
                     linestyle=":",
                     alpha=0.8,
                     label="Total model",
-                )
+                )[0]
         # Axes and legend
         plt.xlabel("Frequency [Hz]")
         plt.ylabel("Impedance [Ohm]")
         plt.title("Smart Bound Determination")
-        if show_components and self.peaks is not None and len(self.peaks) > 0:
+        if (
+            (show_bounds or show_components)
+            and self.peaks is not None
+            and len(self.peaks) >= 10
+        ):
+            from matplotlib.cm import ScalarMappable
+            from matplotlib.colors import BoundaryNorm
+
+            legend_handles = [input_line]
+            if self.hann_trace is not None:
+                legend_handles.append(hann_line)
+            if components is not None:
+                legend_handles.append(total_handle)
+            plt.legend(
+                handles=legend_handles,
+                loc="upper center",
+                bbox_to_anchor=(0.5, -0.13),
+                ncol=3,
+                frameon=False,
+            )
+
+            boundaries = np.arange(0.5, len(self.peaks) + 1.5)
+            colorbar = fig.colorbar(
+                ScalarMappable(
+                    norm=BoundaryNorm(boundaries, len(self.peaks)), cmap=color_map
+                ),
+                ax=plt.gca(),
+                boundaries=boundaries,
+                ticks=np.arange(1, len(self.peaks) + 1),
+                fraction=0.035,
+                pad=0.025,
+                aspect=30,
+            )
+            colorbar.set_label("Resonator number")
+            colorbar.ax.tick_params(length=0)
+            colorbar.ax.invert_yaxis()
+            fig.tight_layout()
+        elif show_components and self.peaks is not None and len(self.peaks) > 0:
             plt.legend(ncol=3, frameon=False)
+            fig.tight_layout()
         elif show_bounds and self.peaks is not None and len(self.peaks) > 0:
-            plt.legend(handles=resonance_handles, title="Resonator")
+            if self.hann_trace is not None:
+                plt.legend(
+                    handles=[input_line, hann_line, *resonance_handles],
+                    ncol=3,
+                    frameon=False,
+                )
+            else:
+                plt.legend(
+                    handles=[input_line, *resonance_handles],
+                    ncol=3,
+                    frameon=False,
+                )
+            fig.tight_layout()
+        elif self.hann_trace is not None:
+            plt.legend(handles=[input_line, hann_line], frameon=False)
+            fig.tight_layout()
         plt.show()
 
         return None

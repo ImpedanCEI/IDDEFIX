@@ -5,7 +5,7 @@ path. PyFDE option forwarding is checked separately because it is optional.
 """
 
 import sys
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -154,6 +154,51 @@ def test_estimate_bounds_from_magnitude():
     assert model.N_resonators == 1
 
 
+def test_estimate_bounds_uses_hann_for_finite_wake():
+    """EA passes complex impedance to Hann detection and retains raw estimates."""
+    frequency = np.linspace(0.98e9, 1.02e9, 20001)
+    impedance = iddefix.Impedances.Resonator_longitudinal_imp(
+        frequency, 100.0, 5000.0, 1e9, wake_length=300.0
+    )
+    model = iddefix.EvolutionaryAlgorithm(frequency, impedance, wake_length=300.0)
+
+    bounds = model.estimate_bounds(
+        minimum_peak_height=1.0,
+        prominence=0.5,
+        show_table=False,
+        show_inspect=False,
+    )
+
+    assert bounds.N_resonators == 1
+    np.testing.assert_allclose(bounds.analysis_impedance_data, impedance.real)
+    np.testing.assert_allclose(model.parameterEstimates, bounds.parameterEstimates)
+
+
+def test_estimate_bounds_removes_linear_baseline():
+    """EA forwards a supplied wake slope without changing its fitting data."""
+    frequency = np.linspace(0, 2e9, 2001)
+    wake_length = 1.0
+    slope = 1e14
+    clean = iddefix.Impedances.Resonator_longitudinal_imp(
+        frequency, 100.0, 2.0, 0.8e9, wake_length=wake_length
+    )
+    baseline = iddefix.SmartBoundDetermination._linear_baseline_impedance(
+        frequency, slope, wake_length, "longitudinal"
+    )
+    contaminated = clean + baseline
+    model = iddefix.EvolutionaryAlgorithm(
+        frequency, contaminated, wake_length=wake_length
+    )
+
+    bounds = model.estimate_bounds(
+        remove_baseline=True, show_table=False, show_inspect=False
+    )
+
+    assert bounds.baseline_slope == pytest.approx(slope, rel=1e-4)
+    assert bounds.N_resonators == 1
+    np.testing.assert_array_equal(model.impedance_data, contaminated)
+
+
 def test_estimate_bounds_requires_detected_impedance_peak():
     """An empty detection leaves any existing fitting setup untouched."""
     frequency = np.linspace(0.5e9, 1.5e9, 101)
@@ -238,6 +283,67 @@ def test_solver_fits_complex_impedance_with_public_options(resonance, solver, ca
     fitted_loss = np.sum(np.abs(fitted - target) ** 2)
     assert np.isfinite(model.evolutionParameters).all()
     assert fitted_loss < initial_loss
+
+
+@pytest.mark.parametrize("maxiter", [None, 10])
+@pytest.mark.parametrize(("restarts", "expected_runs"), [(None, 1), (2, 3)])
+def test_cmaes_progress(monkeypatch, maxiter, restarts, expected_runs):
+    """Finite limits show a budget; convergence-led runs count iterations."""
+    import pymoo.algorithms.soo.nonconvex.cmaes as cmaes_module
+    import pymoo.optimize as pymoo_optimize
+
+    observed = {}
+
+    class FakeCMAES:
+        def __init__(self, **options):
+            observed["restarts"] = options["restarts"]
+            observed["maxiter"] = options["maxiter"]
+
+    def fake_minimize(problem, solver, **options):
+        callback = options["callback"]
+        observed["progress_total"] = callback.pbar.total
+        for _ in range(expected_runs):
+            callback(SimpleNamespace(pop=SimpleNamespace(get=lambda _: [0.0])))
+            for _ in range(10):
+                callback(SimpleNamespace(pop=SimpleNamespace(get=lambda _: [0.0, 1.0])))
+        callback(SimpleNamespace(pop=SimpleNamespace(get=lambda _: [0.0])))
+        observed["iterations"] = callback.pbar.n
+        return SimpleNamespace(X=np.array([0.5]), algorithm=SimpleNamespace(n_gen=1))
+
+    monkeypatch.setattr(cmaes_module, "CMAES", FakeCMAES)
+    monkeypatch.setattr(pymoo_optimize, "minimize", fake_minimize)
+    options = {} if restarts is None else {"restarts": restarts}
+
+    Solvers.run_pymoo_cmaes_solver(
+        [(0.0, 1.0)], lambda x: x[0] ** 2, maxiter=maxiter, **options
+    )
+
+    assert observed["restarts"] == expected_runs - 1
+    if maxiter is None:
+        assert np.isinf(observed["maxiter"])
+        assert observed["progress_total"] is None
+    else:
+        assert observed["maxiter"] == maxiter
+        assert observed["progress_total"] == maxiter * expected_runs
+    assert observed["iterations"] == 10 * expected_runs
+
+
+def test_cmaes_without_iteration_limit(resonance):
+    """The public default lets CMA-ES stop at another configured criterion."""
+    frequency, parameters, target, bounds = resonance
+    model = iddefix.EvolutionaryAlgorithm(
+        frequency,
+        target,
+        N_resonators=1,
+        parameterBounds=bounds,
+        parameterEstimates=parameters,
+        compute_uncertainties=False,
+    )
+
+    result = model.run_cmaes(popsize=8, maxfevals=30)
+
+    assert np.isfinite(model.evolutionParameters).all()
+    assert result.algorithm.n_gen >= 1
 
 
 @pytest.mark.parametrize(

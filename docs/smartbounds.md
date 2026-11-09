@@ -264,6 +264,78 @@ $\Re(Z)$; it is not applied to transverse $|Z|$. The estimates of $Q$ and
 $f_r$ are not corrected for the finite wake, even though a short wake may
 change the peak position and width.
 
+### Hann peak detection
+
+For a finite wake with `impedance_type="real"`, SmartBounds finds peaks in a
+Hann-windowed impedance trace. With $T=L/c$ and $f_H=1/T=c/L$, the trace is
+
+$$
+Z_H(f)=\frac{1}{2}Z(f)-\frac{1}{4}Z(f-f_H)-\frac{1}{4}Z(f+f_H).
+$$
+
+The negative-frequency value in the shifted term follows the symmetry of a
+real wake: $Z_\parallel(-f)=Z_\parallel(f)^*$ for longitudinal impedance and
+$Z_\perp(-f)=-Z_\perp(f)^*$ for transverse impedance. This lets the Hann trace
+include DC when the supplied frequency grid starts at zero. The trace is
+available as `bounds.hann_trace`; values beyond the supplied upper-frequency
+limit are marked `NaN`.
+
+Hann windowing is used for peak locations only. SmartBounds obtains peak
+heights and crossing widths from the unwindowed real impedance. With
+`impedance_type="absolute"`, it uses the original magnitude trace without
+Hann windowing.
+
+### Linear wake baseline
+
+A wake that grows approximately as $w_{\mathrm{base}}(t)=at$ over
+$0\leq t\leq T$ contributes a low-frequency background. SmartBounds can
+subtract the analytic transform of this finite ramp before Hann detection and
+parameter estimation. In the longitudinal convention, its unit-slope kernel is
+
+$$
+K_\parallel(f)=c\int_0^T t\,e^{-2\pi i f t}\,dt
+=\begin{cases}
+\dfrac{c\left[e^{-i\omega T}(1+i\omega T)-1\right]}{\omega^2},
+& f\ne 0,\\[8pt]
+\dfrac{cT^2}{2}, & f=0,
+\end{cases}
+\qquad \omega=2\pi f.
+$$
+
+For transverse impedance, $K_\perp(f)=iK_\parallel(f)$. The corrected
+spectrum is $Z_{\mathrm{corrected}}(f)=Z(f)-aK(f)$. With
+`remove_baseline=True`, SmartBounds fits the real slope $a$ by least squares
+over the supplied frequency samples. For complex impedance, the fitted slope
+is
+
+$$
+\hat a=
+\frac{\Re\left[\sum_f K(f)^* Z(f)\right]}{\sum_f |K(f)|^2}.
+$$
+
+Pass a numeric `remove_baseline` value instead when the slope is known in wake
+units per second. Both modes require `wake_length` and expose the fitted or
+supplied value as `bounds.baseline_slope`:
+
+```python
+bounds = iddefix.SmartBoundDetermination(
+    frequency,
+    impedance,
+    plane="transverse",
+    wake_length=L,
+    impedance_type="real",
+    prominence=0.5,
+    remove_baseline=True,
+)
+print(bounds.baseline_slope)
+```
+
+The fit assumes that the baseline is a finite ramp in a directly transformed
+wake and that its kernel is distinguishable from the physical impedance. A
+deconvolved wake-potential spectrum may need a different kernel. SmartBounds
+uses the corrected spectrum for bounds; it does not change the original
+impedance stored by `EvolutionaryAlgorithm` for later fitting.
+
 ## Constructing fitting bounds
 
 After estimating $R_s$, $Q$, and $f_r$, SmartBounds constructs the parameter
@@ -326,8 +398,8 @@ For transverse real impedance, a typical setup is:
 bounds = iddefix.SmartBoundDetermination(
     frequency,
     impedance.real,
-    impedance_type="real",
     plane="transverse",
+    impedance_type="real",
     Rs_bounds=[0.1, 10], # default [0.1, 10]
     Q_bounds=[0.1, 10],  # default [0.1, 10]
     fres_bounds=[-2, 2], # default [-1, 1]
@@ -340,15 +412,20 @@ Here `fres_bounds=[-2, 2]` allows two estimated half-widths on either side of
 the estimated $f_r$. Omit it to use the default `[-1, 1]`.
 
 For longitudinal impedance, use `plane="longitudinal"` and choose
-`impedance_type="real"` for $\Re(Z)$ or `"absolute"` for $|Z|$. If the input
+`impedance_type="real"` (the default) for $\Re(Z)$ or `"absolute"` for $|Z|$. If the input
 impedance comes from a finite wake, also pass `wake_length=L` in meters. This
-applies the $R_s$ correction described above; leaving it out uses the fully
-decayed estimates. Set peak-finding options such as `minimum_peak_height` when
-needed for the trace.
+uses a Hann trace to find peaks when `impedance_type="real"`, then estimates
+$R_s$ and $Q$ from the unwindowed trace. It also applies the $R_s$ correction
+described above; leaving out `wake_length` uses fully decayed estimates.
+With `impedance_type="absolute"`, peak finding uses the original magnitude
+trace and prints a yellow message. `prominence` is passed directly to SciPy in
+the detection trace's units and defaults to None. Set `minimum_peak_height`
+when needed for the trace.
 
 ### Inspect the estimates
 
-The standard `inspect()` plot shows the detected peaks and crossings. Calling
+The standard `inspect()` plot shows the input trace, the Hann detection trace
+when a finite wake is supplied, and the detected peaks and crossings. Calling
 `inspect(show_bounds=True)` also shows each estimated $f_r$ and its
 frequency-bound interval. In this view, each resonator uses one color for all
 its markers, with the numbered peaks providing the legend. Use the plot to
@@ -359,6 +436,8 @@ total model. For numerical access, `bounds.get_impedance_components()` returns
 one complex impedance array per resonator on the analysis frequency grid; pass
 a frequency array to evaluate the components on another grid. When
 `wake_length` is set, the components use the finite-wake impedance formula.
+For 10 or more resonators, `inspect()` replaces individual legend entries with
+a numbered colorbar.
 
 ### Adjust the detected peaks
 
@@ -414,6 +493,9 @@ The method uses real impedance by default for both planes. Pass
 `impedance_type="absolute"` to detect peaks in the impedance magnitude instead.
 The model supplies its `plane` and `wake_length` to SmartBounds, so these are
 set when constructing the model.
+Pass `remove_baseline=True` to fit and remove a finite ramp during bound
+estimation, or pass its known slope as a number. The returned bounds object
+holds the slope in `baseline_slope`.
 Pass automatic detection options such as `prominence`, `samples`, `q_side`,
 `Rs_bounds`, `Q_bounds`, and `fres_bounds` to `estimate_bounds()` as keyword
 arguments. Interactive peak selection requires using

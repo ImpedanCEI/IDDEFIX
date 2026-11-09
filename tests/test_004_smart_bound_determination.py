@@ -5,6 +5,9 @@ from types import SimpleNamespace
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
+from scipy.constants import c
+from scipy.integrate import quad
+from scipy.signal import find_peaks
 
 import iddefix
 
@@ -24,6 +27,33 @@ def _single_mode_bounds():
 
 
 # Peak discovery and frequency bounds
+def test_prominence_uses_trace_units():
+    """Prominence is passed to SciPy in trace units; None leaves it unfiltered."""
+    frequency = np.linspace(0.1e9, 0.9e9, 9)
+    impedance = np.array([0, 100, 0, 0, 0.5, 0, 0, 4, 0])
+    bounds = iddefix.SmartBoundDetermination(frequency, impedance, prominence=1)
+    unfiltered = iddefix.SmartBoundDetermination(frequency, impedance)
+    scaled = iddefix.SmartBoundDetermination(frequency, impedance * 0.01, prominence=1)
+
+    np.testing.assert_array_equal(bounds.peaks, [1, 7])
+    np.testing.assert_array_equal(unfiltered.peaks, [1, 4, 7])
+    np.testing.assert_array_equal(scaled.peaks, [1])
+    bounds.find(prominence=5)
+    np.testing.assert_array_equal(bounds.peaks, [1])
+    bounds.find(prominence=0)
+    np.testing.assert_array_equal(bounds.peaks, [1, 4, 7])
+
+
+def test_default_height_does_not_filter_negative_maxima():
+    """An omitted height leaves signed local maxima eligible for detection."""
+    frequency = np.linspace(0.1e9, 0.6e9, 6)
+    impedance = np.array([-3, -1, -3, -5, -2, -5])
+
+    bounds = iddefix.SmartBoundDetermination(frequency, impedance)
+
+    np.testing.assert_array_equal(bounds.peaks, [1, 4])
+
+
 def test_detected_modes():
     """Two longitudinal peaks recover their parameters and combined spectrum."""
     frequency = np.linspace(0.1e9, 2e9, 10001)
@@ -36,7 +66,6 @@ def test_detected_modes():
     bounds = iddefix.SmartBoundDetermination(
         frequency,
         impedance,
-        impedance_type="real",
         minimum_peak_height=50.0,
     )
 
@@ -194,8 +223,152 @@ def test_transverse_absolute_warning(capsys):
 
 # Wake-length correction
 @pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
+def test_linear_baseline_transform(plane):
+    """The correction follows the finite ramp's Fourier integral, including DC."""
+    duration = 8e-9
+    slope = 1e10
+    frequency = np.array([0.0, 0.2e9, 0.7e9])
+    baseline = iddefix.SmartBoundDetermination._linear_baseline_impedance(
+        frequency, slope, c * duration, plane
+    )
+    expected = []
+    for value in frequency:
+        omega = 2 * np.pi * value
+        real = quad(lambda time: time * np.cos(omega * time), 0, duration)[0]
+        imag = -quad(lambda time: time * np.sin(omega * time), 0, duration)[0]
+        expected.append(c * slope * (real + 1j * imag))
+    expected = np.asarray(expected)
+    if plane == "transverse":
+        expected *= 1j
+    np.testing.assert_allclose(baseline, expected, rtol=1e-10, atol=1e-10)
+
+
+@pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
+def test_hann_baseline_correction(plane):
+    """Removing a ramp restores the clean trace without changing input samples."""
+    frequency = np.linspace(0, 2e9, 2001)
+    wake_length = 1.0
+    slope = 1e11
+    formula = getattr(iddefix.Impedances, f"Resonator_{plane}_imp")
+    resistance = 100.0 if plane == "longitudinal" else 4e6
+    clean = formula(frequency, resistance, 2.0, 0.8e9, wake_length=wake_length)
+    baseline = iddefix.SmartBoundDetermination._linear_baseline_impedance(
+        frequency, slope, wake_length, plane
+    )
+    contaminated = clean + baseline
+    options = dict(plane=plane, wake_length=wake_length, minimum_peak_height=1.0)
+    reference = iddefix.SmartBoundDetermination(frequency, clean, **options)
+    corrected = iddefix.SmartBoundDetermination(
+        frequency, contaminated, remove_baseline=slope, **options
+    )
+
+    np.testing.assert_allclose(
+        corrected.analysis_impedance_data, reference.analysis_impedance_data
+    )
+    np.testing.assert_allclose(corrected.hann_trace, reference.hann_trace)
+    np.testing.assert_array_equal(corrected.peaks, reference.peaks)
+    np.testing.assert_array_equal(contaminated, clean + baseline)
+
+
+@pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
+def test_hann_baseline_fit(plane):
+    """The complex spectrum identifies a dominant linear wake baseline."""
+    frequency = np.linspace(0, 19e9, 2001)
+    wake_length = c * 7e-6
+    slope = 1.8e9
+    formula = getattr(iddefix.Impedances, f"Resonator_{plane}_imp")
+    clean = formula(frequency, 1e5, 50.0, 10e9, wake_length=wake_length)
+    baseline = iddefix.SmartBoundDetermination._linear_baseline_impedance(
+        frequency, slope, wake_length, plane
+    )
+
+    bounds = iddefix.SmartBoundDetermination(
+        frequency,
+        clean + baseline,
+        plane=plane,
+        wake_length=wake_length,
+        remove_baseline=True,
+        minimum_peak_height=1e8,
+    )
+
+    assert bounds.baseline_slope == pytest.approx(slope, rel=2e-4)
+    np.testing.assert_allclose(bounds.analysis_impedance_data, clean.real, atol=10)
+
+
+def test_hann_baseline_requires_wake_length():
+    """A ramp transform needs the finite wake's integration interval."""
+    frequency = np.linspace(0, 2e9, 101)
+    with pytest.raises(ValueError, match="wake_length"):
+        iddefix.SmartBoundDetermination(
+            frequency, np.ones_like(frequency), remove_baseline=True
+        )
+
+
+@pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
+def test_hann_trace_matches_windowed_wake(plane):
+    """Shifted impedance agrees with an independently windowed wake FFT."""
+    time = np.linspace(-0.4e-9, 16.6e-9, 1000)
+    causal_time = np.maximum(time, 0.0)
+    wake = np.exp(-causal_time / 8e-9) * np.sin(2 * np.pi * 1.1e9 * causal_time)
+    frequency, impedance = iddefix.compute_fft(time, wake, fmax=5e9)
+    if plane == "transverse":
+        impedance *= 1j
+    bounds = iddefix.SmartBoundDetermination(
+        frequency, impedance.real, plane=plane, wake_length=time[-1] * c
+    )
+    hann_window = 0.5 - 0.5 * np.cos(2 * np.pi * time / time[-1])
+    _, windowed_impedance = iddefix.compute_fft(time, wake * hann_window, fmax=5e9)
+    if plane == "transverse":
+        windowed_impedance *= 1j
+
+    valid = np.isfinite(bounds.hann_trace)
+    assert valid[0]
+    np.testing.assert_allclose(
+        bounds.hann_trace[valid],
+        windowed_impedance.real[valid],
+        atol=1e-4 * np.max(np.abs(windowed_impedance.real)),
+        rtol=0,
+    )
+
+
+def test_hann_detection_uses_original_impedance_for_estimates():
+    """Finite-wake ripple peaks are suppressed without changing Rs or Q estimates."""
+    frequency = np.linspace(0.98e9, 1.02e9, 20001)
+    impedance = iddefix.Impedances.Resonator_longitudinal_imp(
+        frequency, 100.0, 5000.0, 1e9, wake_length=300.0
+    )
+    options = dict(impedance_type="real", wake_length=300.0, prominence=0.5)
+    bounds = iddefix.SmartBoundDetermination(
+        frequency, impedance, minimum_peak_height=1.0, **options
+    )
+    real_bounds = iddefix.SmartBoundDetermination(
+        frequency, impedance.real, minimum_peak_height=1.0, **options
+    )
+    unwindowed = iddefix.SmartBoundDetermination(
+        frequency,
+        impedance.real,
+        impedance_type="real",
+        minimum_peak_height=40.0,
+        prominence=0.5,
+    )
+
+    assert len(find_peaks(impedance.real, height=1.0, prominence=0.5)[0]) > 1
+    assert bounds.N_resonators == 1
+    np.testing.assert_array_equal(bounds.peaks, real_bounds.peaks)
+    np.testing.assert_allclose(bounds.analysis_impedance_data, impedance.real)
+    np.testing.assert_allclose(
+        bounds.parameterEstimates, real_bounds.parameterEstimates
+    )
+    assert bounds.parameterEstimates[1] == pytest.approx(
+        unwindowed.parameterEstimates[1]
+    )
+    peak = bounds.peaks[0]
+    assert bounds.peaks_height["peak_heights"][0] == pytest.approx(impedance.real[peak])
+
+
+@pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
 def test_wake_length_automatic_estimates(plane):
-    """Peak detection recovers a finite-wake resonator in either plane."""
+    """Hann detection finds a short-wake resonator in either plane."""
     frequency = np.linspace(1e6, 2e9, 10001)
     expected = np.array([4e6, 0.8, 0.8e9])
     formula = getattr(iddefix.Impedances, f"Resonator_{plane}_imp")
@@ -207,11 +380,11 @@ def test_wake_length_automatic_estimates(plane):
         impedance_type="real",
         plane=plane,
         wake_length=0.5,
-        minimum_peak_height=impedance.max() * 0.6,
+        minimum_peak_height=impedance.max() * 0.2,
     )
 
     assert bounds.N_resonators == 1
-    np.testing.assert_allclose(bounds.parameterEstimates, expected, rtol=0.04)
+    np.testing.assert_allclose(bounds.parameterEstimates, expected, rtol=0.12)
 
 
 @pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
@@ -287,13 +460,47 @@ def test_inspect(request, monkeypatch, show_bounds, show_components):
         impedance_type="real",
         plane="transverse",
         wake_length=0.5,
-        minimum_peak_height=impedance.max() * 0.6,
+        minimum_peak_height=impedance.max() * 0.2,
     )
 
     if not request.config.getoption("--debug-plots"):
         monkeypatch.setattr(plt, "show", lambda: None)
     bounds.inspect(show_bounds=show_bounds, show_components=show_components)
+    hann_lines = [
+        line for line in plt.gca().lines if line.get_label() == "Hann detection"
+    ]
+    assert len(hann_lines) == 1
+    np.testing.assert_allclose(hann_lines[0].get_ydata(), bounds.hann_trace)
+    assert np.isfinite(bounds.hann_trace[0])
     plt.close("all")
+
+
+@pytest.mark.parametrize(
+    ("show_bounds", "show_components"), [(True, False), (False, True)]
+)
+def test_inspect_many_resonators(monkeypatch, show_bounds, show_components):
+    """Ten resonators use a numbered colorbar and a short line legend."""
+    frequency = np.linspace(0.5e9, 10.5e9, 10001)
+    impedance = sum(
+        iddefix.Impedances.Resonator_longitudinal_imp(frequency, 100, 30, i * 1e9)
+        for i in range(1, 11)
+    )
+    bounds = iddefix.SmartBoundDetermination(
+        frequency, impedance.real, minimum_peak_height=20, prominence=20
+    )
+    monkeypatch.setattr(plt, "show", lambda: None)
+
+    bounds.inspect(show_bounds=show_bounds, show_components=show_components)
+
+    figure = plt.gcf()
+    assert bounds.N_resonators == 10
+    assert len(figure.axes) == 2
+    assert figure.axes[1].get_ylabel() == "Resonator number"
+    labels = [text.get_text() for text in figure.axes[0].get_legend().get_texts()]
+    assert labels == (
+        ["Input data", "Total model"] if show_components else ["Input data"]
+    )
+    plt.close(figure)
 
 
 @pytest.mark.parametrize("to_markdown", [False, True])

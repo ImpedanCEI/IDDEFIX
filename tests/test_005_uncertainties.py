@@ -84,6 +84,38 @@ def test_loaded_parameters_can_recompute_uncertainties_outside_fit_bounds():
     assert model.parameterBounds == original_bounds
 
 
+def test_uncertainties_tolerate_bound_roundoff():
+    """A fitted value a few ulps beyond its bound remains differentiable."""
+    frequency = np.linspace(0.7e9, 1.3e9, 31)
+    parameters = np.array([-0.006575153682409907, 3.0, 1e9])
+    bounds = [
+        (-0.65751537, -0.006575153682409948),
+        (0.5, 20.0),
+        (0.8e9, 1.2e9),
+    ]
+    impedance = iddefix.Impedances.Resonator_longitudinal_imp(frequency, *parameters)
+    model = iddefix.EvolutionaryAlgorithm(
+        frequency,
+        impedance,
+        N_resonators=1,
+        parameterBounds=bounds,
+    )
+    model.evolutionParameters = parameters
+
+    uncertainties = model.get_uncertainties(
+        use_minimization=False, parameterBounds=bounds
+    )
+
+    assert np.isfinite(uncertainties).all()
+    assert model.parameterBounds == bounds
+    np.testing.assert_array_equal(model.evolutionParameters, parameters)
+
+    model.evolutionParameters = parameters.copy()
+    model.evolutionParameters[0] += 1e-4
+    with pytest.raises(ValueError):
+        model.get_uncertainties(use_minimization=False, parameterBounds=bounds)
+
+
 def test_loaded_uncertainties_update_warning_flags():
     frequency = np.linspace(0.7e9, 1.3e9, 31)
     model = _model(frequency, np.zeros_like(frequency))
