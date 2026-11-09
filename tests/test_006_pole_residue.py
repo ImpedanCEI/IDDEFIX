@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 from scipy.integrate import quad
 
 from iddefix.poleResidueFitting import (
@@ -9,6 +10,8 @@ from iddefix.poleResidueFitting import (
     fit_poles_evolutionary,
     fit_residues,
     pole_objective,
+    pole_residue_objective,
+    resonator_section_poles,
 )
 from iddefix.poleResidueFormulas import PoleResidue
 from iddefix.resonatorFormulas import (
@@ -1166,6 +1169,52 @@ def test_transverse_least_squares_recovers_residues():
     )
 
 
+def test_pole_residue_objective_keeps_residues_with_their_poles():
+    """Residue parameter i must stay paired with pole parameter i."""
+    frequencies = np.linspace(1.0e6, 1.0e9, 200)
+
+    real_rates = np.array([3.0e8, 2.0e7])
+    real_residues = np.array([4.0e9, 1.0e10])
+    decay_rates = np.array([5.0e7, 1.0e7])
+    angular_frequencies = np.array([4.0e9, 1.0e9])
+    complex_residues = np.array([2.0e9 - 1.0e9j, 5.0e8 + 3.0e8j])
+
+    complex_poles = -decay_rates + 1j * angular_frequencies
+    impedance = PoleResidue.impedance(
+        frequencies=frequencies,
+        poles=np.concatenate([-real_rates, complex_poles, np.conj(complex_poles)]),
+        residues=np.concatenate(
+            [real_residues, complex_residues, np.conj(complex_residues)]
+        ),
+    )
+
+    def parameters(real_order, complex_order):
+        complex_ordered = complex_residues[complex_order]
+        return np.concatenate(
+            [
+                np.log10(real_rates[real_order]),
+                np.log10(decay_rates[complex_order]),
+                np.log10(angular_frequencies[complex_order]),
+                real_residues[real_order],
+                np.column_stack(
+                    [complex_ordered.real, complex_ordered.imag]
+                ).ravel(),
+            ]
+        )
+
+    for real_order in ([0, 1], [1, 0]):
+        for complex_order in ([0, 1], [1, 0]):
+            objective = pole_residue_objective(
+                parameters(real_order, complex_order),
+                frequencies=frequencies,
+                impedance=impedance,
+                number_real_poles=2,
+                number_complex_pairs=2,
+            )
+
+            assert objective < 1.0e-20
+
+
 def test_fully_evolutionary_fit_recovers_real_pole_and_residue():
     frequencies = np.linspace(1.0e6, 1.0e8, 120)
     expected_pole = -2.0e7
@@ -1278,3 +1327,196 @@ def test_fully_evolutionary_fit_recovers_direct_and_proportional_terms():
         rtol=1.0e-4,
     )
     assert result.objective_value < 1.0e-10
+
+
+# Second-order sections (pole_parametrization="resonator")
+
+
+def _resonator_impedance(plane, frequencies, Rs, Q, resonant_frequency, wake_length):
+    if plane == "transverse":
+        function = Impedances.Resonator_transverse_imp
+    else:
+        function = Impedances.Resonator_longitudinal_imp
+
+    return function(frequencies, Rs, Q, resonant_frequency, wake_length=wake_length)
+
+
+@pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
+@pytest.mark.parametrize("Q", [5.0, 0.3])
+@pytest.mark.parametrize("wake_length", [None, 0.5])
+def test_resonator_section_reproduces_resonator(plane, Q, wake_length):
+    """A section with the resonator's (f_r, Q) fits it exactly.
+
+    Covers the underdamped (complex pair) and overdamped (two real poles)
+    case, fully decayed and with a finite wake.
+    """
+    frequencies = np.linspace(1.0e6, 3.0e9, 800)
+    Rs = 2.0e6
+    resonant_frequency = 8.0e8
+    omega_r = 2.0 * np.pi * resonant_frequency
+
+    impedance = _resonator_impedance(
+        plane, frequencies, Rs, Q, resonant_frequency, wake_length
+    )
+
+    result = fit_residues(
+        frequencies,
+        impedance,
+        real_poles=[],
+        complex_poles=[],
+        resonator_sections=[(resonant_frequency, Q)],
+        wake_length=wake_length,
+        plane=plane,
+    )
+
+    if plane == "transverse":
+        expected_coefficients = [Rs * omega_r**2 / Q, 0.0]
+    else:
+        expected_coefficients = [0.0, Rs * omega_r / Q]
+
+    b0_scale = Rs * omega_r**2 / Q
+    b1_scale = Rs * omega_r / Q
+
+    np.testing.assert_allclose(
+        result.section_coefficients[0] / [b0_scale, b1_scale],
+        np.asarray(expected_coefficients) / [b0_scale, b1_scale],
+        atol=1.0e-6,
+    )
+    assert result.squared_error / np.sum(np.abs(impedance) ** 2) < 1.0e-12
+
+
+@pytest.mark.parametrize("Q", [5.0, 0.3])
+@pytest.mark.parametrize("wake_length", [None, 0.5])
+def test_section_poles_and_residues_reproduce_section(Q, wake_length):
+    """The reported poles/residues describe the same impedance."""
+    frequencies = np.linspace(1.0e6, 3.0e9, 500)
+    impedance = _resonator_impedance(
+        "transverse", frequencies, 1.0e6, Q, 6.0e8, wake_length
+    )
+
+    result = fit_residues(
+        frequencies,
+        impedance,
+        real_poles=[],
+        complex_poles=[],
+        resonator_sections=[(6.0e8, Q)],
+        wake_length=wake_length,
+        plane="transverse",
+    )
+
+    if wake_length is None:
+        reconstructed = PoleResidue.impedance(
+            frequencies, result.poles, result.residues, plane="transverse"
+        )
+    else:
+        reconstructed = PoleResidue.finite_wake_impedance(
+            frequencies,
+            result.poles,
+            result.residues,
+            wake_length=wake_length,
+            plane="transverse",
+        )
+
+    np.testing.assert_allclose(
+        reconstructed,
+        result.fitted_impedance,
+        rtol=1.0e-8,
+        atol=1.0e-8 * np.max(np.abs(impedance)),
+    )
+
+    if Q < 0.5:
+        assert np.all(np.abs(result.poles.imag) == 0.0)
+        assert np.all(np.abs(result.residues.imag) < 1.0e-9 * np.abs(result.residues))
+    else:
+        np.testing.assert_allclose(result.poles[1], np.conj(result.poles[0]))
+        np.testing.assert_allclose(result.residues[1], np.conj(result.residues[0]))
+
+
+def test_resonator_section_poles_at_critical_damping_are_finite():
+    first, second = resonator_section_poles([(1.0e9, 0.5)])
+
+    assert np.all(np.isfinite(first)) and np.all(np.isfinite(second))
+    assert first[0] != second[0]
+
+
+def test_residue_fit_with_sections_can_enforce_zero_dc():
+    frequencies = np.linspace(1.0e6, 2.0e9, 400)
+    impedance = Impedances.Resonator_longitudinal_imp(frequencies, 1.0e3, 2.0, 5.0e8)
+    impedance = impedance + 50.0  # constant offset violates Z(0) = 0
+
+    result = fit_residues(
+        frequencies,
+        impedance,
+        real_poles=[],
+        complex_poles=[],
+        resonator_sections=[(5.0e8, 2.0)],
+        fit_direct_term=True,
+        enforce_zero_dc=True,
+    )
+
+    zero_frequency_value = PoleResidue.impedance(
+        [0.0], result.poles, result.residues, direct_term=result.direct_term
+    )
+
+    assert abs(zero_frequency_value[0]) < 1.0e-9 * np.max(np.abs(impedance))
+
+
+@pytest.mark.parametrize("residue_solver", ["least_squares", "differential_evolution"])
+def test_evolutionary_resonator_parametrization_recovers_mixed_damping(
+    residue_solver,
+):
+    """One underdamped and one overdamped transverse resonator."""
+    frequencies = np.linspace(1.0e7, 3.0e9, 300)
+    modes = [(1.0e6, 6.0, 4.0e8), (5.0e5, 0.3, 1.5e9)]
+
+    impedance = sum(
+        Impedances.Resonator_transverse_imp(frequencies, Rs, Q, fr)
+        for Rs, Q, fr in modes
+    )
+
+    parameter_bounds = [(2.0e8, 8.0e8), (1.0, 20.0), (8.0e8, 3.0e9), (0.1, 0.9)]
+
+    options = {}
+    if residue_solver == "differential_evolution":
+        options["residue_bounds"] = [
+            bound
+            for Rs, Q, fr in modes
+            for bound in [
+                (0.0, 2.0 * 1.0e6 * (2 * np.pi * 3.0e9) ** 2 / 0.1),
+                (-1.0, 1.0),
+            ]
+        ]
+
+    result = fit_poles_evolutionary(
+        frequencies,
+        impedance,
+        number_real_poles=0,
+        number_complex_pairs=2,
+        parameter_bounds=parameter_bounds,
+        plane="transverse",
+        pole_parametrization="resonator",
+        residue_solver=residue_solver,
+        seed=1,
+        maxiter=400 if residue_solver == "least_squares" else 1500,
+        tol=1.0e-8,
+        polish=True,
+        **options,
+    )
+
+    expected_sections = [(fr, Q) for _, Q, fr in modes]
+
+    np.testing.assert_allclose(result.resonator_sections, expected_sections, rtol=1e-3)
+    assert result.complex_poles.size == 0
+    assert result.objective_value < 1.0e-8
+
+
+def test_resonator_parametrization_rejects_non_positive_bounds():
+    with pytest.raises(ValueError, match="positive"):
+        fit_poles_evolutionary(
+            np.linspace(1.0e6, 1.0e9, 50),
+            np.ones(50, dtype=complex),
+            number_real_poles=0,
+            number_complex_pairs=1,
+            parameter_bounds=[(1.0e8, 1.0e9), (0.0, 5.0)],
+            pole_parametrization="resonator",
+        )
