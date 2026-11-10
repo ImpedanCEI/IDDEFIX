@@ -605,11 +605,7 @@ interpretation is unreliable for strongly nonlinear fits, poorly identifiable
 parameters, or parameters near bounds, where the local symmetric covariance
 approximation does not describe the constrained parameter region well.
 
-By default, fitting methods calculate these uncertainties automatically. Set
-`compute_uncertainties=False` to skip that calculation, then call
-`model.get_uncertainties()` to calculate them later. The table's large-error
-warning uses the relative error $|\sigma_{\theta}/\theta|$ and defaults to
-a threshold of 0.20. This ratio is not useful for parameters at or near zero.
+By default, fitting methods do not calculate these uncertainties. Set `compute_uncertainties=True` when constructing the model to calculate them automatically after fitting, or call `model.get_uncertainties()` later. The table's large-error warning applies only when uncertainties are available; it uses the relative error $|\sigma_{\theta}/\theta|$ and defaults to a threshold of 0.20. This ratio is not useful for parameters at or near zero.
 
 `get_impedance_uncertainty()` uses the parameter errors to produce a separate
 pointwise sensitivity envelope for the real impedance. It varies selected
