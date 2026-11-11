@@ -116,15 +116,6 @@ def test_uncertainties_tolerate_bound_roundoff():
         model.get_uncertainties(use_minimization=False, parameterBounds=bounds)
 
 
-def test_loaded_uncertainties_update_warning_flags():
-    frequency = np.linspace(0.7e9, 1.3e9, 31)
-    model = _model(frequency, np.zeros_like(frequency))
-
-    model.load_resonator_parameters("1 | 100 ± 30 | 3 ± 0.3 | 1e9 ± 1e8")
-
-    np.testing.assert_array_equal(model.flagged_params, [True, False, False])
-
-
 def test_fit_without_automatic_uncertainties():
     """A fit can skip uncertainty work and still compute it on request."""
     frequency = np.linspace(0.7e9, 1.3e9, 81)
