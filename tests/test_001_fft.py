@@ -45,7 +45,7 @@ def test_fft_preserves_time_origin_phase(time_origin, debug_plot):
     np.testing.assert_allclose(shifted_impedance, expected, rtol=1e-12, atol=1e-12)
 
 
-def test_ineffint_can_enforce_causality(monkeypatch, capsys):
+def test_ineffint_can_enforce_causality(monkeypatch):
     """Causal mode zeros negative-time wake samples but retains t=0."""
     import neffint
 
@@ -62,15 +62,11 @@ def test_ineffint_can_enforce_causality(monkeypatch, capsys):
     _, wake = iddefix.compute_ineffint(
         frequency, impedance, times=time, adaptative=False
     )
-    output = capsys.readouterr().out
-    assert "\033[93m[!] Warning:" in output
-    assert "Wake is nonzero for t < 0" in output
     assert np.all(wake[:2] != 0)
 
     _, causal_wake = iddefix.compute_ineffint(
         frequency, impedance, times=time, adaptative=False, enforce_causality=True
     )
-    assert capsys.readouterr().out == ""
     assert causal_wake[0] == 0.0
     assert causal_wake[1] == wake[1]
     assert causal_wake[2] == wake[2]

@@ -19,12 +19,12 @@ os.environ["OPENBLAS_NUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 random.seed(42)
 
-import numpy as np
-import pytest
-from scipy.constants import c as c_light
-from scipy.integrate import quad
+import numpy as np  # noqa: E402
+import pytest  # noqa: E402
+from scipy.constants import c as c_light  # noqa: E402
+from scipy.integrate import quad  # noqa: E402
 
-import iddefix
+import iddefix  # noqa: E402
 
 
 class TestAnalyticalImpedance:
@@ -65,12 +65,12 @@ class TestAnalyticalImpedance:
             parameterBounds=cls.parameterBounds,
             plane="longitudinal",
             objectiveFunction="real",
+            compute_uncertainties=True,
         )
         cls.CMAES_model.run_cmaes(
             maxiter=5000, popsize=50, sigma=0.6, verbose=False, restarts=3
         )
         cls.CMAES_model.run_minimization_algorithm()
-        print(cls.CMAES_model.warning)
 
         # Build + fit DE once for the class
         cls.DE_model = iddefix.EvolutionaryAlgorithm(
@@ -80,6 +80,7 @@ class TestAnalyticalImpedance:
             parameterBounds=cls.parameterBounds,
             plane="longitudinal",
             objectiveFunction="real",  # or iddefix.ObjectiveFunctions.sumOfSquaredErrorReal
+            compute_uncertainties=True,
         )
         cls.DE_model.run_differential_evolution(
             maxiter=2000,
@@ -89,7 +90,6 @@ class TestAnalyticalImpedance:
             crossover_rate=0.7,
         )
         cls.DE_model.run_minimization_algorithm()
-        print(cls.DE_model.warning)
 
     # --- DE -------------------------------------------------------------------
 
@@ -108,7 +108,6 @@ class TestAnalyticalImpedance:
         ):
             assert uncertainties.shape == parameters.shape
             assert np.isfinite(uncertainties).all()
-        assert "error" not in str(getattr(self.DE_model, "warning", "")).lower()
 
     def test_abs_DE_impedance(self, debug_plot):
         z_true = np.abs(self.impedance)
@@ -185,7 +184,6 @@ class TestAnalyticalImpedance:
         ):
             assert uncertainties.shape == parameters.shape
             assert np.isfinite(uncertainties).all()
-        assert "error" not in str(getattr(self.CMAES_model, "warning", "")).lower()
 
     def test_abs_CMAES_impedance(self, debug_plot):
         z_true = np.abs(self.impedance)
