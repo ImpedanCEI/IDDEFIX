@@ -9,12 +9,14 @@ Created on Mon Mar 23 13:20:11 2020
 
 import re
 from functools import partial
-from typing import Any, Callable, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Sequence
 
 import numpy as np
 import numpy.typing as npt
+from scipy.constants import c
 from scipy.optimize import minimize
 
+from . import baseline
 from ._table import display_resonator_table
 from .objectiveFunctions import ObjectiveFunctions as obj
 from .resonatorFormulas import Impedances as imp
@@ -22,7 +24,10 @@ from .resonatorFormulas import Wakes as wak
 from .smartBoundDetermination import SmartBoundDetermination
 from .solvers import Solvers
 from .uncertainties import get_uncertainties as calculate_uncertainties
-from .utils import compute_fft
+from .utils import compute_deconvolution, compute_fft
+
+if TYPE_CHECKING:
+    from pymoo.core.result import Result
 
 # type-checking aliases
 ArrayLike = npt.ArrayLike
@@ -44,7 +49,7 @@ class EvolutionaryAlgorithm:
         sigma: float | None = None,
         uncertainty_warning: float = 0.2,
         parameterEstimates: ArrayLike | None = None,
-        compute_uncertainties: bool = True,
+        compute_uncertainties: bool = False,
     ) -> None:
         """
         Implements an evolutionary algorithm for fitting impedance models to data.
@@ -74,27 +79,27 @@ class EvolutionaryAlgorithm:
             Default is `"longitudinal"`.
         objectiveFunction : callable or str, optional
             The objective function to minimize. If str, it should be in
-            ['Real', 'Complex', 'Abs'] (no case distinction). Default if
+            ['Real', 'Complex', 'Abs', 'Absolute'] (no case distinction). Default if
             `y_data` is complex: ``obj.sumOfSquaredError``; otherwise it is
             ``obj.sumOfSquaredErrorReal``.
         wake_length : float, optional
             Length of the wake function in meters. Required for wake computations.
         sigma : float, optional
             Standard deviation for the bunch's Gaussian distribution used in
-            wake potential getters. Default is ``None``. When ``None`` and
+            wake potential getters and optional SmartBounds baseline
+            deconvolution, in seconds. Default is ``None``. When ``None`` and
             wake-potential getter is used, a default value of 1e-10 s is applied internally.
         uncertainty_warning : float, optional
-            Threshold for relative uncertainty warning. Default is 0.2 -->20%
-            If any parameter has a relative uncertainty (sigma/value) above this
-            threshold, a warning is printed after optimization.
+            Threshold for relative uncertainty warnings when uncertainties
+            are available. Default is 0.2 (20%).
         parameterEstimates : array-like, optional
             Initial parameter vector in the same flattened order as
             ``parameterBounds``. The value is stored unchanged. Individual
             solver calls can override it with ``x0``.
         compute_uncertainties : bool, optional
             Compute parameter uncertainties automatically after fitting.
-            Default is True. Set to False to skip this calculation; call
-            ``get_uncertainties()`` later if needed.
+            Default is False. Set to True to enable this calculation, or call
+            ``get_uncertainties()`` after fitting when needed.
 
         Attributes
         ----------
@@ -188,6 +193,9 @@ class EvolutionaryAlgorithm:
         self.wake_potential_data = None
         self.frequency_data = None
         self.impedance_data = None
+        self.original_y_data = None
+        self.baseline_slope = None
+        self._smart_bounds: SmartBoundDetermination | None = None
         self.evolutionParameters = None
         self.evolutionParametersUncertainties = None
         self.minimizationParameters = None
@@ -203,15 +211,15 @@ class EvolutionaryAlgorithm:
             if np.iscomplex(y_data).any():
                 self.objectiveFunction = obj.sumOfSquaredError
                 print(
-                    "[!] Objective function set to default \
-                    `iddefix.objectiveFunctions.sumOfSquaredError`"
+                    "\033[93m[!] Objective function set to default \
+                    `iddefix.objectiveFunctions.sumOfSquaredError`\033[0m"
                 )
             else:
                 self.objectiveFunction = obj.sumOfSquaredErrorReal
                 print(
-                    "[!] Objective function set to \
+                    "\033[93m[!] Objective function set to \
                     `iddefix.objectiveFunctions.sumOfSquaredErrorReal` \
-                    for real-valued only data"
+                    for real-valued only data\033[0m"
                 )
         elif isinstance(self.objectiveFunction, str):
             objective_name = self.objectiveFunction.lower()
@@ -219,12 +227,12 @@ class EvolutionaryAlgorithm:
                 self.objectiveFunction = obj.sumOfSquaredError
             elif objective_name == "real":
                 self.objectiveFunction = obj.sumOfSquaredErrorReal
-            elif objective_name == "abs":
+            elif objective_name in ("abs", "absolute"):
                 self.objectiveFunction = obj.sumOfSquaredErrorAbs
             else:
                 print(
-                    "[!] Objective function set to default \
-                    `iddefix.objectiveFunctions.sumOfSquaredError`"
+                    "\033[93m[!] Objective function set to default \
+                    `iddefix.objectiveFunctions.sumOfSquaredError`\033[0m"
                 )
                 self.objectiveFunction = obj.sumOfSquaredError
 
@@ -242,7 +250,9 @@ class EvolutionaryAlgorithm:
         elif fitFunction == "wake potential":
             self.fitFunctionType = "wake potential"
             if self.sigma is None:
-                print("[!] sigma not specified, using the default sigma=1e-10 s")
+                print(
+                    "\033[93m[!] sigma not specified, using the default sigma=1e-10 s\033[0m"
+                )
                 self.sigma = 1e-10
 
             if plane == "longitudinal":
@@ -262,10 +272,10 @@ class EvolutionaryAlgorithm:
         else:  # Default to "impedance"
             if wake_length is not None:
                 print(
-                    "[!] Using the partially decayed resonator formalism for impedance"
+                    "[*] Using the partially decayed resonator formalism for impedance"
                 )
             else:
-                print("[!] Using the fully decayed resonator formalism for impedance")
+                print("[*] Using the fully decayed resonator formalism for impedance")
 
             if plane == "longitudinal":
                 self.fitFunction = partial(
@@ -352,6 +362,7 @@ class EvolutionaryAlgorithm:
         self.evolutionParametersUncertainties = None
         self.minimizationParametersUncertainties = None
         self.flagged_params = None
+        self._smart_bounds = None
 
         print(
             f"[*] Downsampled data to {len(self.x_data)} points (from {len(x_data)})."
@@ -360,35 +371,119 @@ class EvolutionaryAlgorithm:
         if show:
             plt.show()
 
+    def remove_baseline(
+        self,
+        slope: float | None = None,
+        fit_interval: tuple[float, float] | None = None,
+    ) -> float:
+        """Remove a linear baseline from the stored fitting data.
+
+        Impedance slopes are fitted to the complex spectrum. Wake and
+        wake-potential slopes are fitted on the last 20% of nonnegative time
+        samples unless ``fit_interval`` selects another interval in seconds.
+        The original data are retained in ``original_y_data``. Existing fitted
+        parameters and starting estimates are cleared because they were based
+        on the previous data.
+        """
+        if self.baseline_slope is not None:
+            if slope is not None and slope != self.baseline_slope:
+                raise ValueError("Baseline has already been removed with another slope")
+            return self.baseline_slope
+
+        if (
+            self.fitFunctionType == "impedance"
+            and self.objectiveFunction is obj.sumOfSquaredErrorAbs
+            and not np.iscomplexobj(self.y_data)
+        ):
+            raise ValueError(
+                "Baseline correction requires complex impedance for an absolute "
+                "impedance objective"
+            )
+
+        # Retrieve corrected y_data and slope
+        corrected, fitted_slope = baseline.remove_baseline(
+            self.x_data,
+            self.y_data,
+            self.fitFunctionType,
+            slope=slope,
+            fit_interval=fit_interval,
+            wake_length=self.wake_length,
+            plane=self.plane,
+            sigma=self.sigma if self.fitFunctionType == "impedance" else None,
+        )
+
+        # Update the model inputs
+        self.original_y_data = np.asarray(self.y_data).copy()
+        self.y_data = corrected
+        self.baseline_slope = fitted_slope
+        if self.fitFunctionType == "impedance":
+            self.impedance_data = corrected
+        elif self.fitFunctionType == "wake":
+            self.wake_data = corrected
+        else:
+            self.wake_potential_data = corrected
+
+        # Remove stored bounds
+        self.evolutionParameters = None
+        self.minimizationParameters = None
+        self.evolutionParametersUncertainties = None
+        self.minimizationParametersUncertainties = None
+        self.minimizationBounds = None
+        self.parameterEstimates = None
+        self.flagged_params = None
+        self._smart_bounds = None
+        return fitted_slope
+
     def estimate_bounds(
         self,
-        impedance_type: str | None = "real",
+        impedance_type: str | None = None,
+        prominence: float | None = 0.01,
         show_table: bool = True,
         show_inspect: bool = True,
         remove_baseline: bool | float = False,
+        use_Hann: bool = True,
+        fmax: float | None = None,
+        fft_samples: int = 1001,
+        rolloff: float = 0.0,
         **kwargs: Any,
     ) -> SmartBoundDetermination:
-        """Estimate resonator search bounds from the stored impedance data.
+        """Estimate resonator bounds from impedance or transformed wake data.
 
-        The detected bounds, estimates, and resonator count are stored on this
-        model. The model's plane and wake length are used for estimation.
+        Wake data are transformed with ``compute_fft`` and wake-potential data
+        with ``compute_deconvolution`` for peak detection. The model continues
+        to fit its original data domain. Detected bounds, estimates, and the
+        resonator count are stored on this model.
 
         Parameters
         ----------
         impedance_type : {"absolute", "real"} or None, optional
-            Use the magnitude or real part of the stored impedance. Defaults
-            to ``"real"`` for both planes. ``None`` also selects this default.
+            Use the magnitude or real part of the stored impedance. By default,
+            use ``"absolute"`` for the built-in magnitude objective and
+            ``"real"`` otherwise. An explicit value overrides this choice.
+        prominence : float or None, optional
+            Minimum peak prominence in the detection trace's units, passed
+            directly to ``scipy.signal.find_peaks``. Default is 0.01; pass
+            None to disable this filter.
         show_table : bool, optional
             Display the estimated bounds with ``to_table()``. Default is True.
         show_inspect : bool, optional
             Plot detected peaks and estimated resonator components with
             ``inspect(show_components=True)``. Default is True.
         remove_baseline : bool or float, optional
-            If True, fit the real slope of a finite wake baseline
-            ``slope * time`` from the complex impedance by least squares.
-            A numeric value supplies the slope in wake units per second.
-            Subtract its analytic impedance for bound estimation. Requires
-            the model's ``wake_length``. Default is False.
+            If True, fit and remove a linear baseline from the stored fitting
+            data before estimating bounds. A numeric value supplies its slope.
+            Impedance correction requires ``wake_length`` and uses ``sigma``
+            when the spectrum was Gaussian-deconvolved. Default is False.
+        use_Hann : bool, optional
+            Use a Hann trace to find peaks when the model has a finite wake
+            length. Default is True.
+        fmax : float, optional
+            Upper frequency limit for transforming wake or wake-potential data.
+            Defaults to 3 GHz for wakes and ``1 / (3 * sigma)`` for potentials.
+        fft_samples : int, optional
+            FFT zero-padding resolution for wake-domain inputs. Default is 1001.
+        rolloff : float, optional
+            Deconvolution taper width for wake potentials. Default is zero.
         **kwargs
             Automatic peak-finding options passed to
             :class:`SmartBoundDetermination`:
@@ -398,9 +493,6 @@ class EvolutionaryAlgorithm:
             - ``threshold`` and ``distance``: Criteria passed to
               ``scipy.signal.find_peaks``; both default to None. ``distance``
               counts samples on the analysis grid.
-            - ``prominence``: Minimum prominence in the detection trace's
-              units, passed directly to ``scipy.signal.find_peaks``; defaults
-              to None.
             - ``Rs_bounds`` and ``Q_bounds``: Lower and upper multipliers for
               the estimated Rs and Q; each defaults to ``[0.1, 10]``.
             - ``fres_bounds``: Lower and upper multiples of the estimated
@@ -410,8 +502,10 @@ class EvolutionaryAlgorithm:
             - ``q_side``: ``"auto"``, ``"left"``, ``"right"``, or a list with
               one choice per peak; defaults to ``"auto"``.
 
-            With ``impedance_type="real"`` and a finite ``wake_length``, peak
-            finding uses a Hann trace; parameter estimates use the original data.
+            With a finite ``wake_length`` and ``use_Hann=True``, peak finding
+            uses a Hann trace for real-part detection and for absolute
+            detection when complex impedance is supplied. Parameter estimates
+            use the unwindowed data.
 
             Interactive selection is not supported by this method.
 
@@ -424,39 +518,144 @@ class EvolutionaryAlgorithm:
         Raises
         ------
         ValueError
-            If the model contains wake data, no peaks are detected, or
-            interactive selection is requested.
+            If no peaks are detected or interactive selection is requested.
         """
-        if self.fitFunctionType != "impedance":
-            raise ValueError("estimate_bounds requires impedance data")
         if kwargs.get("interactive", False):
             raise ValueError("estimate_bounds does not support interactive selection")
 
         if impedance_type is None:
-            impedance_type = "real"
+            impedance_type = (
+                "absolute"
+                if self.objectiveFunction is obj.sumOfSquaredErrorAbs
+                else "real"
+            )
         if impedance_type not in ("absolute", "real"):
             raise ValueError("impedance_type must be 'absolute' or 'real'")
 
+        # Correct baseline before bounds
+        if remove_baseline is not False and remove_baseline is not None:
+            if (
+                self.fitFunctionType == "impedance"
+                and impedance_type == "absolute"
+                and not np.iscomplexobj(self.y_data)
+            ):
+                raise ValueError(
+                    "Baseline correction requires complex impedance for "
+                    "impedance_type='absolute'"
+                )
+            self.remove_baseline(
+                slope=None if remove_baseline is True else remove_baseline
+            )
+
+        # Populate impedance data
+        if self.fitFunctionType == "impedance":
+            frequency_data = self.frequency_data
+            impedance_data = self.impedance_data
+            baseline_sigma = self.sigma
+        elif self.fitFunctionType == "wake":
+            frequency_data, impedance_data = compute_fft(
+                self.time_data,
+                np.asarray(self.wake_data) / c,
+                fmax=3e9 if fmax is None else fmax,
+                samples=fft_samples,
+            )
+            baseline_sigma = None
+        else:  # Wake potential
+            frequency_data, impedance_data = compute_deconvolution(
+                self.time_data,
+                np.asarray(self.wake_potential_data) / c,
+                sigma=self.sigma,
+                fmax=fmax,
+                samples=fft_samples,
+                rolloff=rolloff,
+            )
+            baseline_sigma = self.sigma
+        if self.fitFunctionType != "impedance" and self.plane == "transverse":
+            impedance_data = 1j * impedance_data
+
+        # Compute bounds
         bounds = SmartBoundDetermination(
-            self.frequency_data,
-            self.impedance_data,
+            frequency_data,
+            impedance_data,
             impedance_type=impedance_type,
+            prominence=prominence,
             plane=self.plane,
             wake_length=self.wake_length,
-            remove_baseline=remove_baseline,
+            sigma=baseline_sigma,
+            baseline_slope=self.baseline_slope,
+            use_Hann=use_Hann and self.wake_length is not None,
             **kwargs,
         )
         if not bounds.N_resonators:
             raise ValueError("No resonance peaks found in the impedance data")
 
+        # Populate model and show bounds
+        self.apply_bounds(bounds)
+        if show_inspect:
+            bounds.inspect(show_components=True)
+        if show_table:
+            bounds.to_table()
+        return bounds
+
+    @property
+    def smart_bounds(self) -> SmartBoundDetermination | None:
+        """Most recently applied SmartBounds estimator, if available."""
+        return self._smart_bounds
+
+    def apply_bounds(self, bounds: SmartBoundDetermination) -> None:
+        """Use a completed SmartBounds estimate to set fitting bounds.
+
+        The estimator must describe the same impedance plane. Applying new
+        bounds clears earlier fit results and enables ``add_peak`` on this
+        estimator.
+        """
+        if not isinstance(bounds, SmartBoundDetermination):
+            raise TypeError("bounds must be a SmartBoundDetermination instance")
+        if bounds.plane != self.plane:
+            raise ValueError("bounds plane must match the model plane")
+        if (
+            not bounds.N_resonators
+            or bounds.parameterBounds is None
+            or bounds.parameterEstimates is None
+        ):
+            raise ValueError("bounds must contain at least one completed peak")
+
+        self._smart_bounds = bounds
         self.N_resonators = bounds.N_resonators
         self.parameterBounds = bounds.parameterBounds
         self.parameterEstimates = bounds.parameterEstimates
-        if show_table:
-            bounds.to_table()
-        if show_inspect:
-            bounds.inspect(show_components=True)
-        return bounds
+        self.evolutionParameters = None
+        self.evolutionParametersUncertainties = None
+        self.minimizationParameters = None
+        self.minimizationParametersUncertainties = None
+        self.minimizationBounds = None
+        self.flagged_params = None
+
+    def add_peak(
+        self,
+        frequency: float,
+        q_side: str | None = None,
+        Q: float | None = None,
+    ) -> None:
+        """Add a peak to the latest SmartBounds estimate and update fit bounds.
+
+        Call ``estimate_bounds`` or ``apply_bounds`` first. A successful
+        addition clears fitted parameters because the number of resonators
+        has changed.
+        """
+        bounds = self._smart_bounds
+        if bounds is None:
+            raise RuntimeError(
+                "Call estimate_bounds or apply_bounds before adding a peak"
+            )
+        if (
+            self.parameterBounds is not bounds.parameterBounds
+            or self.parameterEstimates is not bounds.parameterEstimates
+        ):
+            raise RuntimeError("Call estimate_bounds again after editing the model")
+
+        bounds.add_peak(frequency, q_side=q_side, Q=Q)
+        self.apply_bounds(bounds)
 
     def check_y_data(self) -> None:
         """
@@ -641,7 +840,7 @@ class EvolutionaryAlgorithm:
         verbose: bool = False,
         x0: ArrayLike | None = None,
         **kwargs: Any,
-    ) -> Any:
+    ) -> "Result":
         """
         Runs the CMA-ES (Covariance Matrix Adaptation Evolution Strategy) algorithm
         from `pymoo` to optimize resonance parameters.
@@ -918,7 +1117,7 @@ class EvolutionaryAlgorithm:
                 if uncertainties is None:
                     uncertainties = self.evolutionParametersUncertainties
             else:
-                print("[!] No parameters to display.")
+                print("\033[93m[!] No parameters to display.\033[0m")
                 return
 
         # Find parameters that need uncertainty or bound warnings.
@@ -934,7 +1133,7 @@ class EvolutionaryAlgorithm:
             bounds_name = "parameter"
         lower_mask, upper_mask = self._compute_bound_proximity_masks(params, bounds)
         bound_mask = lower_mask | upper_mask
-        blue = "\033[34m"
+        yellow = "\033[93m"
         reset = "\033[0m"
         if display_warnings:
             self._warn_large_uncertainties(params, uncertainties)
@@ -943,7 +1142,7 @@ class EvolutionaryAlgorithm:
             bound_mask = np.zeros_like(bound_mask)
         if display_warnings and np.any(bound_mask):
             print(
-                f"{blue}[!] Warning: Fit within 1% of the {bounds_name} bounds. "
+                f"{yellow}[!] Warning: Fit within 1% of the {bounds_name} bounds. "
                 f"Consider widening the bounds before refitting.{reset}"
             )
 
@@ -1346,7 +1545,7 @@ class EvolutionaryAlgorithm:
             rel_unc = np.abs(uncertainties / params)
         max_rel = float(np.nanmax(rel_unc[mask]))
         print(
-            f"\033[31m[!] Warning: {n_flagged} parameter(s) have relative uncertainty >= {threshold:.2f} (max {max_rel:.2f}).\033[0m"
+            f"\033[93m[!] Warning: {n_flagged} parameter(s) have relative uncertainty >= {threshold:.2f} (max {max_rel:.2f}).\033[0m"
         )
 
     def get_wake(
@@ -1404,7 +1603,9 @@ class EvolutionaryAlgorithm:
             if self.sigma is None:
                 self.sigma = 1e-10
             sigma = self.sigma
-            print(f"[!] sigma not specified, using sigma = {sigma:.2e} s")
+            print(
+                f"\033[93m[!] sigma not specified, using sigma = {sigma:.2e} s\033[0m"
+            )
 
         # Which pars to use
         if use_minimization and self.minimizationParameters is not None:
@@ -1507,6 +1708,7 @@ class EvolutionaryAlgorithm:
         Each contribution is evaluated independently with the configured
         impedance, wake, or wake-potential ``fitFunction``.
         """
+
         if x_data is None:
             x_data = self.x_data
         x_data = np.asarray(x_data)
@@ -1530,7 +1732,7 @@ class EvolutionaryAlgorithm:
         x_data: ArrayLike | None = None,
         y_data: ArrayLike | None = None,
         use_minimization: bool = True,
-        cmap: str = "turbo",
+        cmap: str = "rainbow",
         figsize: tuple[float, float] | None = None,
         dpi: float | None = None,
         input_data_kwargs: dict[str, Any] | None = None,
@@ -1544,10 +1746,12 @@ class EvolutionaryAlgorithm:
         ``total_model_kwargs`` override the default line styles. Remaining
         keyword arguments are forwarded to ``matplotlib.pyplot.subplots``.
         For 10 or more resonators, a shared colorbar replaces the component
-        entries in the legends.
+        entries in the legends. Real-valued impedance fitted with the
+        ``"abs"`` objective is shown as a single magnitude panel.
         """
         import matplotlib.pyplot as plt
 
+        # Custom input data
         if x_data is None:
             x_data = self.x_data
         x_data = np.asarray(x_data)
@@ -1557,7 +1761,9 @@ class EvolutionaryAlgorithm:
             y_data = np.asarray(y_data)
             if y_data.shape != x_data.shape:
                 raise ValueError("x_data and y_data must have the same shape")
+        plot_data = self.y_data if y_data is None else y_data
 
+        # Compute components and total model
         components = self.get_resonator_components(
             x_data,
             use_minimization=use_minimization,
@@ -1569,7 +1775,27 @@ class EvolutionaryAlgorithm:
         total_model = self.fitFunction(x_data, parameters)
         colors = plt.get_cmap(cmap, max(len(components), 1))
 
-        if self.fitFunctionType == "impedance":
+        # Absolute impedance
+        magnitude_only = (
+            self.fitFunctionType == "impedance"
+            and self.objectiveFunction is obj.sumOfSquaredErrorAbs
+            and not np.iscomplexobj(plot_data)
+        )
+        if magnitude_only:
+            figure_options = {
+                "figsize": (10, 5) if figsize is None else figsize,
+                **subplot_kwargs,
+            }
+            if dpi is not None:
+                figure_options["dpi"] = dpi
+            fig, axis = plt.subplots(**figure_options)
+            axes = np.asarray([axis])
+            units = r"[$\Omega$]" if self.plane == "longitudinal" else r"[$\Omega$/m]"
+            panels = ((axis, np.abs, r"Magnitude $|Z|$ " + units, "blue"),)
+            xlabel = "Frequency [Hz]"
+
+        # Real and impaginary impedance (2 panels)
+        elif self.fitFunctionType == "impedance":
             figure_options = {
                 "figsize": (10, 7) if figsize is None else figsize,
                 "sharex": True,
@@ -1584,6 +1810,8 @@ class EvolutionaryAlgorithm:
                 (axes[1], np.imag, r"Imaginary part $\Im(Z)$ " + units, "blue"),
             )
             xlabel = "Frequency [Hz]"
+
+        # Wake and wake potential
         else:
             figure_options = {
                 "figsize": (10, 5) if figsize is None else figsize,
@@ -1598,13 +1826,16 @@ class EvolutionaryAlgorithm:
             panels = ((axis, np.real, ylabel + " " + units, "red"),)
             xlabel = "Time [s]"
 
+        # Plot curves
         for axis, values, ylabel, input_color in panels:
+            # Input data
             if y_data is not None:
                 input_style = {
                     "linestyle": "-",
                     "color": input_color,
                     "linewidth": 2.0,
                     "label": "Input data",
+                    "alpha": 0.7,
                 }
                 input_style.update(input_data_kwargs or {})
                 axis.plot(
@@ -1613,11 +1844,12 @@ class EvolutionaryAlgorithm:
                     **input_style,
                 )
 
+            # Total model
             total_style = {
                 "linestyle": "--",
                 "color": "black",
-                "linewidth": 2.0,
-                "alpha": 0.8,
+                "linewidth": 1.8,
+                "alpha": 0.9,
                 "label": "Total model",
             }
             total_style.update(total_model_kwargs or {})
@@ -1626,6 +1858,8 @@ class EvolutionaryAlgorithm:
                 values(total_model),
                 **total_style,
             )
+
+            # Resonator components
             for index, component in enumerate(components):
                 component_style = {
                     "linestyle": "-",
@@ -1643,6 +1877,8 @@ class EvolutionaryAlgorithm:
             axis.set_ylabel(ylabel)
 
         axes[-1].set_xlabel(xlabel)
+
+        # Colorbar and legend
         if len(components) >= 10:
             from matplotlib.cm import ScalarMappable
             from matplotlib.colors import BoundaryNorm
