@@ -47,6 +47,7 @@ class SmartBoundDetermination:
         use_Hann: bool = False,
         sigma: float | None = None,
         baseline_slope: float | None = None,
+        original_impedance_data: ArrayLike | None = None,
     ) -> None:
         """
         Automatically determines parameter bounds for resonance fitting
@@ -234,6 +235,11 @@ class SmartBoundDetermination:
         self.use_Hann = use_Hann
         self.sigma = sigma
         self._input_baseline_slope = baseline_slope
+        self._original_impedance_data = (
+            None
+            if original_impedance_data is None
+            else np.asarray(original_impedance_data).copy()
+        )
 
         # Results populated by peak detection and bound estimation
         self.peaks = None
@@ -383,6 +389,15 @@ class SmartBoundDetermination:
         # Build the analysis grid used for both peaks and crossings
         frequency_data = np.asarray(frequency_data)
         impedance_data = np.asarray(impedance_data)
+        original_impedance_data = (
+            impedance_data.copy()
+            if self._original_impedance_data is None
+            else self._original_impedance_data
+        )
+        if original_impedance_data.shape != impedance_data.shape:
+            raise ValueError(
+                "original_impedance_data must match impedance_data in shape"
+            )
         if (
             use_Hann
             and impedance_type == "absolute"
@@ -414,11 +429,19 @@ class SmartBoundDetermination:
         scalar_impedance = (
             impedance_data.real if impedance_type == "real" else np.abs(impedance_data)
         )
+        original_scalar_impedance = (
+            original_impedance_data.real
+            if impedance_type == "real"
+            else np.abs(original_impedance_data)
+        )
 
         # interpolate to samples
         if samples is not None:
             frequency = np.linspace(frequency_data[0], frequency_data[-1], samples)
             impedance = np.interp(frequency, frequency_data, scalar_impedance)
+            original_impedance = np.interp(
+                frequency, frequency_data, original_scalar_impedance
+            )
             if (
                 isinstance(minimum_peak_height, np.ndarray)
                 and minimum_peak_height.shape == frequency_data.shape
@@ -431,10 +454,12 @@ class SmartBoundDetermination:
         else:
             frequency = frequency_data
             impedance = scalar_impedance
+            original_impedance = original_scalar_impedance
 
         # Compute Hann trace
         self.analysis_frequency_data = frequency
         self.analysis_impedance_data = impedance
+        self.original_analysis_impedance_data = original_impedance
         self.hann_trace = None
         self._peak_q_estimates = {}
 
@@ -1066,11 +1091,9 @@ class SmartBoundDetermination:
         # Input trace and optional component data
         fig = plt.figure(figsize=figsize)
 
-        # Input data (corrected)
+        # Plot the baseline-corrected trace first so it determines the y-axis.
         input_label = (
-            "Baseline-corrected data"
-            if self.baseline_slope is not None
-            else "Input data"
+            "Baseline removed" if self.baseline_slope is not None else "Original data"
         )
         input_line = plt.plot(
             self.analysis_frequency_data,
@@ -1082,6 +1105,21 @@ class SmartBoundDetermination:
             if show_bounds or show_components or self.hann_trace is not None
             else None,
         )[0]
+        corrected_y_limits = plt.ylim()
+
+        # Show the uncorrected input as context when a baseline was removed.
+        original_line = input_line
+        if self.baseline_slope is not None:
+            original_line = plt.plot(
+                self.analysis_frequency_data,
+                self.original_analysis_impedance_data,
+                "-",
+                color="gray",
+                alpha=0.4,
+                linewidth=1.0,
+                label="Original data",
+                scaley=False,
+            )[0]
 
         # Hann trace shown if used
         if self.hann_trace is not None:
@@ -1090,7 +1128,8 @@ class SmartBoundDetermination:
                 self.hann_trace,
                 linewidth=0.6,
                 color="tab:blue",
-                label="Hann detection",
+                label="Hann trace",
+                scaley=False,
             )[0]
 
         # retrieve component traces
@@ -1211,6 +1250,9 @@ class SmartBoundDetermination:
                     label="Total model",
                 )[0]
 
+        # Keep the vertical scale based on the corrected trace.
+        plt.ylim(corrected_y_limits)
+
         # Axes and legend
         plt.xlabel("Frequency [Hz]")
         plt.ylabel("Impedance [Ohm]")
@@ -1223,7 +1265,9 @@ class SmartBoundDetermination:
             from matplotlib.cm import ScalarMappable
             from matplotlib.colors import BoundaryNorm
 
-            legend_handles = [input_line]
+            legend_handles = [original_line]
+            if self.baseline_slope is not None:
+                legend_handles.append(input_line)
             if self.hann_trace is not None:
                 legend_handles.append(hann_line)
             if components is not None:
@@ -1232,7 +1276,7 @@ class SmartBoundDetermination:
                 handles=legend_handles,
                 loc="upper center",
                 bbox_to_anchor=(0.5, -0.13),
-                ncol=3,
+                ncol=4,
                 frameon=False,
             )
 
@@ -1256,12 +1300,25 @@ class SmartBoundDetermination:
 
         # Legend
         elif show_components and self.peaks is not None and len(self.peaks) > 0:
-            plt.legend(ncol=3, frameon=False)
+            legend_handles = [original_line]
+            if self.baseline_slope is not None:
+                legend_handles.append(input_line)
+            if self.hann_trace is not None:
+                legend_handles.append(hann_line)
+            legend_handles.extend(resonance_handles)
+            legend_handles.append(total_handle)
+            plt.legend(handles=legend_handles, ncol=3, frameon=False)
             fig.tight_layout()
         elif show_bounds and self.peaks is not None and len(self.peaks) > 0:
+            legend_handles = [original_line]
+            if self.baseline_slope is not None:
+                legend_handles.append(input_line)
+            if self.hann_trace is not None:
+                legend_handles.append(hann_line)
+            legend_handles.extend(resonance_handles)
             if self.hann_trace is not None:
                 plt.legend(
-                    handles=[input_line, hann_line, *resonance_handles],
+                    handles=legend_handles,
                     ncol=3,
                     loc="upper center",
                     bbox_to_anchor=(0.5, -0.13),
@@ -1269,7 +1326,7 @@ class SmartBoundDetermination:
                 )
             else:
                 plt.legend(
-                    handles=[input_line, *resonance_handles],
+                    handles=legend_handles,
                     ncol=3,
                     loc="upper center",
                     bbox_to_anchor=(0.5, -0.13),
@@ -1277,8 +1334,12 @@ class SmartBoundDetermination:
                 )
             fig.tight_layout()
         elif self.hann_trace is not None:
+            legend_handles = [original_line]
+            if self.baseline_slope is not None:
+                legend_handles.append(input_line)
+            legend_handles.append(hann_line)
             plt.legend(
-                handles=[input_line, hann_line],
+                handles=legend_handles,
                 loc="upper center",
                 bbox_to_anchor=(0.5, -0.13),
                 frameon=False,

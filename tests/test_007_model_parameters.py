@@ -322,7 +322,7 @@ def test_model_after_edits(capsys):
     model.remove_resonator(1)
 
     expected = [200.0, 4.0, 1.5e9, 300.0, 7.0, 1.2e9]
-    model.y_data = iddefix.Impedances.n_Resonator_longitudinal_imp(
+    model.impedance_data = iddefix.Impedances.n_Resonator_longitudinal_imp(
         model.x_data, expected
     ).real
     model.run_minimization_algorithm()
@@ -330,7 +330,10 @@ def test_model_after_edits(capsys):
 
     np.testing.assert_allclose(model.parameterEstimates, expected)
     fitted = model.get_impedance(model.x_data).real
-    assert np.max(np.abs(fitted - model.y_data)) / model.y_data.max() < 0.01
+    assert (
+        np.max(np.abs(fitted - model.impedance_data)) / model.impedance_data.max()
+        < 0.01
+    )
 
 
 def test_edit_q_boundary():

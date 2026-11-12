@@ -4,6 +4,8 @@ The recommended workflow uses `EvolutionaryAlgorithm` (EA) to estimate bounds, f
 
 ## Recommended workflow
 
+`x_data` and `y_data` retain the original input. Baseline correction and downsampling update the domain data (`impedance_data`, `wake_data`, or `wake_potential_data`) used for fitting and plotting.
+
 Create the model from impedance, wake, or wake-potential data. If a linear baseline is present, call `model.remove_baseline()` before estimating bounds. For impedance data, baseline removal requires `wake_length` in meters; for a deconvolved wake-potential spectrum, also supply the Gaussian bunch length `sigma` in seconds.
 
 ```python

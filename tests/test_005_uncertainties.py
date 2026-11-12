@@ -201,6 +201,6 @@ def test_real_data_uncertainties_ignore_model_imaginary_part():
     shifted_uncertainties = model.get_uncertainties()
     np.testing.assert_allclose(shifted_uncertainties, real_uncertainties)
 
-    model.y_data = real_data + 1j * impedance.imag
+    model.impedance_data = real_data + 1j * impedance.imag
     complex_uncertainties = model.get_uncertainties()
     assert np.all(complex_uncertainties > real_uncertainties)

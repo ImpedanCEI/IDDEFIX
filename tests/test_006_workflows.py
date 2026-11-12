@@ -55,10 +55,10 @@ def test_downsample_keeps_paired_samples(fit_function, x_alias, y_alias):
 
     model.downsample_data(3)
 
-    np.testing.assert_array_equal(model.x_data, x_data[::3])
-    np.testing.assert_array_equal(model.y_data, y_data[::3])
-    assert getattr(model, x_alias) is model.x_data
-    assert getattr(model, y_alias) is model.y_data
+    np.testing.assert_array_equal(model.x_data, x_data)
+    np.testing.assert_array_equal(model.y_data, y_data)
+    np.testing.assert_array_equal(getattr(model, x_alias), x_data[::3])
+    np.testing.assert_array_equal(getattr(model, y_alias), y_data[::3])
 
 
 @pytest.mark.parametrize("factor", [0, -1, 1.5, True, 11])
@@ -254,10 +254,11 @@ def test_estimate_bounds_removes_linear_baseline():
 
     assert bounds.baseline_slope == pytest.approx(slope, rel=1e-4)
     assert bounds.N_resonators == 1
-    np.testing.assert_allclose(model.y_data, clean, atol=5)
-    corrected = model.y_data.copy()
+    np.testing.assert_array_equal(model.y_data, contaminated)
+    np.testing.assert_allclose(model.impedance_data, clean, atol=5)
+    corrected = model.impedance_data.copy()
     model.estimate_bounds(remove_baseline=True, show_table=False, show_inspect=False)
-    np.testing.assert_array_equal(model.y_data, corrected)
+    np.testing.assert_array_equal(model.impedance_data, corrected)
 
 
 def test_estimate_bounds_requires_detected_impedance_peak():
@@ -323,7 +324,9 @@ def test_estimate_bounds_from_corrected_wake(fit_function, plane):
         show_inspect=False,
     )
 
-    np.testing.assert_allclose(model.y_data, clean, atol=2e-5)
+    np.testing.assert_array_equal(model.y_data, contaminated)
+    corrected = model.wake_data if fit_function == "wake" else model.wake_potential_data
+    np.testing.assert_allclose(corrected, clean, atol=2e-5)
     assert model.baseline_slope == bounds.baseline_slope == slope
     assert bounds.N_resonators == 1
     assert bounds.parameterEstimates[0] == pytest.approx(resistance, rel=0.02)
