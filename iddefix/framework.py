@@ -193,7 +193,6 @@ class EvolutionaryAlgorithm:
         self.wake_potential_data = None
         self.frequency_data = None
         self.impedance_data = None
-        self.original_y_data = None
         self.baseline_slope = None
         self._smart_bounds: SmartBoundDetermination | None = None
         self.evolutionParameters = None
@@ -290,6 +289,15 @@ class EvolutionaryAlgorithm:
             self.frequency_data = x_data
             self.impedance_data = y_data
 
+    @property
+    def _fit_data(self) -> tuple[ArrayLike, ArrayLike]:
+        """Current samples used for fitting in the selected domain."""
+        if self.fitFunctionType == "impedance":
+            return self.frequency_data, self.impedance_data
+        if self.fitFunctionType == "wake":
+            return self.time_data, self.wake_data
+        return self.time_data, self.wake_potential_data
+
     def downsample_data(self, factor: int, show: bool = False) -> None:
         """Keep every ``factor``-th input pair, starting with the first sample.
 
@@ -306,8 +314,9 @@ class EvolutionaryAlgorithm:
         ):
             raise ValueError("factor must be a positive integer")
 
-        x_data = np.asarray(self.x_data)
-        y_data = np.asarray(self.y_data)
+        fit_x, fit_y = self._fit_data
+        x_data = np.asarray(fit_x)
+        y_data = np.asarray(fit_y)
         if x_data.ndim != 1 or y_data.ndim != 1 or x_data.shape != y_data.shape:
             raise ValueError(
                 "x_data and y_data must be matching one-dimensional arrays"
@@ -348,25 +357,21 @@ class EvolutionaryAlgorithm:
             )
             fig.tight_layout()
 
-        self.x_data = x_data[indices]
-        self.y_data = y_data[indices]
         if self.fitFunctionType == "impedance":
-            self.frequency_data = self.x_data
-            self.impedance_data = self.y_data
+            self.frequency_data = x_data[indices]
+            self.impedance_data = y_data[indices]
         elif self.fitFunctionType == "wake":
-            self.time_data = self.x_data
-            self.wake_data = self.y_data
+            self.time_data = x_data[indices]
+            self.wake_data = y_data[indices]
         else:
-            self.time_data = self.x_data
-            self.wake_potential_data = self.y_data
+            self.time_data = x_data[indices]
+            self.wake_potential_data = y_data[indices]
         self.evolutionParametersUncertainties = None
         self.minimizationParametersUncertainties = None
         self.flagged_params = None
         self._smart_bounds = None
 
-        print(
-            f"[*] Downsampled data to {len(self.x_data)} points (from {len(x_data)})."
-        )
+        print(f"[*] Downsampled data to {len(indices)} points (from {len(x_data)}).")
 
         if show:
             plt.show()
@@ -381,7 +386,7 @@ class EvolutionaryAlgorithm:
         Impedance slopes are fitted to the complex spectrum. Wake and
         wake-potential slopes are fitted on the last 20% of nonnegative time
         samples unless ``fit_interval`` selects another interval in seconds.
-        The original data are retained in ``original_y_data``. Existing fitted
+        The original input remains in ``x_data`` and ``y_data``. Existing fitted
         parameters and starting estimates are cleared because they were based
         on the previous data.
         """
@@ -402,8 +407,7 @@ class EvolutionaryAlgorithm:
 
         # Retrieve corrected y_data and slope
         corrected, fitted_slope = baseline.remove_baseline(
-            self.x_data,
-            self.y_data,
+            *self._fit_data,
             self.fitFunctionType,
             slope=slope,
             fit_interval=fit_interval,
@@ -413,8 +417,6 @@ class EvolutionaryAlgorithm:
         )
 
         # Update the model inputs
-        self.original_y_data = np.asarray(self.y_data).copy()
-        self.y_data = corrected
         self.baseline_slope = fitted_slope
         if self.fitFunctionType == "impedance":
             self.impedance_data = corrected
@@ -548,10 +550,15 @@ class EvolutionaryAlgorithm:
             )
 
         # Populate impedance data
+        original_impedance_data = None
+        original_frequency_data = None
         if self.fitFunctionType == "impedance":
             frequency_data = self.frequency_data
             impedance_data = self.impedance_data
             baseline_sigma = self.sigma
+            if self.baseline_slope is not None:
+                original_frequency_data = self.x_data
+                original_impedance_data = self.y_data
         elif self.fitFunctionType == "wake":
             frequency_data, impedance_data = compute_fft(
                 self.time_data,
@@ -559,6 +566,13 @@ class EvolutionaryAlgorithm:
                 fmax=3e9 if fmax is None else fmax,
                 samples=fft_samples,
             )
+            if self.baseline_slope is not None:
+                original_frequency_data, original_impedance_data = compute_fft(
+                    self.x_data,
+                    np.asarray(self.y_data) / c,
+                    fmax=3e9 if fmax is None else fmax,
+                    samples=fft_samples,
+                )
             baseline_sigma = None
         else:  # Wake potential
             frequency_data, impedance_data = compute_deconvolution(
@@ -569,9 +583,26 @@ class EvolutionaryAlgorithm:
                 samples=fft_samples,
                 rolloff=rolloff,
             )
+            if self.baseline_slope is not None:
+                original_frequency_data, original_impedance_data = (
+                    compute_deconvolution(
+                        self.x_data,
+                        np.asarray(self.y_data) / c,
+                        sigma=self.sigma,
+                        fmax=fmax,
+                        samples=fft_samples,
+                        rolloff=rolloff,
+                    )
+                )
             baseline_sigma = self.sigma
         if self.fitFunctionType != "impedance" and self.plane == "transverse":
             impedance_data = 1j * impedance_data
+            if original_impedance_data is not None:
+                original_impedance_data = 1j * original_impedance_data
+        if original_impedance_data is not None:
+            original_impedance_data = np.interp(
+                frequency_data, original_frequency_data, original_impedance_data
+            )
 
         # Compute bounds
         bounds = SmartBoundDetermination(
@@ -583,6 +614,7 @@ class EvolutionaryAlgorithm:
             wake_length=self.wake_length,
             sigma=baseline_sigma,
             baseline_slope=self.baseline_slope,
+            original_impedance_data=original_impedance_data,
             use_Hann=use_Hann and self.wake_length is not None,
             **kwargs,
         )
@@ -662,9 +694,17 @@ class EvolutionaryAlgorithm:
         Small function to avoid 0 frequency leading to zero division when
         using resonators.
         """
-        mask = np.where(self.x_data > 0.0)[0]
-        self.x_data = self.x_data[mask]
-        self.y_data = self.y_data[mask]
+        x, y = self._fit_data
+        mask = np.asarray(x) > 0.0
+        if self.fitFunctionType == "impedance":
+            self.frequency_data = np.asarray(x)[mask]
+            self.impedance_data = np.asarray(y)[mask]
+        else:
+            self.time_data = np.asarray(x)[mask]
+            if self.fitFunctionType == "wake":
+                self.wake_data = np.asarray(y)[mask]
+            else:
+                self.wake_potential_data = np.asarray(y)[mask]
 
     def _solve_differential_evolution(
         self,
@@ -805,8 +845,7 @@ class EvolutionaryAlgorithm:
             self._require_fit_bounds(),
             self.objectiveFunction,
             self.fitFunction,
-            self.x_data,
-            self.y_data,
+            *self._fit_data,
             maxiter=maxiter,
             popsize=popsize,
             mutation=mutation,
@@ -894,8 +933,8 @@ class EvolutionaryAlgorithm:
         objective_function = partial(
             self.objectiveFunction,
             fitFunction=self.fitFunction,
-            x=self.x_data,
-            y=self.y_data,
+            x=self._fit_data[0],
+            y=self._fit_data[1],
         )
 
         solution, message, res = Solvers.run_pymoo_cmaes_solver(
@@ -975,8 +1014,8 @@ class EvolutionaryAlgorithm:
         objective_function = partial(
             self.objectiveFunction,
             fitFunction=self.fitFunction,
-            x=self.x_data,
-            y=self.y_data,
+            x=self._fit_data[0],
+            y=self._fit_data[1],
         )
         if type(margin) is float:
             margin = [margin] * 3
@@ -1067,9 +1106,9 @@ class EvolutionaryAlgorithm:
             raise ValueError("No resonator parameters are available")
 
         if x_data is None:
-            x_data = self.x_data
+            x_data = self._fit_data[0]
         if y_data is None:
-            y_data = self.y_data
+            y_data = self._fit_data[1]
         if parameterBounds is None:
             parameterBounds = [
                 bound
@@ -1710,7 +1749,7 @@ class EvolutionaryAlgorithm:
         """
 
         if x_data is None:
-            x_data = self.x_data
+            x_data = self._fit_data[0]
         x_data = np.asarray(x_data)
 
         if use_minimization and self.minimizationParameters is not None:
@@ -1753,15 +1792,15 @@ class EvolutionaryAlgorithm:
 
         # Custom input data
         if x_data is None:
-            x_data = self.x_data
+            x_data = self._fit_data[0]
         x_data = np.asarray(x_data)
-        if y_data is None and np.array_equal(x_data, self.x_data):
-            y_data = self.y_data
+        if y_data is None and np.array_equal(x_data, self._fit_data[0]):
+            y_data = self._fit_data[1]
         if y_data is not None:
             y_data = np.asarray(y_data)
             if y_data.shape != x_data.shape:
                 raise ValueError("x_data and y_data must have the same shape")
-        plot_data = self.y_data if y_data is None else y_data
+        plot_data = self._fit_data[1] if y_data is None else y_data
 
         # Compute components and total model
         components = self.get_resonator_components(
