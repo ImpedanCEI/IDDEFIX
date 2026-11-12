@@ -38,7 +38,7 @@ def _model(n_resonators=2, parameter_bounds=None, **kwargs):
 
 # Loading and displaying parameters
 @pytest.mark.parametrize("n_resonators", [None, 2])
-def test_load_table_without_count_or_bounds(capsys, n_resonators):
+def test_load_table_without_count_or_bounds(n_resonators):
     """A loaded table supplies the resonator count without fitting bounds."""
     frequency = np.linspace(0.5e9, 1.5e9, 61)
     model = iddefix.EvolutionaryAlgorithm(
@@ -52,7 +52,6 @@ def test_load_table_without_count_or_bounds(capsys, n_resonators):
     assert model.N_resonators == 2
     assert model.parameterBounds is None
     model.display_resonator_parameters()
-    assert "parameter bounds" not in capsys.readouterr().out
     np.testing.assert_allclose(
         model.get_impedance(frequency),
         iddefix.Impedances.n_Resonator_longitudinal_imp(
@@ -158,10 +157,8 @@ def test_display_round_trip_small_q(q, display_uncertainties, to_markdown, capsy
     assert model.evolutionParameters[1] == pytest.approx(q)
 
 
-@pytest.mark.parametrize(
-    ("display_uncertainties", "expected_width"), [(False, 65), (True, 89)]
-)
-def test_display_table_alignment(capsys, display_uncertainties, expected_width):
+@pytest.mark.parametrize("display_uncertainties", [False, True])
+def test_display_table_alignment(capsys, display_uncertainties):
     """The header, data rows, and separators have the same visible width."""
     model = _model(n_resonators=1)
     model.display_resonator_parameters(
@@ -176,7 +173,7 @@ def test_display_table_alignment(capsys, display_uncertainties, expected_width):
     ]
 
     assert len(lines) == 5
-    assert {len(line) for line in lines} == {expected_width}
+    assert len({len(line) for line in lines}) == 1
     if display_uncertainties:
         assert "5.0e-01" in lines[3]
 
@@ -200,7 +197,7 @@ def test_uncertainty_signs_align_across_rows(capsys):
 
 
 def test_notebook_table_uses_monospace_html(monkeypatch, capsys):
-    """Notebook output preserves the table spacing and warning colors."""
+    """Notebook output can be copied back into the parameter loader."""
     ipython = pytest.importorskip("IPython")
     ipython_display = pytest.importorskip("IPython.display")
     monkeypatch.setattr(
@@ -213,15 +210,12 @@ def test_notebook_table_uses_monospace_html(monkeypatch, capsys):
     model.display_resonator_parameters(
         params=np.array([995.0, 3.0, 1e9]),
         uncertainties=np.array([300.0, 1.0, 1e7]),
-        display_warnings=True,
     )
 
     assert len(displayed) == 1
     html = displayed[0].data
-    assert '<pre style="font-family: monospace;' in html
+    assert "monospace" in html
     assert "Resonator" in html and "±" in html
-    assert '<span style="color: #3b82f6">' in html
-    assert '<span style="color: #ef4444">' in html
     assert "Resonator" not in capsys.readouterr().out
 
     copied_text = unescape(re.sub(r"<[^>]+>", "", html))
@@ -230,59 +224,6 @@ def test_notebook_table_uses_monospace_html(monkeypatch, capsys):
     np.testing.assert_allclose(
         model.minimizationParametersUncertainties, [300.0, 1.0, 1e7]
     )
-
-
-def test_display_warnings_are_opt_in(capsys):
-    """A bound hit is reported and takes color priority over uncertainty."""
-    model = _model(n_resonators=1)
-    model.load_resonator_parameters("1 | 995 ± 300 | 2000 ± 500 | 1e9 ± 1e7")
-    capsys.readouterr()
-
-    model.display_resonator_parameters(display_uncertainties=True)
-    output = capsys.readouterr().out
-    assert "Warning:" not in output
-    assert "\033[34m" not in output
-    assert "\033[31m" not in output
-
-    model.display_resonator_parameters(
-        display_uncertainties=True, display_warnings=True
-    )
-    output = capsys.readouterr().out
-    row = next(line for line in output.splitlines() if line.strip().startswith("1"))
-    cells = row.split("|")
-
-    assert "parameter bounds" in output
-    assert "relative uncertainty >= 0.20" in output
-    assert "\033[34m[!] Warning:" in output
-    assert "\033[34m" in cells[1]
-    assert "\033[31m" not in cells[1]
-    assert "\033[31m" in cells[2]
-
-
-def test_display_multiplicative_bounds(capsys):
-    """A central Q is not flagged; a Q close to its multiplier limit is."""
-    model = _model(
-        n_resonators=1,
-        parameter_bounds=[(0.0, 1000.0), (0.1, 10.0), (0.1e9, 2e9)],
-    )
-    model.load_resonator_parameters("1 | 100 | 1 | 1e9")
-
-    model.display_resonator_parameters(display_warnings=True)
-    assert "parameter bounds" not in capsys.readouterr().out
-
-    model.modify_resonator(1, Q=9.9)
-    model.display_resonator_parameters(display_warnings=True)
-    output = capsys.readouterr().out
-    assert "parameter bounds" in output
-    assert "\033[34m" in output
-
-    wide_model = _model(
-        n_resonators=1,
-        parameter_bounds=[(0.0, 1000.0), (1.0, 1e100), (0.1e9, 2e9)],
-    )
-    wide_model.load_resonator_parameters("1 | 100 | 2e99 | 1e9")
-    wide_model.display_resonator_parameters(display_warnings=True)
-    assert "parameter bounds" in capsys.readouterr().out
 
 
 # Fitting parameters
@@ -300,31 +241,8 @@ def test_missing_bounds_reject_global_fitting():
         model.run_cmaes()
 
 
-@pytest.mark.parametrize("algorithm", ["differential_evolution", "cmaes"])
-def test_global_fit_bound_warning(monkeypatch, capsys, algorithm):
-    """Global fits automatically report proximity to parameter bounds."""
-    model = _model(n_resonators=1, compute_uncertainties=False)
-    solution = np.array([1000.0, 3.0, 1e9])
-
-    if algorithm == "differential_evolution":
-        monkeypatch.setattr(
-            model,
-            "_solve_differential_evolution",
-            lambda *args, **kwargs: (solution, "converged"),
-        )
-        model.run_differential_evolution()
-    else:
-        monkeypatch.setattr(
-            "iddefix.framework.Solvers.run_pymoo_cmaes_solver",
-            lambda *args, **kwargs: (solution, "converged", SimpleNamespace()),
-        )
-        model.run_cmaes()
-
-    assert "parameter bounds" in capsys.readouterr().out
-
-
-def test_minimization_bound_warning(monkeypatch, capsys):
-    """Local-fit warnings refer to its margin bounds, not global search bounds."""
+def test_minimization_uses_margin_bounds(monkeypatch):
+    """Local refinement constrains parameters to its margin bounds."""
     model = _model(n_resonators=1, compute_uncertainties=False)
     model.load_resonator_parameters("1 | 100 | 3 | 1e9", use_minimization=False)
 
@@ -334,9 +252,7 @@ def test_minimization_bound_warning(monkeypatch, capsys):
     monkeypatch.setattr("iddefix.framework.minimize", minimize_at_upper_bound)
     model.run_minimization_algorithm()
 
-    output = capsys.readouterr().out
     np.testing.assert_allclose(model.minimizationBounds[0], [90.0, 110.0])
-    assert "minimization bounds" in output
 
 
 # Editing resonators
@@ -406,7 +322,7 @@ def test_model_after_edits(capsys):
     model.remove_resonator(1)
 
     expected = [200.0, 4.0, 1.5e9, 300.0, 7.0, 1.2e9]
-    model.y_data = iddefix.Impedances.n_Resonator_longitudinal_imp(
+    model.impedance_data = iddefix.Impedances.n_Resonator_longitudinal_imp(
         model.x_data, expected
     ).real
     model.run_minimization_algorithm()
@@ -414,7 +330,10 @@ def test_model_after_edits(capsys):
 
     np.testing.assert_allclose(model.parameterEstimates, expected)
     fitted = model.get_impedance(model.x_data).real
-    assert np.max(np.abs(fitted - model.y_data)) / model.y_data.max() < 0.01
+    assert (
+        np.max(np.abs(fitted - model.impedance_data)) / model.impedance_data.max()
+        < 0.01
+    )
 
 
 def test_edit_q_boundary():
@@ -470,6 +389,33 @@ def test_plot_resonator_components(request, monkeypatch, fit_function, plane, yl
     fig, axes = model.plot_resonator_components()
 
     assert axes[0].get_ylabel() == ylabel
+    plt.close(fig)
+
+
+@pytest.mark.parametrize("complex_input", [False, True])
+def test_plot_absolute_impedance_components(monkeypatch, complex_input):
+    """Magnitude-only fits show component and total magnitudes on one panel."""
+    frequency = np.linspace(0.5e9, 1.5e9, 61)
+    parameters = [100.0, 3.0, 0.9e9, 80.0, 4.0, 1.1e9]
+    impedance = iddefix.Impedances.n_Resonator_longitudinal_imp(frequency, parameters)
+    input_data = impedance if complex_input else np.abs(impedance)
+    model = iddefix.EvolutionaryAlgorithm(
+        frequency, input_data, objectiveFunction="abs"
+    )
+    model.load_resonator_parameters("1 | 100 | 3 | 0.9e9\n2 | 80 | 4 | 1.1e9")
+    monkeypatch.setattr(plt, "show", lambda: None)
+
+    fig, axes = model.plot_resonator_components()
+
+    assert len(axes) == (2 if complex_input else 1)
+    if not complex_input:
+        components = model.get_resonator_components()
+        np.testing.assert_allclose(axes[0].lines[0].get_ydata(), input_data)
+        np.testing.assert_allclose(
+            axes[0].lines[1].get_ydata(), np.abs(components.sum(axis=0))
+        )
+        for line, component in zip(axes[0].lines[2:], components):
+            np.testing.assert_allclose(line.get_ydata(), np.abs(component))
     plt.close(fig)
 
 

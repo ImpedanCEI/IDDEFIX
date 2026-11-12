@@ -521,21 +521,22 @@ The main arguments are:
 
 - `sigma`: initial global standard deviation.
 - `popsize`: number $\lambda$ of candidates sampled per generation.
-- `maxiter`: internal CMA-ES iteration limit.
+- `maxiter`: optional per-run iteration limit; `None` (the default) removes this
+  limit.
 - `verbose`: select pymoo output or the IDDEFIX progress bar.
 
 Additional keyword arguments are passed to pymoo's `CMAES` constructor. Useful
 options include `tolfun`, `tolx`, `maxfevals`, `restarts`,
 `restart_from_best`, `incpopsize`, `bipop`, and `seed`. IDDEFIX defaults to
-three restarts from the best solution and seed 42; supplied keywords override
-these defaults.
+zero restarts and seed 42; supplied keywords override these defaults.
 
 ```{important}
-`maxiter` is not a strict limit on pymoo's reported generation count. CMA-ES
-has its own convergence criteria, and enabled restarts create additional runs
+With `maxiter=None`, CMA-ES uses its own stopping criteria, including `tolfun`
+and `tolx`, and the progress display shows elapsed iterations without a
+percentage. Other criteria such as stagnation can also stop the run. A finite
+`maxiter` limits iterations per run; enabled restarts create additional runs
 whose generations are included in `res.algorithm.n_gen`. Use `maxfevals` for a
-direct limit on objective-function evaluations, or set `restarts=0` when a
-single CMA-ES run is required.
+direct limit on objective-function evaluations.
 ```
 
 The optimized parameters are stored in `evolutionParameters`. As with a DE
@@ -604,11 +605,7 @@ interpretation is unreliable for strongly nonlinear fits, poorly identifiable
 parameters, or parameters near bounds, where the local symmetric covariance
 approximation does not describe the constrained parameter region well.
 
-By default, fitting methods calculate these uncertainties automatically. Set
-`compute_uncertainties=False` to skip that calculation, then call
-`model.get_uncertainties()` to calculate them later. The table's large-error
-warning uses the relative error $|\sigma_{\theta}/\theta|$ and defaults to
-a threshold of 0.20. This ratio is not useful for parameters at or near zero.
+By default, fitting methods do not calculate these uncertainties. Set `compute_uncertainties=True` when constructing the model to calculate them automatically after fitting, or call `model.get_uncertainties()` later. The table's large-error warning applies only when uncertainties are available; it uses the relative error $|\sigma_{\theta}/\theta|$ and defaults to a threshold of 0.20. This ratio is not useful for parameters at or near zero.
 
 `get_impedance_uncertainty()` uses the parameter errors to produce a separate
 pointwise sensitivity envelope for the real impedance. It varies selected
