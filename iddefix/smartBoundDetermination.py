@@ -412,6 +412,11 @@ class SmartBoundDetermination:
         # Remove baseline
         self.baseline_slope = self._input_baseline_slope
         if remove_baseline is not False and remove_baseline is not None:
+            if impedance_type == "absolute" and not np.iscomplexobj(impedance_data):
+                raise ValueError(
+                    "Baseline correction requires complex impedance for "
+                    "impedance_type='absolute'"
+                )
             impedance_data, slope = baseline.remove_baseline(
                 frequency_data,
                 impedance_data,
@@ -496,7 +501,7 @@ class SmartBoundDetermination:
             self._start_interactive_selection(q_side, impedance_type, plane)
             return self.parameterBounds
 
-        # Find peaks on the final imepdanca trace
+        # Find peaks on the continuous detection band.
         search_data = windowed if valid_detection is not None else impedance
         search_height = minimum_peak_height
         if valid_detection is not None and isinstance(minimum_peak_height, np.ndarray):
@@ -563,14 +568,20 @@ class SmartBoundDetermination:
         valid = (frequency >= frequency_data[0]) & (
             frequency + shift <= frequency_data[-1]
         )
+        # Above DC, retain only the band with both shifted frequencies measured.
+        if frequency_data[0] > 0:
+            valid &= frequency - shift >= frequency_data[0]
         if np.count_nonzero(valid) < 3:
             raise ValueError("frequency range is too narrow for Hann detection")
 
         # Use symmetry rules for DC treatment
         sign = 1 if plane == "longitudinal" else -1
-        frequency_extended = np.concatenate((-frequency_data[:0:-1], frequency_data))
+        positive = frequency_data > 0
+        frequency_extended = np.concatenate(
+            (-frequency_data[positive][::-1], frequency_data)
+        )
         impedance_extended = np.concatenate(
-            (sign * np.conj(impedance_data[:0:-1]), impedance_data)
+            (sign * np.conj(impedance_data[positive][::-1]), impedance_data)
         )
 
         # Interpolate the impedance
