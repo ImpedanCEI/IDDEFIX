@@ -29,7 +29,7 @@ def linear_baseline_impedance(
     integral[small] = 0.5 + xs / 3 + xs**2 / 8 + xs**3 / 30 + xs**4 / 144
     xl = x[~small]  # Not small -> Analytic expresion
     integral[~small] = (1 + np.exp(xl) * (xl - 1)) / xl**2
-    baseline = c * slope * T**2 * integral
+    baseline = slope * T**2 * integral
 
     # Remove baseline amplification from deconvolution
     if sigma is not None:
