@@ -6,11 +6,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 from scipy.constants import c
-from scipy.integrate import quad
 from scipy.signal import find_peaks
 
 import iddefix
-from iddefix.baseline import linear_baseline_impedance
 
 
 def _single_mode_bounds():
@@ -221,77 +219,37 @@ def test_transverse_absolute_estimates():
     np.testing.assert_allclose(finite.parameterEstimates, full.parameterEstimates)
 
 
-# Wake-length correction
-@pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
-def test_linear_baseline_transform(plane):
-    """The correction follows the finite ramp's Fourier integral, including DC."""
-    duration = 8e-9
-    slope = 1e10
-    frequency = np.array([0.0, 0.2e9, 0.7e9])
-    baseline = linear_baseline_impedance(frequency, slope, c * duration, plane)
-    expected = []
-    for value in frequency:
-        omega = 2 * np.pi * value
-        real = quad(lambda time: time * np.cos(omega * time), 0, duration)[0]
-        imag = -quad(lambda time: time * np.sin(omega * time), 0, duration)[0]
-        expected.append(c * slope * (real + 1j * imag))
-    expected = np.asarray(expected)
-    if plane == "transverse":
-        expected *= 1j
-    np.testing.assert_allclose(baseline, expected, rtol=1e-10, atol=1e-10)
-
-
-@pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
-def test_hann_baseline_correction(plane):
-    """Removing a known ramp restores the clean resonance estimates."""
-    frequency = np.linspace(0, 2e9, 2001)
-    wake_length = 1.0
-    slope = 1e11
-    formula = getattr(iddefix.Impedances, f"Resonator_{plane}_imp")
-    resistance = 100.0 if plane == "longitudinal" else 4e6
-    clean = formula(frequency, resistance, 2.0, 0.8e9, wake_length=wake_length)
-    baseline = linear_baseline_impedance(frequency, slope, wake_length, plane)
-    contaminated = clean + baseline
-    options = dict(
-        plane=plane, wake_length=wake_length, minimum_peak_height=1.0, use_Hann=True
+# Hann peak detection
+def test_hann_recovers_resonance_above_dc():
+    """A spectrum starting above DC still recovers the isolated resonance."""
+    frequency = np.linspace(1e9, 2e9, 2001)
+    impedance = iddefix.Impedances.Resonator_longitudinal_imp(frequency, 100, 5, 1.5e9)
+    shift = 0.3e9
+    bounds = iddefix.SmartBoundDetermination(
+        frequency,
+        impedance,
+        wake_length=c / shift,
+        use_Hann=True,
     )
-    reference = iddefix.SmartBoundDetermination(frequency, clean, **options)
-    corrected = iddefix.SmartBoundDetermination(
-        frequency, contaminated, remove_baseline=slope, **options
+    assert bounds.N_resonators == 1
+    resistance, quality, resonance = bounds.parameterEstimates
+    assert resistance == pytest.approx(100, rel=0.06)
+    assert quality == pytest.approx(5, rel=0.01)
+    assert resonance == pytest.approx(1.5e9, rel=0.001)
+
+
+def test_hann_uses_continuous_band():
+    """Ignoring the detached low-frequency band avoids a spurious edge peak."""
+    frequency = np.linspace(0.1e9, 2e9, 1901)
+    impedance = np.cos(2 * np.pi * frequency / 0.28e9)
+    bounds = iddefix.SmartBoundDetermination(
+        frequency,
+        impedance,
+        wake_length=c / 0.3e9,
+        use_Hann=True,
     )
-
-    assert corrected.baseline_slope == slope
-    assert corrected.N_resonators == reference.N_resonators
-    np.testing.assert_allclose(
-        corrected.parameterEstimates, reference.parameterEstimates
-    )
-    np.testing.assert_allclose(corrected.parameterBounds, reference.parameterBounds)
-
-
-@pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
-@pytest.mark.parametrize("complex_input", [False, True])
-def test_calculate_baseline_slope(plane, complex_input):
-    """The public helper fits a real slope from real or complex impedance."""
-    frequency = np.linspace(0, 2e9, 101)
-    wake_length = 0.5
-    slope = 1e11
-    baseline = linear_baseline_impedance(frequency, slope, wake_length, plane)
-    impedance = baseline if complex_input else baseline.real
-
-    fitted = iddefix.SmartBoundDetermination.calculate_baseline_slope(
-        frequency, impedance, wake_length, plane
-    )
-
-    assert fitted == pytest.approx(slope)
-
-
-def test_hann_baseline_requires_wake_length():
-    """A ramp transform needs the finite wake's integration interval."""
-    frequency = np.linspace(0, 2e9, 101)
-    with pytest.raises(ValueError, match="wake_length"):
-        iddefix.SmartBoundDetermination(
-            frequency, np.ones_like(frequency), remove_baseline=True
-        )
+    estimates = np.asarray(bounds.parameterEstimates).reshape(-1, 3)
+    np.testing.assert_allclose(estimates[:, 2], np.arange(2, 7) * 0.28e9, atol=1e6)
 
 
 @pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
@@ -366,6 +324,7 @@ def test_hann_detection_uses_original_impedance_for_estimates():
     )
 
 
+# Wake-length correction
 @pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
 def test_wake_length_automatic_estimates(plane):
     """Hann detection finds a short-wake resonator in either plane."""

@@ -291,6 +291,8 @@ $$
 
 Negative frequencies follow the symmetry of a real wake: $Z_\parallel(-f)=Z_\parallel(f)^*$ and $Z_\perp(-f)=-Z_\perp(f)^*$. This extends the Hann trace to DC when the supplied grid starts at zero.
 
+For data starting above DC, Hann detection uses the continuous interval $f_{\min}+f_H\leq f\leq f_{\max}-f_H$. For data starting at DC, symmetry extends this interval down to zero.
+
 With Hann enabled, `impedance_type="real"` finds peaks in $\Re(Z_H)$; `"absolute"` uses $|Z_H|$ when the complex impedance is available. Magnitude-only input lacks the phase needed for Hann windowing, so peak detection uses the original magnitude. Peak heights and widths always come from the unwindowed trace.
 
 ### Linear wake baseline
@@ -298,14 +300,16 @@ With Hann enabled, `impedance_type="real"` finds peaks in $\Re(Z_H)$; `"absolute
 A linear wake baseline $w_{\mathrm{base}}(t)=at$ over $0\leq t\leq T$ contributes a low-frequency background. Its longitudinal impedance per unit slope is
 
 $$
-K_\parallel(f)=c\int_0^T t\,e^{-2\pi i f t}\,dt
+K_\parallel(f)=\int_0^T t\,e^{-2\pi i f t}\,dt
 =\begin{cases}
-\dfrac{c\left[e^{-i\omega T}(1+i\omega T)-1\right]}{\omega^2},
+\dfrac{\left[e^{-i\omega T}(1+i\omega T)-1\right]}{\omega^2},
 & f\ne 0,\\[8pt]
-\dfrac{cT^2}{2}, & f=0,
+\dfrac{T^2}{2}, & f=0,
 \end{cases}
 \qquad \omega=2\pi f.
 $$
+
+The slope uses the same wake units per second in both domains: EA transforms $w/c$, cancelling the $c$ in the FFT's spatial-step normalization.
 
 For transverse impedance, $K_\perp(f)=iK_\parallel(f)$. If the ramp is in a Gaussian wake potential that was deconvolved, pass the RMS bunch length `sigma` in seconds; the kernel becomes $K_\sigma(f)=K(f)/\exp[-(2\pi f\sigma)^2/2]$. Omit `sigma` when the ramp belongs to the underlying wake before bunch convolution.
 

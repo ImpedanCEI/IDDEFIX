@@ -238,7 +238,7 @@ def test_estimate_bounds_removes_linear_baseline():
     """EA corrects the stored impedance once before estimating bounds."""
     frequency = np.linspace(0, 2e9, 2001)
     wake_length = 1.0
-    slope = 1e14
+    slope = 1e14 * c
     clean = iddefix.Impedances.Resonator_longitudinal_imp(
         frequency, 100.0, 2.0, 0.8e9, wake_length=wake_length
     )
