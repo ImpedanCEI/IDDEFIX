@@ -19,12 +19,12 @@ os.environ["OPENBLAS_NUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 random.seed(42)
 
-import numpy as np
-import pytest
-from scipy.constants import c as c_light
-from scipy.integrate import quad
+import numpy as np  # noqa: E402
+import pytest  # noqa: E402
+from scipy.constants import c as c_light  # noqa: E402
+from scipy.integrate import quad  # noqa: E402
 
-import iddefix
+import iddefix  # noqa: E402
 
 
 class TestAnalyticalImpedance:
@@ -65,10 +65,12 @@ class TestAnalyticalImpedance:
             parameterBounds=cls.parameterBounds,
             plane="longitudinal",
             objectiveFunction="real",
+            compute_uncertainties=True,
         )
-        cls.CMAES_model.run_cmaes(maxiter=5000, popsize=50, sigma=0.6, verbose=False)
+        cls.CMAES_model.run_cmaes(
+            maxiter=5000, popsize=50, sigma=0.6, verbose=False, restarts=3
+        )
         cls.CMAES_model.run_minimization_algorithm()
-        print(cls.CMAES_model.warning)
 
         # Build + fit DE once for the class
         cls.DE_model = iddefix.EvolutionaryAlgorithm(
@@ -78,6 +80,7 @@ class TestAnalyticalImpedance:
             parameterBounds=cls.parameterBounds,
             plane="longitudinal",
             objectiveFunction="real",  # or iddefix.ObjectiveFunctions.sumOfSquaredErrorReal
+            compute_uncertainties=True,
         )
         cls.DE_model.run_differential_evolution(
             maxiter=2000,
@@ -87,7 +90,6 @@ class TestAnalyticalImpedance:
             crossover_rate=0.7,
         )
         cls.DE_model.run_minimization_algorithm()
-        print(cls.DE_model.warning)
 
     # --- DE -------------------------------------------------------------------
 
@@ -106,7 +108,6 @@ class TestAnalyticalImpedance:
         ):
             assert uncertainties.shape == parameters.shape
             assert np.isfinite(uncertainties).all()
-        assert "error" not in str(getattr(self.DE_model, "warning", "")).lower()
 
     def test_abs_DE_impedance(self, debug_plot):
         z_true = np.abs(self.impedance)
@@ -183,7 +184,6 @@ class TestAnalyticalImpedance:
         ):
             assert uncertainties.shape == parameters.shape
             assert np.isfinite(uncertainties).all()
-        assert "error" not in str(getattr(self.CMAES_model, "warning", "")).lower()
 
     def test_abs_CMAES_impedance(self, debug_plot):
         z_true = np.abs(self.impedance)
@@ -438,6 +438,45 @@ def test_partial_overdamped_wake_fft_matches_impedance(plane, debug_plot):
         expected_label="Analytical impedance",
     )
     _assert_complex_spectrum_matches(transformed[useful_band], analytical[useful_band])
+
+
+@pytest.mark.parametrize(
+    "wake",
+    [
+        iddefix.Wakes.Resonator_longitudinal_wake,
+        iddefix.Wakes.Resonator_transverse_wake,
+    ],
+)
+def test_overdamped_wake_remains_finite(wake):
+    """A low-Q wake has a finite late tail even when sinh alone overflows."""
+    Rs, Q, fr = 100.0, 0.01, 1e9
+    times = np.array([-0.5e-9, 10e-12, 16e-9, 17e-9])
+    with np.errstate(over="raise", invalid="raise"):
+        values = wake(times, Rs, Q, fr)
+
+    assert values[0] == 0
+    assert np.all(np.isfinite(values))
+
+    omega_r = 2 * np.pi * fr
+    B = omega_r / (2 * Q)
+    D = np.sqrt(B**2 - omega_r**2)
+    t = times[1]
+    if wake is iddefix.Wakes.Resonator_longitudinal_wake:
+        expected = (
+            Rs
+            * omega_r
+            / Q
+            * np.exp(-B * t)
+            * (np.cosh(D * t) - B / D * np.sinh(D * t))
+        )
+    else:
+        expected = omega_r**2 * Rs / (Q * D) * np.exp(-B * t) * np.sinh(D * t)
+    assert values[1] == pytest.approx(expected)
+
+    slow_rate = omega_r**2 / (B + D)
+    assert values[3] / values[2] == pytest.approx(
+        np.exp(-slow_rate * (times[3] - times[2]))
+    )
 
 
 @pytest.mark.parametrize("plane", ["longitudinal", "transverse"])

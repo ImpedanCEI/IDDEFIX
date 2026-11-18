@@ -1,5 +1,3 @@
-from typing import Callable
-
 import numpy as np
 import numpy.typing as npt
 from scipy.constants import c as c_light
@@ -93,6 +91,8 @@ def compute_fft(
 
     ds = (data_time[1] - data_time[0]) * c_light
     N = int((c_light / ds) // fmax * samples)
+    N = max(len(data_time), N)
+
     Z = np.fft.fft(data_wake, n=N)
     f = np.fft.fftfreq(len(Z), ds / c_light)
 

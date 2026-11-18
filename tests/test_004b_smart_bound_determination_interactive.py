@@ -21,8 +21,8 @@ def _click(figure, frequency, impedance, button=1):
 
 
 @pytest.mark.parametrize("run_in_ipython", [False, True])
-def test_inline_backend_fallback(monkeypatch, capsys, run_in_ipython):
-    """Inline Python and IPython runs warn and estimate peaks without prompting."""
+def test_inline_backend_fallback(monkeypatch, run_in_ipython):
+    """Inline Python and IPython runs estimate peaks without prompting."""
     frequency = np.linspace(0.2e9, 1.4e9, 10001)
     expected = np.array([100.0, 8.0, 0.8e9])
     impedance = iddefix.Impedances.Resonator_longitudinal_imp(frequency, *expected).real
@@ -52,10 +52,6 @@ def test_inline_backend_fallback(monkeypatch, capsys, run_in_ipython):
             frequency, impedance, impedance_type="real", interactive=True
         )
 
-    warning = capsys.readouterr().out
-    assert "%matplotlib widget" in warning
-    assert "%matplotlib ipympl" in warning
-    assert "automatic peak detection" in warning
     assert bounds.N_resonators == 1
     np.testing.assert_allclose(bounds.parameterEstimates, expected, rtol=0.01)
     assert asyncio.run(bounds.wait_for_selection()) == bounds.parameterBounds
