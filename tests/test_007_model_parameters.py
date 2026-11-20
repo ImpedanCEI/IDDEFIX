@@ -11,7 +11,6 @@ from types import SimpleNamespace
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
-from scipy.optimize import OptimizeResult
 
 import iddefix
 
@@ -228,20 +227,18 @@ def test_notebook_table_uses_monospace_html(monkeypatch, capsys):
 
 
 # Fitting parameters
-def test_loaded_model_default_bounds():
-    """A model loaded for evaluation can later fit with data-derived bounds."""
+def test_missing_bounds_reject_global_fitting():
+    """Global fitting requires bounds after parameters are loaded for evaluation."""
     frequency = np.linspace(0.5e9, 1.5e9, 61)
-    target = iddefix.Impedances.Resonator_longitudinal_imp(frequency, 100, 3, 1e9)
-    model = iddefix.EvolutionaryAlgorithm(frequency, target)
+    model = iddefix.EvolutionaryAlgorithm(
+        x_data=frequency, y_data=np.zeros_like(frequency)
+    )
     model.load_resonator_parameters("1 | 100 | 3 | 1e9")
 
-    model.run_differential_evolution(maxiter=1, popsize=5, workers=1, seed=42)
-
-    np.testing.assert_allclose(
-        model.parameterBounds,
-        [(0, 100), (0.001, 1000), (frequency[0], 10 * frequency[-1])],
-    )
-    assert np.isfinite(model.get_impedance(use_minimization=False)).all()
+    with pytest.raises(ValueError, match="parameterBounds"):
+        model.run_differential_evolution()
+    with pytest.raises(ValueError, match="parameterBounds"):
+        model.run_cmaes()
 
 
 def test_minimization_uses_margin_bounds(monkeypatch):
@@ -250,9 +247,7 @@ def test_minimization_uses_margin_bounds(monkeypatch):
     model.load_resonator_parameters("1 | 100 | 3 | 1e9", use_minimization=False)
 
     def minimize_at_upper_bound(function, x0, bounds, **kwargs):
-        return OptimizeResult(
-            x=np.array([bounds[0][1], x0[1], x0[2]]), message="Finished", nit=0, nfev=0
-        )
+        return SimpleNamespace(x=np.array([bounds[0][1], x0[1], x0[2]]))
 
     monkeypatch.setattr("iddefix.framework.minimize", minimize_at_upper_bound)
     model.run_minimization_algorithm()

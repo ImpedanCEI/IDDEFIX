@@ -17,7 +17,7 @@ from scipy.constants import c
 from scipy.optimize import minimize
 
 from . import baseline
-from ._table import display_parameter_bounds, display_resonator_table
+from ._table import display_resonator_table
 from .objectiveFunctions import ObjectiveFunctions as obj
 from .resonatorFormulas import Impedances as imp
 from .resonatorFormulas import Wakes as wak
@@ -51,74 +51,115 @@ class EvolutionaryAlgorithm:
         parameterEstimates: ArrayLike | None = None,
         compute_uncertainties: bool = False,
     ) -> None:
-        """Fit longitudinal or transverse resonators to impedance or wake data.
+        """
+        Implements an evolutionary algorithm for fitting impedance models to data.
+
+        This class optimizes a resonator-based impedance model to fit measured or
+        simulated impedance data using an evolutionary algorithm. It supports both
+        longitudinal and transverse impedance models with a variable number of resonators.
 
         Parameters
         ----------
-        x_data : array-like
-            Frequencies [Hz] for impedance, or times [s] for wakes/potentials.
-            Time-domain transforms assume uniform sampling.
-        y_data : array-like
-            Impedance [Ohm], wake or wake potential [V/C]; transverse values
-            include an additional inverse-metre normalization.
+        x_data : numpy.ndarray
+            Stores the input x data: frequencies for impedance [Hz], or
+            times for wake function and wake potential [s]
+        y_data : numpy.ndarray
+            Stores the input y data: impedance data [Ohm] or Wake function/potential [V/C/s]
         N_resonators : int or None, optional
-            Resonator count; inferred from explicit bounds or a loaded table
-            if omitted. Required when fitting with default bounds.
+            Number of resonators in the model. If omitted, inferred from
+            ``parameterBounds`` or a subsequently loaded parameter table.
         parameterBounds : list of tuple or None, optional
-            Flattened bound pairs in ``(Rs, Q, fr)`` order per resonator.
-            If omitted, fitting derives bounds from the impedance spectrum:
-
-            - ``Rs``: zero to the maximum real impedance.
-            - ``Q``: 0.001 to 1000.
-            - ``fr``: smallest positive to 10 times the maximum sampled frequency.
-
-            Wakes use an FFT up to Nyquist; Gaussian wake potentials use
-            deconvolution up to ``min(Nyquist, 1 / (3 * sigma))``. These
-            transforms set bounds only; fitting stays in the input domain.
+            List of parameter bounds for the optimization. Each resonator has three
+            parameters: Rs (shunt resistance), Q (quality factor), and fr (resonant frequency).
+            May be omitted when loading a table for evaluation or plotting.
+        fitFunction: str, optional
+            Specify which fitFunction to use: ["impedance", "wake", "wake_potential"]
         plane : str, optional
-            ``"longitudinal"`` (default) or ``"transverse"``.
-        fitFunction : str, optional
-            ``"impedance"`` (default), ``"wake"``, or ``"wake potential"``.
+            Type of impedance model, either `"longitudinal"` or `"transverse"`.
+            Default is `"longitudinal"`.
         objectiveFunction : callable or str, optional
-            ``"complex"``, ``"real"``, or ``"abs"``/``"absolute"``
-            (case-insensitive), or a custom objective. Defaults to complex
-            SSE for data with nonzero imaginary values, otherwise real SSE.
-        wake_length : float or None, optional
-            Wake length [m] for finite-duration impedance evaluation.
-            ``None`` uses the fully decayed resonator expression.
-        sigma : float or None, optional
-            RMS Gaussian bunch duration [s] for wake-potential evaluation
-            and deconvolution. Defaults to 1e-10 s for wake-potential fits.
+            The objective function to minimize. If str, it should be in
+            ['Real', 'Complex', 'Abs', 'Absolute'] (no case distinction). Default if
+            `y_data` is complex: ``obj.sumOfSquaredError``; otherwise it is
+            ``obj.sumOfSquaredErrorReal``.
+        wake_length : float, optional
+            Length of the wake function in meters. Required for wake computations.
+        sigma : float, optional
+            Standard deviation for the bunch's Gaussian distribution used in
+            wake potential getters and optional SmartBounds baseline
+            deconvolution, in seconds. Default is ``None``. When ``None`` and
+            wake-potential getter is used, a default value of 1e-10 s is applied internally.
         uncertainty_warning : float, optional
-            Relative uncertainty warning threshold; default 0.2 (20%).
-        parameterEstimates : array-like or None, optional
-            Initial flattened ``(Rs, Q, fr)`` vector. Solver ``x0`` overrides it.
+            Threshold for relative uncertainty warnings when uncertainties
+            are available. Default is 0.2 (20%).
+        parameterEstimates : array-like, optional
+            Initial parameter vector in the same flattened order as
+            ``parameterBounds``. The value is stored unchanged. Individual
+            solver calls can override it with ``x0``.
         compute_uncertainties : bool, optional
-            Estimate uncertainties after fitting; default False. They can
-            also be requested later with ``get_uncertainties()``.
+            Compute parameter uncertainties automatically after fitting.
+            Default is False. Set to True to enable this calculation, or call
+            ``get_uncertainties()`` after fitting when needed.
+
+        Attributes
+        ----------
+        fitFunction : callable
+            Function used to evaluate the selected impedance, wake, or
+            wake-potential model.
+        fitFunctionType : str
+            Selected model domain: ``"impedance"``, ``"wake"``, or
+            ``"wake potential"``.
+        evolutionParameters : dict or None
+            Stores parameters of the evolutionary optimization algorithm.
+        minimizationParameters : numpy.ndarray or None
+            Stores the best-fit parameters obtained from the optimization.
+        minimizationBounds : list of tuple or None
+            Bounds used by the most recent local minimization. They are derived
+            from ``margin`` around ``evolutionParameters``, or equal to
+            ``parameterBounds`` for a minimization-only run. They are cleared
+            when stored parameters are manually changed.
+        time_data : numpy.ndarray
+            Stores the input x data: times for wake function and wake potential [s]
+        wake_data : numpy.ndarray
+            Stores the input Wake function [V/C/s]
+        wake_potential_data : numpy.ndarray
+            Stores the input Wake potential [V/C/s]
+        frequency_data : numpy.ndarray
+            Stores the input x data: frequencies for impedance [Hz]
+        impedance_data : numpy.ndarray
+            Stores the input impedance data [Ohm]
 
         Notes
         -----
-        - Evolutionary results are stored in ``evolutionParameters``;
-          local-fit results in ``minimizationParameters``.
-        - Loading parameters for evaluation does not generate bounds.
-        - For large inputs, consider ``downsample_data()`` while preserving
-          narrow resonances.
+            - The ``fitFunction`` is assigned based on the ``plane`` type, the
+                    fit mode, and the number of resonators.
+            - The impedance and wake model is based on resonators and can be
+                    used for both single-resonator and multi-resonator systems.
+            - The optimization is performed using an evolutionary algorithm, with results
+                    stored in `minimizationParameters`.
+            - Inputs with more than 2000 samples print a yellow warning because fitting
+              time grows with the number of samples. Around 2000 samples are
+              often sufficient for impedance data spanning 20 GHz, provided
+              narrow resonances remain resolved.
 
         Examples
         --------
         >>> import numpy as np
         >>> import iddefix
+        >>> # Create a resonator impedance (freqs, Rs, Q, fr)
         >>> freqs = np.linspace(0.5e9, 1.5e9, 401)
         >>> Z = iddefix.Impedances.Resonator_longitudinal_imp(freqs, 100, 8, 1e9)
-        >>> model = iddefix.EvolutionaryAlgorithm(freqs, Z, N_resonators=1)
+        >>> model = iddefix.EvolutionaryAlgorithm(
+        ...    x_data=freqs,
+        ...    y_data=Z
+        ... )
+        >>> model.estimate_bounds(
+        ...     minimum_peak_height=50,
+        ...     show_table=True,
+        ...     show_inspect=True
+        ... )
+        >>> model.downsample_data(factor=2, show=True)
         >>> model.run_cmaes(maxiter=100, popsize=10)
-
-        Alternatively, derive bounds and estimates from detected peaks:
-
-        >>> model = iddefix.EvolutionaryAlgorithm(freqs, Z)
-        >>> model.estimate_bounds(prominence=0.1)
-        >>> model.run_minimization_algorithm()
         """
 
         self.x_data = x_data
@@ -159,7 +200,6 @@ class EvolutionaryAlgorithm:
         self.minimizationParameters = None
         self.minimizationParametersUncertainties = None
         self.minimizationBounds = None
-        self.minimization_result = None
         self.flagged_params = None
 
         # Threshold on relative uncertainty (sigma/|value|) above which a
@@ -258,109 +298,36 @@ class EvolutionaryAlgorithm:
             return self.time_data, self.wake_data
         return self.time_data, self.wake_potential_data
 
-    def downsample_data(
-        self,
-        factor: int | None = None,
-        show: bool = False,
-        scale: str = "linear",
-        spacing: str | None = None,
-        *,
-        samples: int | None = None,
-    ) -> None:
-        """Downsample paired data, always retaining the first and last samples.
+    def downsample_data(self, factor: int, show: bool = False) -> None:
+        """Keep every ``factor``-th input pair, starting with the first sample.
 
-        Supply exactly one of ``factor`` (keep every Nth sample) or ``samples``
-        (approximate retained count). ``samples`` defaults to linear spacing;
-        ``spacing="log"`` selects near logarithmically spaced targets.
-        ``factor`` also accepts explicit linear or log spacing.
-
-        Selection uses original samples without interpolation. Duplicate
-        selections are removed; preserving endpoints may add points. Log
-        spacing also retains a zero sample and requires nonnegative x with
-        at least one positive value. FFT/deconvolution requires uniform times.
-
-        With ``show=True``, compare original and retained data. Complex data
-        use separate real and imaginary panels. ``scale`` controls plotting:
-        ``"linear"`` (default), ``"log"`` (x), or ``"loglog"`` (both).
-        Log axes omit nonpositive values without changing stored signs.
-        Call before fitting; preserve enough points to resolve narrow modes.
+        Updates the stored fitting data in place. With ``show=True``, compare
+        the original and retained y samples against x. Complex data use
+        separate real and imaginary subplots.
+        Prints the number of samples retained after downsampling.
+        Call this before fitting; narrow resonances may need a smaller factor.
         """
-        if (factor is None) == (samples is None):
-            raise ValueError("Supply exactly one of factor or samples")
-        if factor is not None and (
+        if (
             isinstance(factor, (bool, np.bool_))
             or not isinstance(factor, (int, np.integer))
             or factor < 1
         ):
             raise ValueError("factor must be a positive integer")
 
-        if samples is not None and (
-            isinstance(samples, (bool, np.bool_))
-            or not isinstance(samples, (int, np.integer))
-            or samples < 2
-        ):
-            raise ValueError("samples must be an integer of at least two")
-
         fit_x, fit_y = self._fit_data
         x_data = np.asarray(fit_x)
         y_data = np.asarray(fit_y)
-        if (
-            x_data.ndim != 1
-            or y_data.ndim != 1
-            or x_data.shape != y_data.shape
-            or len(x_data) < 2
-        ):
+        if x_data.ndim != 1 or y_data.ndim != 1 or x_data.shape != y_data.shape:
             raise ValueError(
-                "x_data and y_data must be matching one-dimensional arrays with at least two samples"
+                "x_data and y_data must be matching one-dimensional arrays"
             )
-        if samples is None:
-            indices = np.unique(
-                np.r_[np.arange(0, len(x_data), factor), len(x_data) - 1]
-            )
-            count = len(indices)
-        else:
-            count = min(samples, len(x_data))
-            spacing = "linear" if spacing is None else spacing
-        if spacing is not None:
-            if spacing not in ("linear", "log"):
-                raise ValueError("spacing must be None, 'linear', or 'log'")
-            order = np.argsort(x_data)
-            zeros = np.array([], dtype=int)
-            if spacing == "log":
-                if np.any(x_data < 0) or not np.any(x_data > 0):
-                    raise ValueError(
-                        "log spacing requires nonnegative x and positive samples"
-                    )
-                zeros = order[x_data[order] == 0][:1]
-                order = order[x_data[order] > 0]
-                count -= len(zeros)
-            coordinates = np.log(x_data[order]) if spacing == "log" else x_data[order]
-            targets = (
-                np.linspace(coordinates[0], coordinates[-1], count)
-                if count > 1
-                else coordinates[-1:]
-            )
-            right = np.clip(np.searchsorted(coordinates, targets), 0, len(order) - 1)
-            left = np.maximum(right - 1, 0)
-            nearest = np.where(
-                np.abs(coordinates[left] - targets)
-                <= np.abs(coordinates[right] - targets),
-                left,
-                right,
-            )
-            indices = np.unique(np.r_[0, len(x_data) - 1, zeros, order[nearest]])
-            indices = indices[np.argsort(x_data[indices])]
-            if len(indices) < 2:
-                raise ValueError("spacing must retain at least two distinct samples")
+        indices = np.arange(0, len(x_data), factor)
+        if len(indices) < 2:
+            raise ValueError("factor must retain at least two samples")
 
         if show:
             import matplotlib.pyplot as plt
 
-            xscale, yscale = {
-                "linear": ("linear", "linear"),
-                "log": ("log", "linear"),
-                "loglog": ("log", "log"),
-            }[scale]
             components = (
                 (("Real", np.real), ("Imaginary", np.imag))
                 if np.iscomplexobj(y_data)
@@ -382,7 +349,6 @@ class EvolutionaryAlgorithm:
                     label="Downsampled",
                 )
                 axis.set_ylabel(f"{name} y_data" if name else "y_data")
-                axis.set(xscale=xscale, yscale=yscale)
                 axis.legend()
             axes[-1, 0].set(
                 xlabel="Frequency [Hz]"
@@ -664,7 +630,7 @@ class EvolutionaryAlgorithm:
         return bounds
 
     @property
-    def bounds(self) -> SmartBoundDetermination | None:
+    def smart_bounds(self) -> SmartBoundDetermination | None:
         """Most recently applied SmartBounds estimator, if available."""
         return self._smart_bounds
 
@@ -672,7 +638,8 @@ class EvolutionaryAlgorithm:
         """Use a completed SmartBounds estimate to set fitting bounds.
 
         The estimator must describe the same impedance plane. Applying new
-        bounds clears earlier fit results and stores the estimator as ``bounds``.
+        bounds clears earlier fit results and enables ``add_peak`` on this
+        estimator.
         """
         if not isinstance(bounds, SmartBoundDetermination):
             raise TypeError("bounds must be a SmartBoundDetermination instance")
@@ -695,6 +662,32 @@ class EvolutionaryAlgorithm:
         self.minimizationParametersUncertainties = None
         self.minimizationBounds = None
         self.flagged_params = None
+
+    def add_peak(
+        self,
+        frequency: float,
+        q_side: str | None = None,
+        Q: float | None = None,
+    ) -> None:
+        """Add a peak to the latest SmartBounds estimate and update fit bounds.
+
+        Call ``estimate_bounds`` or ``apply_bounds`` first. A successful
+        addition clears fitted parameters because the number of resonators
+        has changed.
+        """
+        bounds = self._smart_bounds
+        if bounds is None:
+            raise RuntimeError(
+                "Call estimate_bounds or apply_bounds before adding a peak"
+            )
+        if (
+            self.parameterBounds is not bounds.parameterBounds
+            or self.parameterEstimates is not bounds.parameterEstimates
+        ):
+            raise RuntimeError("Call estimate_bounds again after editing the model")
+
+        bounds.add_peak(frequency, q_side=q_side, Q=Q)
+        self.apply_bounds(bounds)
 
     def check_y_data(self) -> None:
         """
@@ -757,39 +750,20 @@ class EvolutionaryAlgorithm:
 
         return solution, message
 
-    def _impedance_for_bounds(self) -> tuple[np.ndarray, np.ndarray]:
-        """Return the input spectrum or estimate it from time-domain data."""
-        if self.fitFunctionType == "impedance":
-            frequency = np.asarray(self.frequency_data)
-            impedance = np.asarray(self.impedance_data)
-        else:
-            time = np.asarray(self.time_data)
-            nyquist = 0.5 / (time[1] - time[0])
-            if self.fitFunctionType == "wake":
-                frequency, impedance = compute_fft(
-                    time, np.asarray(self.wake_data) / c, fmax=nyquist
-                )
-            else:
-                frequency, impedance = compute_deconvolution(
-                    time,
-                    np.asarray(self.wake_potential_data) / c,
-                    sigma=self.sigma,
-                    fmax=min(nyquist, 1 / (3 * self.sigma)),
-                )
-            if self.plane == "transverse":
-                impedance = 1j * impedance
-        return frequency, impedance
-
-    def _default_parameterBounds(
-        self, N_resonators: int | None = None
-    ) -> ParameterBounds:
-        """Estimate impedance if needed, then return bounds in Rs, Q, fr order."""
-        frequency, impedance = self._impedance_for_bounds()
-        return [
-            (0.0, np.max(np.real(impedance))),
-            (0.001, 1000.0),
-            (np.min(frequency[frequency > 0]), 10 * np.max(frequency)),
-        ] * (self.N_resonators if N_resonators is None else N_resonators)
+    def _require_fit_bounds(self) -> ParameterBounds:
+        """Require finite search bounds for a global optimizer."""
+        if self.N_resonators is None or self.parameterBounds is None:
+            raise ValueError("Set N_resonators and parameterBounds before fitting")
+        bounds = np.asarray(self.parameterBounds, dtype=float)
+        if (
+            bounds.shape != (3 * self.N_resonators, 2)
+            or not np.all(np.isfinite(bounds))
+            or np.any(bounds[:, 0] > bounds[:, 1])
+        ):
+            raise ValueError(
+                "Fitting requires finite parameterBounds for each resonator"
+            )
+        return self.parameterBounds
 
     def run_differential_evolution(
         self,
@@ -823,9 +797,7 @@ class EvolutionaryAlgorithm:
             Probability of recombining individuals in the DE algorithm.
             Default is 0.8.
         tol : float, optional
-            Solver convergence tolerance; default 0.01. For SciPy DE, controls
-            the spread of population objective values relative to their mean;
-            it is not a target fitting error.
+            Convergence tolerance for stopping criteria. Default is 0.01.
         solver : str, optional
             Specifies the DE solver to use. Valid options are:
             - `"scipy"`: Uses SciPy's built-in DE solver.
@@ -865,14 +837,12 @@ class EvolutionaryAlgorithm:
         None
             The optimized parameters are stored in `self.evolutionParameters`.
         """
-        if self.parameterBounds is None:
-            self.parameterBounds = self._default_parameterBounds()
         solver_options = dict(kwargs)
         if solver == "scipy":
             solver_options["x0"] = self.parameterEstimates if x0 is None else x0
 
         evolutionParameters, warning = self._solve_differential_evolution(
-            self.parameterBounds,
+            self._require_fit_bounds(),
             self.objectiveFunction,
             self.fitFunction,
             *self._fit_data,
@@ -908,7 +878,6 @@ class EvolutionaryAlgorithm:
         sigma: float = 0.6,
         verbose: bool = False,
         x0: ArrayLike | None = None,
-        tol: float = 1e-4,
         **kwargs: Any,
     ) -> "Result":
         """
@@ -935,13 +904,9 @@ class EvolutionaryAlgorithm:
         x0 : array-like, optional
             Initial parameter vector. Defaults to ``parameterEstimates`` stored
             on the model. If both are ``None``, CMA-ES uses the bounds midpoint.
-        tol : float, optional
-            Solver convergence tolerance, mapped to CMA-ES ``tolx`` (parameter
-            convergence); default 1e-4. Uses normalized coordinates with
-            CMA-ES's default ``normalize=True``. Other stopping criteria remain active.
         **kwargs : Any
             Additional options passed to ``pymoo.algorithms.soo.nonconvex.cmaes.CMAES``.
-            For example, ``tolx``, ``tolfun``, ``maxfevals``, ``restarts``,
+            For example, ``tolfun``, ``tolx``, ``maxfevals``, ``restarts``,
             ``restart_from_best``, and ``seed``. IDDEFIX defaults to zero
             restarts and seed 42; a supplied keyword overrides these defaults.
             Use ``popsize`` above for the population size. Pymoo's
@@ -972,17 +937,14 @@ class EvolutionaryAlgorithm:
             y=self._fit_data[1],
         )
 
-        if self.parameterBounds is None:
-            self.parameterBounds = self._default_parameterBounds()
         solution, message, res = Solvers.run_pymoo_cmaes_solver(
-            self.parameterBounds,
+            self._require_fit_bounds(),
             objective_function,
             sigma=sigma,
             maxiter=maxiter,
             popsize=popsize,
             verbose=verbose,
             x0=self.parameterEstimates if x0 is None else x0,
-            tol=tol,
             **kwargs,
         )
 
@@ -1005,154 +967,118 @@ class EvolutionaryAlgorithm:
 
     def run_minimization_algorithm(
         self,
-        margin: float | Sequence[float] | None = [0.1, 0.1, 0.1],
+        margin: float | Sequence[float] = [0.1, 0.1, 0.1],
         method: str = "Nelder-Mead",
-        verbose: bool = True,
-        options: dict[str, Any] | None = None,
-        normalize_parameters: bool = False,
-        maxiter: int | None = None,
-        tol: float | None = None,
     ) -> None:
-        """Fit or refine resonators using local minimization.
+        """
+        Runs a minimization algorithm to refine resonance parameters.
+
+        This function refines the parameters obtained from the Differential
+        Evolution (DE) algorithm by using a local optimization method.
+        If the DE algorithm has not been run, it directly minimizes the
+        objective function from ``parameterEstimates``, falling back to the
+        midpoint of ``parameterBounds`` when no estimate is available.
+
+        Each parameter is allowed to vary within a specified margin, where:
+        - Rs values use `margin[0]`
+        - Q values use `margin[1]`
+        - fres values use `margin[2]`
 
         Parameters
         ----------
-        margin : float, sequence of float, or None, optional
-            Relative refinement margins for (Rs, Q, fr), default 10% each.
-            Applied around the latest minimization result, or the evolution
-            result if no local fit exists. Resonant frequencies retain their
-            configured positive lower bound. ``None`` uses full parameter bounds.
+        margin : float or list of float, optional
+            A list of three values specifying the relative margins for Rs, Q, and fres.
+            Each parameter is allowed to vary by ±(margin * value).
+            Default is [0.1, 0.1, 0.1].
         method : str, optional
-            SciPy minimization method; default ``"Nelder-Mead"``.
-        verbose : bool, optional
-            Print termination status and the parameter table; default True.
-        maxiter : int or None, optional
-            Per-fit iteration cap. None uses 1000 per resonator for
-            refinement or 5000 per resonator for full-bound fits. Nelder-Mead
-            and L-BFGS-B also use this value as their evaluation budget.
-        tol : float or None, optional
-            Solver convergence tolerance; its meaning depends on the method.
-            None retains the existing Nelder-Mead tolerances and uses SciPy
-            defaults for other methods.
-        options : dict or None, optional
-            Advanced method-specific settings, overriding derived budgets
-            and tolerances (e.g. xatol, fatol, ftol, gtol).
-        normalize_parameters : bool, optional
-            Optimize in coordinates scaled by finite bound spans; default
-            False preserves the existing search and runtime. When True,
-            default ``xatol=1e-6`` is in normalized coordinates; supplied
-            ``initial_simplex`` coordinates must also be normalized.
+            Optimization method for `scipy.optimize.minimize`. Default is 'Nelder-Mead'.
 
         Notes
         -----
-        - Initial fits use ``parameterEstimates`` or the bounds midpoint.
-        - Repeated calls start from the latest fitted parameters.
-        - Without a fitted result, full parameter bounds are used regardless
-          of margin. Missing bounds are derived from the data.
-        - Results and used bounds are stored in ``minimizationParameters``
-          and ``minimizationBounds``. The SciPy ``OptimizeResult`` is retained
-          in ``minimization_result`` (parameters and final simplex in physical
-          units). Uncertainties are computed if requested.
+        - The optimization is constrained within ``self.minimizationBounds``,
+          which are computed using ``margin`` and the current
+          ``evolutionParameters``. For a minimization-only run, they equal
+          ``self.parameterBounds``.
+        - If the DE algorithm has not been run, the function initializes parameters
+          from `self.parameterEstimates` or the midpoint of `self.parameterBounds`.
+        - The minimization results are stored in `self.minimizationParameters`.
+        - Calls `self.display_resonator_parameters()` to display the refined parameters.
+
+        Returns
+        -------
+        None
+            The refined parameters are stored in `self.minimizationParameters`.
         """
-        if verbose:
-            print("Method for minimization : " + method)
+
+        print("Method for minimization : " + method)
         objective_function = partial(
             self.objectiveFunction,
             fitFunction=self.fitFunction,
             x=self._fit_data[0],
             y=self._fit_data[1],
         )
-        fitted_parameters = (
-            self.minimizationParameters
-            if self.minimizationParameters is not None
-            else self.evolutionParameters
-        )
-        refine = fitted_parameters is not None and margin is not None
-        if refine:
-            margins = np.broadcast_to(margin, (3,))
+        if type(margin) is float:
+            margin = [margin] * 3
+
+        if self.evolutionParameters is not None:
+            # Apply different margins based on parameter type (Rs, Q, fres)
             minimizationBounds = [
-                sorted(((1 - margins[i % 3]) * p, (1 + margins[i % 3]) * p))
-                for i, p in enumerate(fitted_parameters)
+                sorted(((1 - margin[i % 3]) * p, (1 + margin[i % 3]) * p))
+                for i, p in enumerate(self.evolutionParameters)
             ]
-            for i in range(2, len(minimizationBounds), 3):
-                lower = (
-                    self.parameterBounds[i][0]
-                    if self.parameterBounds is not None
-                    else 0.0
-                )
-                minimizationBounds[i][0] = max(
-                    minimizationBounds[i][0], lower, np.nextafter(0.0, 1.0)
-                )
+            minimizationParameters = minimize(
+                objective_function,
+                x0=self.evolutionParameters,
+                bounds=minimizationBounds,
+                tol=1,  # empiric value, documentation is cryptic
+                method=method,
+                options={
+                    "maxiter": self.N_resonators * 1000,
+                    "maxfev": self.N_resonators * 1000,
+                    "disp": False,
+                    "adaptive": True,
+                },
+            )
         else:
+            print("Differential Evolution algorithm not run, minimization only")
             if self.parameterBounds is None:
-                self.parameterBounds = self._default_parameterBounds()
-            minimizationBounds = self.parameterBounds
-        initial_parameters = fitted_parameters
-        if initial_parameters is None:
+                raise ValueError(
+                    "Set parameterBounds before fitting without loaded parameters"
+                )
             initial_parameters = (
-                np.mean(minimizationBounds, axis=1)
+                np.mean(self.parameterBounds, axis=1)
                 if self.parameterEstimates is None
                 else self.parameterEstimates
             )
-        budget = (
-            self.N_resonators * (1000 if refine else 5000)
-            if maxiter is None
-            else maxiter
-        )
-        solver_options = {"maxiter": budget, "disp": False}
-        if method.lower() == "nelder-mead":
-            solver_options.update(
-                maxfev=budget,
-                adaptive=True,
-                xatol=(1e-6 if normalize_parameters else 1.0) if tol is None else tol,
-                fatol=1.0 if tol is None else tol,
+            minimizationParameters = minimize(
+                objective_function,
+                x0=initial_parameters,
+                bounds=self.parameterBounds,
+                method=method,
+                tol=1,
+                options={
+                    "maxiter": self.N_resonators * 5000,
+                    "maxfev": self.N_resonators * 5000,
+                    "disp": False,
+                    "adaptive": True,
+                },
             )
-        elif method.lower() == "l-bfgs-b":
-            solver_options["maxfun"] = budget
-        solver_options.update(options or {})
-        solver_objective = objective_function
-        solver_bounds = minimizationBounds
-        x0 = np.asarray(initial_parameters)
-        if normalize_parameters:
-            lower, upper = np.asarray(minimizationBounds, dtype=float).T
-            scale = np.where(upper > lower, upper - lower, 1.0)
-            x0 = (x0 - lower) / scale
-            solver_bounds = list(zip(np.zeros_like(lower), (upper - lower) / scale))
-            solver_objective = lambda values: objective_function(lower + scale * values)
-        result = minimize(
-            solver_objective,
-            x0=x0,
-            bounds=solver_bounds,
-            method=method,
-            tol=tol,
-            options=solver_options,
+        self.minimizationParameters = minimizationParameters.x
+        self.minimizationBounds = (
+            minimizationBounds
+            if self.evolutionParameters is not None
+            else self.parameterBounds
         )
-        if normalize_parameters:
-            result.x = lower + scale * result.x
-            if "final_simplex" in result:
-                vertices, values = result.final_simplex
-                result.final_simplex = (lower + scale * vertices, values)
-        self.minimization_result = result
-        self.minimizationParameters = result.x
-        self.minimizationBounds = minimizationBounds
         self.minimizationParametersUncertainties = None
         self.flagged_params = None
         if self.compute_uncertainties:
             self.get_uncertainties(parameterBounds=self.minimizationBounds)
-        if verbose:
-            print(f"Minimization: {result.message}")
-            print(
-                f"Iterations: {result.nit} / {solver_options['maxiter']} (maxiter); "
-                f"evaluations: {result.nfev} / "
-                f"{solver_options.get('maxfev', solver_options.get('maxfun', 'solver default'))} "
-                f"({'maxfev' if 'maxfev' in solver_options else 'maxfun' if 'maxfun' in solver_options else 'solver default'})"
-            )
-            self.display_resonator_parameters(
-                params=self.minimizationParameters,
-                to_markdown=False,
-                uncertainties=self.minimizationParametersUncertainties,
-                display_warnings=True,
-            )
+        self.display_resonator_parameters(
+            params=self.minimizationParameters,
+            to_markdown=False,
+            uncertainties=self.minimizationParametersUncertainties,
+            display_warnings=True,
+        )
 
     def get_uncertainties(
         self,
@@ -1202,22 +1128,6 @@ class EvolutionaryAlgorithm:
             parameters, uncertainties
         )
         return uncertainties
-
-    def display_parameter_bounds(
-        self,
-        parameterBounds: ParameterBounds | None = None,
-        to_markdown: bool = False,
-    ) -> None:
-        """Display supplied bounds or the model's parameter bounds.
-
-        Missing bounds use the data-derived defaults. Set ``to_markdown=True``
-        to print a Markdown table instead of the terminal or notebook table.
-        """
-        if parameterBounds is None:
-            if self.parameterBounds is None:
-                self.parameterBounds = self._default_parameterBounds()
-            parameterBounds = self.parameterBounds
-        display_parameter_bounds(parameterBounds, to_markdown=to_markdown)
 
     def display_resonator_parameters(
         self,
@@ -1479,30 +1389,19 @@ class EvolutionaryAlgorithm:
         self.minimizationBounds = None
         self._update_parameter_flags()
 
-    def remove_resonator(self, resonator_number: int | Sequence[int]) -> None:
-        """Remove one or several resonators by their 1-based table numbers.
+    def remove_resonator(self, resonator_number: int) -> None:
+        """Remove a resonator by its 1-based number in the parameter table.
 
         The corresponding values, uncertainties, and fit bounds are removed
         from both evolution and minimization results when present. At least
-        one resonator must remain. Lists use the numbering before removal;
-        duplicate numbers are removed only once. Linked SmartBounds peak
-        metadata, bounds, and estimates are synchronized when present.
+        one resonator must remain in the model.
         """
-        numbers = np.unique(np.atleast_1d(resonator_number))
-        if numbers.size == 0:
-            return
-        if (
-            not np.issubdtype(numbers.dtype, np.integer)
-            or np.any(numbers < 1)
-            or np.any(numbers > self.N_resonators)
-        ):
+        if not 1 <= resonator_number <= self.N_resonators:
             raise ValueError("resonator_number is outside the model")
-        if len(numbers) == self.N_resonators:
+        if self.N_resonators == 1:
             raise ValueError("The model must retain at least one resonator")
 
-        if self.bounds is not None:
-            self.bounds.remove_peak(numbers)
-        indices = (3 * (numbers[:, None] - 1) + np.arange(3)).ravel()
+        indices = np.arange(3 * (resonator_number - 1), 3 * resonator_number)
         for name in (
             "evolutionParameters",
             "evolutionParametersUncertainties",
@@ -1515,20 +1414,15 @@ class EvolutionaryAlgorithm:
         if self.parameterEstimates is not None:
             self.parameterEstimates = np.delete(self.parameterEstimates, indices)
         self.minimizationBounds = None
-        self.minimization_result = None
 
+        first_bound = 3 * (resonator_number - 1)
         if self.parameterBounds is not None:
-            removed = set(indices)
             self.parameterBounds = [
                 bound
                 for index, bound in enumerate(self.parameterBounds)
-                if index not in removed
+                if not first_bound <= index < first_bound + 3
             ]
-        self.N_resonators -= len(numbers)
-        if self.bounds is not None:
-            self.bounds.parameterBounds = self.parameterBounds
-            self.bounds.parameterEstimates = self.parameterEstimates
-            self.bounds.N_resonators = self.N_resonators
+        self.N_resonators -= 1
         self._update_parameter_flags()
 
     def add_resonator(
@@ -1883,34 +1777,18 @@ class EvolutionaryAlgorithm:
         input_data_kwargs: dict[str, Any] | None = None,
         component_kwargs: dict[str, Any] | None = None,
         total_model_kwargs: dict[str, Any] | None = None,
-        scale: str = "linear",
         **subplot_kwargs: Any,
     ):
         """Plot input data, individual resonators, and the total model.
 
         ``input_data_kwargs``, ``component_kwargs``, and
-        ``total_model_kwargs`` override the default line styles. Components
-        are drawn behind input data, with the total model on top. Remaining
+        ``total_model_kwargs`` override the default line styles. Remaining
         keyword arguments are forwarded to ``matplotlib.pyplot.subplots``.
         For 10 or more resonators, a shared colorbar replaces the component
         entries in the legends. Real-valued impedance fitted with the
         ``"abs"`` objective is shown as a single magnitude panel.
-        ``scale="log"`` makes x logarithmic; ``"loglog"`` makes both axes
-        logarithmic. Default is ``"linear"``. Explicit ``subplot_kw`` axis
-        settings take precedence. Log axes omit nonpositive values.
         """
         import matplotlib.pyplot as plt
-
-        xscale, yscale = {
-            "linear": ("linear", "linear"),
-            "log": ("log", "linear"),
-            "loglog": ("log", "log"),
-        }[scale]
-        subplot_kwargs["subplot_kw"] = {
-            "xscale": xscale,
-            "yscale": yscale,
-            **subplot_kwargs.get("subplot_kw", {}),
-        }
 
         # Custom input data
         if x_data is None:
@@ -1996,7 +1874,6 @@ class EvolutionaryAlgorithm:
                     "color": input_color,
                     "linewidth": 2.0,
                     "label": "Input data",
-                    "zorder": 3,
                     "alpha": 0.7,
                 }
                 input_style.update(input_data_kwargs or {})
@@ -2013,7 +1890,6 @@ class EvolutionaryAlgorithm:
                 "linewidth": 1.8,
                 "alpha": 0.9,
                 "label": "Total model",
-                "zorder": 4,
             }
             total_style.update(total_model_kwargs or {})
             axis.plot(
@@ -2030,7 +1906,6 @@ class EvolutionaryAlgorithm:
                     "linewidth": 1.5,
                     "alpha": 0.7,
                     "label": f"Resonator {index + 1}",
-                    "zorder": 2,
                 }
                 component_style.update(component_kwargs or {})
                 axis.plot(

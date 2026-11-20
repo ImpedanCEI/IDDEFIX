@@ -39,118 +39,6 @@ def test_large_input_preserves_samples(fit_function):
     assert model.y_data is y_data
 
 
-@pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
-def test_default_bounds_minimization(plane):
-    """Direct fitting derives per-resonator bounds and retains DC samples."""
-    frequency = np.linspace(0, 2e9, 81)
-    parameters = np.array([100.0, 3.0, 1e9, 50.0, 2.0, 1.5e9])
-    formula = getattr(iddefix.Impedances, f"n_Resonator_{plane}_imp")
-    target = formula(frequency, parameters)
-    model = iddefix.EvolutionaryAlgorithm(
-        frequency,
-        target,
-        N_resonators=2,
-        plane=plane,
-        parameterEstimates=parameters,
-    )
-
-    model.run_minimization_algorithm()
-
-    expected = [
-        (0.0, target.real.max()),
-        (0.001, 1000.0),
-        (frequency[1], 10 * frequency[-1]),
-    ] * 2
-    np.testing.assert_allclose(model.parameterBounds, expected)
-    np.testing.assert_allclose(model.minimizationBounds, expected)
-    np.testing.assert_allclose(model.get_impedance(), target, atol=1e-8)
-    assert model.frequency_data[0] == 0
-
-
-@pytest.mark.parametrize("solver", ["de", "cmaes"])
-def test_default_bounds_evolution(solver):
-    """Both evolutionary entry points accept an impedance and resonator count."""
-    frequency = np.linspace(0, 2e9, 41)
-    target = iddefix.Impedances.Resonator_longitudinal_imp(frequency, 100, 3, 1e9)
-    model = iddefix.EvolutionaryAlgorithm(frequency, target, N_resonators=1)
-
-    if solver == "de":
-        model.run_differential_evolution(maxiter=2, popsize=5, workers=1, seed=42)
-    else:
-        model.run_cmaes(maxiter=2, popsize=6, maxfevals=20)
-
-    np.testing.assert_allclose(
-        model.parameterBounds,
-        [(0, 100), (0.001, 1000), (frequency[1], 10 * frequency[-1])],
-    )
-    assert np.isfinite(model.get_impedance()).all()
-
-
-@pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
-@pytest.mark.parametrize("fit_function", ["wake", "wake potential"])
-def test_default_bounds_from_wake(plane, fit_function):
-    """FFT-derived bounds retain impedance units while fitting the input wake."""
-    time = np.linspace(-1e-9, 30e-9, 3101)
-    sigma = 0.1e-9
-    formula = getattr(
-        iddefix.Wakes, f"Resonator_{plane}_{fit_function.replace(' ', '_')}"
-    )
-    target = (
-        formula(time, 100.0, 3.0, 1e9, sigma=sigma)
-        if fit_function == "wake potential"
-        else formula(time, 100.0, 3.0, 1e9)
-    )
-    model = iddefix.EvolutionaryAlgorithm(
-        time,
-        target,
-        N_resonators=1,
-        plane=plane,
-        fitFunction=fit_function,
-        sigma=sigma,
-    )
-
-    model.run_differential_evolution(maxiter=1, popsize=5, workers=1, seed=42)
-
-    bounds = model.parameterBounds
-    assert bounds[0][0] == 0
-    assert bounds[0][1] == pytest.approx(100.0, rel=0.05)
-    assert bounds[1] == (0.001, 1000.0)
-    nyquist = 0.5 / (time[1] - time[0])
-    cutoff = (
-        min(nyquist, 1 / (3 * sigma)) if fit_function == "wake potential" else nyquist
-    )
-    assert 0 < bounds[2][0] < 1e9 < bounds[2][1] < 10 * cutoff
-    assert model.fitFunctionType == fit_function
-    np.testing.assert_array_equal(model.time_data, time)
-    stored_target = (
-        model.wake_data if fit_function == "wake" else model.wake_potential_data
-    )
-    np.testing.assert_array_equal(stored_target, target)
-    assert model.frequency_data is None
-    assert model.impedance_data is None
-    assert np.isfinite(model.fitFunction(time, model.evolutionParameters)).all()
-
-
-def test_explicit_bounds_override_defaults():
-    """Explicit signed amplitude and out-of-band frequency bounds remain usable."""
-    frequency = np.linspace(0, 2e9, 41)
-    parameters = np.array([-100.0, 0.1, 4e9])
-    target = iddefix.Impedances.Resonator_transverse_imp(frequency, *parameters)
-    bounds = [(-200, 0), (0.01, 0.49), (3e9, 5e9)]
-    model = iddefix.EvolutionaryAlgorithm(
-        frequency,
-        target,
-        plane="transverse",
-        parameterBounds=bounds,
-        parameterEstimates=parameters,
-    )
-
-    model.run_minimization_algorithm()
-
-    np.testing.assert_allclose(model.parameterBounds, bounds)
-    np.testing.assert_allclose(model.get_impedance(), target, atol=1e-8)
-
-
 @pytest.mark.parametrize(
     ("fit_function", "x_alias", "y_alias"),
     [
@@ -169,12 +57,11 @@ def test_downsample_keeps_paired_samples(fit_function, x_alias, y_alias):
 
     np.testing.assert_array_equal(model.x_data, x_data)
     np.testing.assert_array_equal(model.y_data, y_data)
-    indices = np.unique(np.r_[np.arange(0, len(x_data), 3), len(x_data) - 1])
-    np.testing.assert_array_equal(getattr(model, x_alias), x_data[indices])
-    np.testing.assert_array_equal(getattr(model, y_alias), y_data[indices])
+    np.testing.assert_array_equal(getattr(model, x_alias), x_data[::3])
+    np.testing.assert_array_equal(getattr(model, y_alias), y_data[::3])
 
 
-@pytest.mark.parametrize("factor", [0, -1, 1.5, True])
+@pytest.mark.parametrize("factor", [0, -1, 1.5, True, 11])
 def test_downsample_rejects_invalid_factor(factor):
     """Invalid factors leave the stored input untouched."""
     x_data = np.arange(10.0)
@@ -229,7 +116,7 @@ def test_estimate_bounds_from_impedance(plane):
         minimum_peak_height=50.0, show_table=False, show_inspect=False
     )
 
-    assert model.bounds is bounds
+    assert model.smart_bounds is bounds
     assert bounds.impedance_type == "real"
     assert model.N_resonators == 1
     assert model.parameterBounds == bounds.parameterBounds
@@ -262,14 +149,16 @@ def test_add_peak_after_estimate_bounds():
     )
     model = iddefix.EvolutionaryAlgorithm(frequency, impedance)
 
+    with pytest.raises(RuntimeError, match="estimate_bounds"):
+        model.add_peak(2e9)
+
     bounds = model.estimate_bounds(
         minimum_peak_height=50.0, show_table=False, show_inspect=False
     )
     assert model.N_resonators == 1
     model.evolutionParameters = np.array([100.0, 8.0, 1e9])
 
-    bounds.add_peak(2e9, Q=8.0)
-    model.apply_bounds(bounds)
+    model.add_peak(2e9, Q=8.0)
 
     assert model.N_resonators == bounds.N_resonators == 2
     assert model.parameterBounds == bounds.parameterBounds
@@ -291,18 +180,17 @@ def test_apply_bounds_from_smartbounds():
     )
     model = iddefix.EvolutionaryAlgorithm(frequency, impedance)
     model.evolutionParameters = np.array([100.0, 8.0, 1e9])
-    assert model.bounds is None
+    assert model.smart_bounds is None
 
     model.apply_bounds(bounds)
 
-    assert model.bounds is bounds
+    assert model.smart_bounds is bounds
     assert model.N_resonators == 1
     assert model.parameterBounds == bounds.parameterBounds
     np.testing.assert_allclose(model.parameterEstimates, bounds.parameterEstimates)
     assert model.evolutionParameters is None
 
-    bounds.add_peak(2e9, Q=8.0)
-    model.apply_bounds(bounds)
+    model.add_peak(2e9, Q=8.0)
     assert model.N_resonators == bounds.N_resonators == 2
 
     transverse = iddefix.EvolutionaryAlgorithm(frequency, impedance, plane="transverse")
