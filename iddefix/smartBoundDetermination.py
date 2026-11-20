@@ -18,7 +18,7 @@ from scipy.interpolate import CubicSpline
 from scipy.signal import find_peaks
 
 from . import baseline
-from ._table import display_resonator_table
+from ._table import display_parameter_bounds
 from .resonatorFormulas import Impedances as imp
 
 ArrayLike = npt.ArrayLike
@@ -903,6 +903,35 @@ class SmartBoundDetermination:
             self.plane,
         )
 
+    def remove_peak(self, peak_number: int | list[int]) -> None:
+        """Remove 1-based peak numbers and recompute the remaining estimates.
+
+        Lists refer to the numbering before removal. At least one peak must
+        remain. Use ``model.apply_bounds(bounds)`` to apply edits to a model.
+        """
+        numbers = np.unique(np.atleast_1d(peak_number))
+        if numbers.size == 0:
+            return
+        if (
+            not np.issubdtype(numbers.dtype, np.integer)
+            or np.any(numbers < 1)
+            or np.any(numbers > self.N_resonators)
+        ):
+            raise ValueError("peak_number is outside the estimate")
+        if len(numbers) == self.N_resonators:
+            raise ValueError("The estimate must retain at least one peak")
+        indices = numbers - 1
+        removed = set(self.peaks[indices])
+        self._peak_q_estimates = {
+            peak: q for peak, q in self._peak_q_estimates.items() if peak not in removed
+        }
+        self._bounds_from_peaks(
+            np.delete(self.peaks, indices),
+            np.delete(self.q_sides_used, indices).tolist(),
+            self.impedance_type,
+            self.plane,
+        )
+
     def _start_interactive_selection(
         self,
         q_side: str | list[str],
@@ -1069,7 +1098,7 @@ class SmartBoundDetermination:
         if frequency_data is None:
             frequency_data = self.analysis_frequency_data
         frequency_data = np.asarray(frequency_data)
-        if not self.parameterEstimates:
+        if len(self.parameterEstimates) == 0:
             return np.empty((0, frequency_data.size), dtype=complex)
 
         fit_function = (
@@ -1097,10 +1126,23 @@ class SmartBoundDetermination:
         show_bounds: bool = False,
         show_components: bool = False,
         figsize: tuple[float, float] = (10, 6),
+        scale: str = "linear",
     ) -> None:
-        """Plot input and Hann traces, peaks, bounds, and resonator components."""
+        """Plot input and Hann traces, peaks, bounds, and resonator components.
+
+        ``scale="log"`` makes x logarithmic; ``"loglog"`` makes both axes
+        logarithmic. Default is ``"linear"``. Nonpositive values are omitted
+        on log axes; the stored data and signs are unchanged.
+        """
         # Input trace and optional component data
         fig = plt.figure(figsize=figsize)
+        xscale, yscale = {
+            "linear": ("linear", "linear"),
+            "log": ("log", "linear"),
+            "loglog": ("log", "log"),
+        }[scale]
+        plt.xscale(xscale)
+        plt.yscale(yscale)
 
         # Plot the baseline-corrected trace first so it determines the y-axis.
         input_label = (
@@ -1375,18 +1417,4 @@ class SmartBoundDetermination:
         """
         params = self.parameterBounds if parameterBounds is None else parameterBounds
 
-        # Turn each Rs, Q, and frequency bound triple into display-ready cells.
-        rows = []
-        for i in range(len(params) // 3):
-            rs_bounds, q_bounds, frequency_bounds = params[3 * i : 3 * i + 3]
-            q_range = " to ".join(f"{q:.4g}" for q in q_bounds)
-            rows.append(
-                (
-                    f"{rs_bounds[0]:.4g} to {rs_bounds[1]:.4g}",
-                    q_range,
-                    f"{frequency_bounds[0]:.2e} to {frequency_bounds[1]:.2e}",
-                )
-            )
-        display_resonator_table(
-            rows, to_markdown=to_markdown, minimum_widths=(24, 18, 25)
-        )
+        display_parameter_bounds(params, to_markdown=to_markdown)

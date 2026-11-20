@@ -275,6 +275,7 @@ class Solvers:
         popsize: int | None = None,  # defaul: 4 + int(3 * np.log(len(parameterBounds)))
         verbose: bool = False,
         x0: ArrayLike | None = None,
+        tol: float = 1e-4,
         **kwargs,
     ) -> tuple[np.ndarray, str, Any]:
         """
@@ -292,8 +293,9 @@ class Solvers:
             verbose: Show pymoo's progress output.
             x0: Initial parameter vector. If None, use the midpoint of each
                 parameter bound.
-            **kwargs: Other pymoo CMAES constructor options, such as ``tolfun``,
-                ``tolx``, ``maxfevals``, ``restarts``, and ``seed``.
+            tol: Solver tolerance mapped to CMA-ES ``tolx``. Defaults to 1e-4.
+            **kwargs: Other pymoo CMAES constructor options, such as ``tolx``, ``tolfun``,
+                ``maxfevals``, ``restarts``, and ``seed``.
                 See https://pymoo.org/_modules/pymoo/algorithms/soo/nonconvex/cmaes.html.
 
         Returns:
@@ -346,6 +348,7 @@ class Solvers:
             seed=42,
             restarts=0,
             restart_from_best=True,
+            tolx=tol,
         )
         cmaes_options.update(kwargs)
         solver = CMAES(**cmaes_options)
