@@ -520,6 +520,8 @@ space rather than in ohms, hertz, or physical $Q$ units.
 The main arguments are:
 
 - `sigma`: initial global standard deviation.
+- `tol`: parameter convergence tolerance, mapped to CMA-ES `tolx`;
+  default `1e-4`. Other CMA-ES stopping criteria remain active.
 - `popsize`: number $\lambda$ of candidates sampled per generation.
 - `maxiter`: optional per-run iteration limit; `None` (the default) removes this
   limit.
