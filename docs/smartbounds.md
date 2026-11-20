@@ -23,7 +23,7 @@ model.run_cmaes()
 model.plot_resonator_components()
 ```
 
-`estimate_bounds()` finds the resonator count, fitting bounds, and starting estimates, then shows an inspection plot followed by a table. It enables Hann peak detection when `wake_length` is supplied. If a peak is missed, call `bounds.add_peak(frequency, Q=known_q)` followed by `model.apply_bounds(bounds)` before fitting; the latest estimator is available as `model.bounds`.
+`estimate_bounds()` finds the resonator count, fitting bounds, and starting estimates, then shows an inspection plot followed by a table. It enables Hann peak detection when `wake_length` is supplied. If a peak is missed, call `model.add_peak(frequency, Q=known_q)` before fitting; the latest estimator is available as `model.smart_bounds`.
 
 For wake and wake-potential inputs, EA transforms the data to impedance for peak detection and fits the original time-domain data. Use `fmax` and `fft_samples` to control the temporary frequency grid.
 
