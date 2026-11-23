@@ -171,7 +171,7 @@ def test_iterative_initial_estimates(monkeypatch):
             x=np.asarray(x0).copy(), message="Finished", nit=0, nfev=0
         )
 
-    monkeypatch.setattr("iddefix.framework.minimize", keep_estimates)
+    monkeypatch.setattr("iddefix.iterative.minimize", keep_estimates)
     history = model.run_iterative_minimization(
         max_resonators=2, initial_q=0.2, normalize_parameters=False
     )
@@ -250,7 +250,7 @@ def test_iterative_restores_best(monkeypatch):
         )
         return OptimizeResult(x=parameters.copy(), message="Finished", nit=0, nfev=0)
 
-    monkeypatch.setattr("iddefix.framework.minimize", fit_by_count)
+    monkeypatch.setattr("iddefix.iterative.minimize", fit_by_count)
     history = model.run_iterative_minimization(
         max_resonators=3, rms_target=0.0, normalize_parameters=False
     )
