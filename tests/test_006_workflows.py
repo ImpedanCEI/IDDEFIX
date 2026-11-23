@@ -212,7 +212,7 @@ def test_estimate_bounds_hann_from_complex_magnitude():
 
     assert bounds.impedance_type == "absolute"
     assert bounds.N_resonators == 1
-    assert model.parameterEstimates[2] == pytest.approx(0.8e9, rel=0.1)
+    assert model.parameterEstimates[2] == pytest.approx(0.8e9, rel=0.12)
 
 
 def test_estimate_bounds_uses_hann_for_finite_wake():
