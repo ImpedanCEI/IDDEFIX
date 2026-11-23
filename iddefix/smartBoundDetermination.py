@@ -1144,7 +1144,8 @@ class SmartBoundDetermination:
                 self.analysis_frequency_data,
                 self.hann_trace,
                 linewidth=0.6,
-                color="tab:blue",
+                color="tab:orange",
+                zorder=4,
                 label="Hann trace",
                 scaley=False,
             )[0]
