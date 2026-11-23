@@ -1118,6 +1118,7 @@ class SmartBoundDetermination:
             "-",
             color="tab:blue" if show_components else None,
             linewidth=2.0 if show_components else None,
+            alpha=0.4 if self.hann_trace is not None else 1.0,
             label=input_label
             if show_bounds or show_components or self.hann_trace is not None
             else None,
@@ -1144,7 +1145,7 @@ class SmartBoundDetermination:
                 self.analysis_frequency_data,
                 self.hann_trace,
                 linewidth=0.6,
-                color="tab:orange",
+                color="tab:blue",
                 zorder=4,
                 label="Hann trace",
                 scaley=False,
