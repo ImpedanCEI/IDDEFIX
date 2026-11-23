@@ -297,11 +297,7 @@ For data starting above DC, Hann detection uses the continuous interval $f_{\min
 
 With Hann enabled, `impedance_type="real"` finds peaks in $\Re(Z_H)$; `"absolute"` uses $|Z_H|$ when the complex impedance is available. Magnitude-only input lacks the phase needed for Hann windowing, so peak detection uses the original magnitude. Peak heights and widths always come from the unwindowed trace.
 
-The following comparison uses the transverse SPS transition impedance from example `004b`, with the same Gaussian deconvolution ($\sigma=100$ ps) and wake length (about 5 m). The full Hann damps both the beginning and end of the record; the descending half Hann preserves the prompt wake while tapering the tail. The plot compares detection traces, not fitted impedances. A smoother detection trace can merge neighboring resonances, so inspect the detected peaks before fitting; this change does not imply a smaller fitting error or change the prominence and parameter-bound defaults.
-
-![Full Hann and descending half-Hann wake weights and SPS transition impedance traces](images/sps_hann_comparison.png)
-
-Reproduce this figure from the repository root with `PYTHONPATH=. python docs/scripts/plot_sps_hann.py`.
+A smoother detection trace can merge neighboring resonances, so inspect the detected peaks before fitting. This change does not imply a smaller fitting error or change the prominence and parameter-bound defaults.
 
 ### Linear wake baseline
 
