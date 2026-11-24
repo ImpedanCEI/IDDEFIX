@@ -683,54 +683,6 @@ def test_downsample_plot_scale(monkeypatch, scale):
     plt.close(axis.figure)
 
 
-@pytest.mark.parametrize("tol", [1e-4, 1e-7])
-def test_cmaes_public_tolerance(monkeypatch, resonance, tol):
-    """The public tolerance reaches the CMA-ES backend unchanged."""
-    frequency, parameters, target, bounds = resonance
-    observed = {}
-
-    def solve(parameterBounds, objective_function, **kwargs):
-        observed.update(kwargs)
-        return parameters.copy(), "Finished", object()
-
-    monkeypatch.setattr(Solvers, "run_pymoo_cmaes_solver", solve)
-    model = iddefix.EvolutionaryAlgorithm(frequency, target, parameterBounds=bounds)
-    model.run_cmaes(tol=tol)
-    assert observed["tol"] == tol
-    np.testing.assert_allclose(model.get_impedance(), target)
-
-
-@pytest.mark.parametrize("normalized", [False, True])
-def test_minimization_tolerance(monkeypatch, resonance, normalized):
-    """Local tolerance and advanced overrides reach SciPy for either coordinate system."""
-    frequency, parameters, target, bounds = resonance
-    observed = {}
-
-    def solve(function, x0, **kwargs):
-        observed.update(kwargs)
-        return OptimizeResult(
-            x=np.asarray(x0).copy(), message="Finished", nit=0, nfev=0
-        )
-
-    monkeypatch.setattr("iddefix.framework.minimize", solve)
-    model = iddefix.EvolutionaryAlgorithm(
-        frequency,
-        target,
-        parameterBounds=bounds,
-        parameterEstimates=parameters,
-    )
-    model.run_minimization_algorithm(
-        tol=1e-5,
-        options={"fatol": 1e-8},
-        normalize_parameters=normalized,
-        verbose=False,
-    )
-    assert observed["tol"] == 1e-5
-    assert observed["options"]["xatol"] == 1e-5
-    assert observed["options"]["fatol"] == 1e-8
-    np.testing.assert_allclose(model.minimizationParameters, parameters)
-
-
 def test_iterative_initial_estimates(monkeypatch):
     """Missing estimates use interior log spacing, spectral amplitudes, and Q."""
     frequency = np.array([0.0, 1.0, 10.0, 100.0])
@@ -912,6 +864,54 @@ def test_iterative_invalid_settings(kwargs):
     model = iddefix.EvolutionaryAlgorithm(np.arange(1.0, 11.0), np.ones(10))
     with pytest.raises(ValueError):
         model.run_iterative_minimization(**kwargs)
+
+
+@pytest.mark.parametrize("tol", [1e-4, 1e-7])
+def test_cmaes_public_tolerance(monkeypatch, resonance, tol):
+    """The public tolerance reaches the CMA-ES backend unchanged."""
+    frequency, parameters, target, bounds = resonance
+    observed = {}
+
+    def solve(parameterBounds, objective_function, **kwargs):
+        observed.update(kwargs)
+        return parameters.copy(), "Finished", object()
+
+    monkeypatch.setattr(Solvers, "run_pymoo_cmaes_solver", solve)
+    model = iddefix.EvolutionaryAlgorithm(frequency, target, parameterBounds=bounds)
+    model.run_cmaes(tol=tol)
+    assert observed["tol"] == tol
+    np.testing.assert_allclose(model.get_impedance(), target)
+
+
+@pytest.mark.parametrize("normalized", [False, True])
+def test_minimization_tolerance(monkeypatch, resonance, normalized):
+    """Local tolerance and advanced overrides reach SciPy for either coordinate system."""
+    frequency, parameters, target, bounds = resonance
+    observed = {}
+
+    def solve(function, x0, **kwargs):
+        observed.update(kwargs)
+        return OptimizeResult(
+            x=np.asarray(x0).copy(), message="Finished", nit=0, nfev=0
+        )
+
+    monkeypatch.setattr("iddefix.framework.minimize", solve)
+    model = iddefix.EvolutionaryAlgorithm(
+        frequency,
+        target,
+        parameterBounds=bounds,
+        parameterEstimates=parameters,
+    )
+    model.run_minimization_algorithm(
+        tol=1e-5,
+        options={"fatol": 1e-8},
+        normalize_parameters=normalized,
+        verbose=False,
+    )
+    assert observed["tol"] == 1e-5
+    assert observed["options"]["xatol"] == 1e-5
+    assert observed["options"]["fatol"] == 1e-8
+    np.testing.assert_allclose(model.minimizationParameters, parameters)
 
 
 def _retain_iterative_fit(trial, parameters):

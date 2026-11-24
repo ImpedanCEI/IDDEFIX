@@ -832,23 +832,6 @@ class EvolutionaryAlgorithm:
 
         return solution, message
 
-    def _require_fit_bounds(self) -> ParameterBounds:
-        """Require finite search bounds for a global optimizer."""
-        if self.N_resonators is None:
-            raise ValueError("Set N_resonators before fitting")
-        if self.parameterBounds is None:
-            self.parameterBounds = self._default_parameterBounds()
-        bounds = np.asarray(self.parameterBounds, dtype=float)
-        if (
-            bounds.shape != (3 * self.N_resonators, 2)
-            or not np.all(np.isfinite(bounds))
-            or np.any(bounds[:, 0] > bounds[:, 1])
-        ):
-            raise ValueError(
-                "Fitting requires finite parameterBounds for each resonator"
-            )
-        return self.parameterBounds
-
     def _impedance_for_bounds(self) -> tuple[np.ndarray, np.ndarray]:
         """Return the input spectrum or estimate it from time-domain data."""
         if self.fitFunctionType == "impedance":
@@ -885,6 +868,23 @@ class EvolutionaryAlgorithm:
             (0.001, 1000.0),
             (np.min(frequency[frequency > 0]), 10 * np.max(frequency)),
         ] * count
+
+    def _require_fit_bounds(self) -> ParameterBounds:
+        """Require finite search bounds for a global optimizer."""
+        if self.N_resonators is None:
+            raise ValueError("Set N_resonators before fitting")
+        if self.parameterBounds is None:
+            self.parameterBounds = self._default_parameterBounds()
+        bounds = np.asarray(self.parameterBounds, dtype=float)
+        if (
+            bounds.shape != (3 * self.N_resonators, 2)
+            or not np.all(np.isfinite(bounds))
+            or np.any(bounds[:, 0] > bounds[:, 1])
+        ):
+            raise ValueError(
+                "Fitting requires finite parameterBounds for each resonator"
+            )
+        return self.parameterBounds
 
     def run_differential_evolution(
         self,
@@ -2227,6 +2227,7 @@ class EvolutionaryAlgorithm:
         input_data_kwargs: dict[str, Any] | None = None,
         component_kwargs: dict[str, Any] | None = None,
         total_model_kwargs: dict[str, Any] | None = None,
+        scale: str = "linear",
         **subplot_kwargs: Any,
     ):
         """Plot input data, individual resonators, and the total model.
@@ -2237,8 +2238,22 @@ class EvolutionaryAlgorithm:
         For 10 or more resonators, a shared colorbar replaces the component
         entries in the legends. Real-valued impedance fitted with the
         ``"abs"`` objective is shown as a single magnitude panel.
+        ``scale="log"`` makes x logarithmic; ``"loglog"`` makes both axes
+        logarithmic. Default is ``"linear"``. Explicit ``subplot_kw`` axis
+        settings take precedence. Log axes omit nonpositive values.
         """
         import matplotlib.pyplot as plt
+
+        xscale, yscale = {
+            "linear": ("linear", "linear"),
+            "log": ("log", "linear"),
+            "loglog": ("log", "log"),
+        }[scale]
+        subplot_kwargs["subplot_kw"] = {
+            "xscale": xscale,
+            "yscale": yscale,
+            **subplot_kwargs.get("subplot_kw", {}),
+        }
 
         # Custom input data
         if x_data is None:

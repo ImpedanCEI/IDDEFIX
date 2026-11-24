@@ -464,3 +464,39 @@ def test_display_default_bounds(capsys):
     np.testing.assert_allclose(
         model.parameterBounds, [(0, y.real.max()), (0.001, 1000), (x[0], 10 * x[-1])]
     )
+
+
+@pytest.mark.parametrize("fit_function", ["impedance", "wake", "wake potential", "abs"])
+@pytest.mark.parametrize("scale", ["linear", "log", "loglog"])
+def test_component_plot_scales(monkeypatch, fit_function, scale):
+    """All plot domains apply scales without changing the plotted values."""
+    model = _model(
+        n_resonators=1,
+        fitFunction="impedance" if fit_function == "abs" else fit_function,
+        objectiveFunction="abs" if fit_function == "abs" else "real",
+        sigma=1e-10,
+    )
+    model.load_resonator_parameters("1 | 100 | 3 | 1e9")
+    monkeypatch.setattr(plt, "show", lambda: None)
+    components = model.get_resonator_components().copy()
+    fig, axes = model.plot_resonator_components(scale=scale)
+    for axis in axes:
+        assert axis.get_xscale() == ("linear" if scale == "linear" else "log")
+        assert axis.get_yscale() == ("log" if scale == "loglog" else "linear")
+    np.testing.assert_array_equal(model.get_resonator_components(), components)
+    plt.close(fig)
+
+
+def test_component_plot_axis_override(monkeypatch):
+    """Explicit subplot axis settings override scale defaults independently."""
+    model = _model(n_resonators=1)
+    model.load_resonator_parameters("1 | 100 | 3 | 1e9")
+    monkeypatch.setattr(plt, "show", lambda: None)
+    fig, axes = model.plot_resonator_components(
+        scale="loglog",
+        subplot_kw={"yscale": "linear"},
+    )
+    for axis in axes:
+        assert axis.get_xscale() == "log"
+        assert axis.get_yscale() == "linear"
+    plt.close(fig)
