@@ -520,6 +520,8 @@ space rather than in ohms, hertz, or physical $Q$ units.
 The main arguments are:
 
 - `sigma`: initial global standard deviation.
+- `tol`: parameter convergence tolerance, mapped to CMA-ES `tolx`;
+  default `1e-4`. Other CMA-ES stopping criteria remain active.
 - `popsize`: number $\lambda$ of candidates sampled per generation.
 - `maxiter`: optional per-run iteration limit; `None` (the default) removes this
   limit.
@@ -542,6 +544,43 @@ direct limit on objective-function evaluations.
 The optimized parameters are stored in `evolutionParameters`. As with a DE
 fit, `run_minimization_algorithm` can subsequently refine this solution with a
 local minimizer.
+
+## Iterative local fitting
+
+`run_iterative_minimization()` is implemented in `iddefix/iterative.py` and
+exposed as an `EvolutionaryAlgorithm` method. It grows the current fit by
+adding a resonator at its largest weighted spectral residual. It preserves supplied estimates,
+uses log-spaced frequencies when estimates are absent, and grows from the
+best accepted trial. Optional `margin` values constrain existing resonators;
+new resonators retain their full bounds.
+
+For complex data, both residual components use the same amplitude scale:
+
+$$
+s_i = \max\left(|y_i|,\;\texttt{rms\_floor}\max_j|y_j|\right),\qquad
+E = \max_{c\in\{\mathrm{Re},\mathrm{Im}\}}
+\frac{1}{n}\sum_i\left(\frac{c(y_{\mathrm{fit},i}-y_i)}{s_i}\right)^2.
+$$
+
+The optimizer minimizes $E$, and the reported `rms_error` is $\sqrt{E}$.
+This avoids dividing by individual real/imaginary zero crossings.
+Real-only and magnitude fits use their respective amplitudes. The configured
+objective selects the components; its original loss remains available as
+`objective_value`. Custom objectives use the input data type to select
+components rather than being minimized directly by this iterative method.
+
+With `normalize_parameters=True`, optimization uses
+$u=\operatorname{asinh}(p/a)$, where $a$ is based on the starting parameter
+magnitude. This supports wide frequency ranges and signed or zero amplitudes.
+Nelder–Mead uses an explicit initial simplex, `xatol=1e-3` in these coordinates,
+and `fatol=1e-8` in squared RMS units. `tol` and advanced `options` override
+these defaults. `normalize_parameters=False` uses physical coordinates.
+
+Solver convergence and reaching `rms_target` are reported separately.
+`maxiter` limits each fit; Nelder–Mead and L-BFGS-B have no separate evaluation
+cap unless supplied through `options`. Historical scores are refreshed on
+reruns. This is a local, growth-only search, and standalone minimization
+continues to use its configured objective and scaling.
 
 ## Parameter uncertainty estimates
 
