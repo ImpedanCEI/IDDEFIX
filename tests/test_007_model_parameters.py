@@ -227,18 +227,20 @@ def test_notebook_table_uses_monospace_html(monkeypatch, capsys):
 
 
 # Fitting parameters
-def test_missing_bounds_reject_global_fitting():
-    """Global fitting requires bounds after parameters are loaded for evaluation."""
+def test_loaded_model_default_bounds():
+    """A model loaded for evaluation can later fit with data-derived bounds."""
     frequency = np.linspace(0.5e9, 1.5e9, 61)
-    model = iddefix.EvolutionaryAlgorithm(
-        x_data=frequency, y_data=np.zeros_like(frequency)
-    )
+    target = iddefix.Impedances.Resonator_longitudinal_imp(frequency, 100, 3, 1e9)
+    model = iddefix.EvolutionaryAlgorithm(frequency, target)
     model.load_resonator_parameters("1 | 100 | 3 | 1e9")
 
-    with pytest.raises(ValueError, match="parameterBounds"):
-        model.run_differential_evolution()
-    with pytest.raises(ValueError, match="parameterBounds"):
-        model.run_cmaes()
+    model.run_differential_evolution(maxiter=1, popsize=5, workers=1, seed=42)
+
+    np.testing.assert_allclose(
+        model.parameterBounds,
+        [(0, 100), (0.001, 1000), (frequency[0], 10 * frequency[-1])],
+    )
+    assert np.isfinite(model.get_impedance(use_minimization=False)).all()
 
 
 def test_minimization_uses_margin_bounds(monkeypatch):
@@ -432,3 +434,30 @@ def test_plot_many_components(request, monkeypatch, n_resonators, fit_function):
         monkeypatch.setattr(plt, "show", lambda: None)
     fig, _ = model.plot_resonator_components()
     plt.close(fig)
+
+
+@pytest.mark.parametrize("explicit", [False, True])
+@pytest.mark.parametrize("to_markdown", [False, True])
+def test_display_bounds(explicit, to_markdown, capsys):
+    """Display supplied or stored bound triples without changing model bounds."""
+    model = _model(n_resonators=1)
+    stored = list(model.parameterBounds)
+    supplied = [(2, 4), (3, 6), (1e9, 2e9)] if explicit else None
+    capsys.readouterr()
+    model.display_parameter_bounds(supplied, to_markdown=to_markdown)
+    output = capsys.readouterr().out
+    assert "2 to 4" in output if explicit else "0 to 1000" in output
+    assert "fres [Hz]" in output
+    assert model.parameterBounds == stored
+
+
+def test_display_default_bounds(capsys):
+    """Displaying an unfitted model can derive and store its default bounds."""
+    x = np.linspace(1e8, 2e9, 41)
+    y = iddefix.Impedances.Resonator_longitudinal_imp(x, 100, 3, 1e9)
+    model = iddefix.EvolutionaryAlgorithm(x, y, N_resonators=1)
+    model.display_parameter_bounds(to_markdown=True)
+    assert " to " in capsys.readouterr().out
+    np.testing.assert_allclose(
+        model.parameterBounds, [(0, y.real.max()), (0.001, 1000), (x[0], 10 * x[-1])]
+    )

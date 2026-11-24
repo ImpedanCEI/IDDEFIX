@@ -17,7 +17,7 @@ from scipy.constants import c
 from scipy.optimize import minimize
 
 from . import baseline
-from ._table import display_resonator_table
+from ._table import display_parameter_bounds, display_resonator_table
 from .objectiveFunctions import ObjectiveFunctions as obj
 from .resonatorFormulas import Impedances as imp
 from .resonatorFormulas import Wakes as wak
@@ -72,6 +72,10 @@ class EvolutionaryAlgorithm:
             List of parameter bounds for the optimization. Each resonator has three
             parameters: Rs (shunt resistance), Q (quality factor), and fr (resonant frequency).
             May be omitted when loading a table for evaluation or plotting.
+            For fitting, omitted bounds use Rs from zero to the peak real
+            impedance, Q from 0.001 to 1000, and fr from the smallest positive
+            frequency to ten times the maximum frequency. Wake inputs use
+            FFT or Gaussian deconvolution to derive these bounds only.
         fitFunction: str, optional
             Specify which fitFunction to use: ["impedance", "wake", "wake_potential"]
         plane : str, optional
@@ -752,8 +756,10 @@ class EvolutionaryAlgorithm:
 
     def _require_fit_bounds(self) -> ParameterBounds:
         """Require finite search bounds for a global optimizer."""
-        if self.N_resonators is None or self.parameterBounds is None:
-            raise ValueError("Set N_resonators and parameterBounds before fitting")
+        if self.N_resonators is None:
+            raise ValueError("Set N_resonators before fitting")
+        if self.parameterBounds is None:
+            self.parameterBounds = self._default_parameterBounds()
         bounds = np.asarray(self.parameterBounds, dtype=float)
         if (
             bounds.shape != (3 * self.N_resonators, 2)
@@ -764,6 +770,43 @@ class EvolutionaryAlgorithm:
                 "Fitting requires finite parameterBounds for each resonator"
             )
         return self.parameterBounds
+
+    def _impedance_for_bounds(self) -> tuple[np.ndarray, np.ndarray]:
+        """Return the input spectrum or estimate it from time-domain data."""
+        if self.fitFunctionType == "impedance":
+            frequency = np.asarray(self.frequency_data)
+            impedance = np.asarray(self.impedance_data)
+        else:
+            time = np.asarray(self.time_data)
+            nyquist = 0.5 / (time[1] - time[0])
+            if self.fitFunctionType == "wake":
+                frequency, impedance = compute_fft(
+                    time, np.asarray(self.wake_data) / c, fmax=nyquist
+                )
+            else:
+                frequency, impedance = compute_deconvolution(
+                    time,
+                    np.asarray(self.wake_potential_data) / c,
+                    sigma=self.sigma,
+                    fmax=min(nyquist, 1 / (3 * self.sigma)),
+                )
+            if self.plane == "transverse":
+                impedance = 1j * impedance
+        return frequency, impedance
+
+    def _default_parameterBounds(
+        self, N_resonators: int | None = None
+    ) -> ParameterBounds:
+        """Estimate impedance if needed, then return bounds in Rs, Q, fr order."""
+        count = self.N_resonators if N_resonators is None else N_resonators
+        if count is None:
+            raise ValueError("Set N_resonators before deriving default bounds")
+        frequency, impedance = self._impedance_for_bounds()
+        return [
+            (0.0, np.max(np.real(impedance))),
+            (0.001, 1000.0),
+            (np.min(frequency[frequency > 0]), 10 * np.max(frequency)),
+        ] * count
 
     def run_differential_evolution(
         self,
@@ -1041,10 +1084,7 @@ class EvolutionaryAlgorithm:
             )
         else:
             print("Differential Evolution algorithm not run, minimization only")
-            if self.parameterBounds is None:
-                raise ValueError(
-                    "Set parameterBounds before fitting without loaded parameters"
-                )
+            self._require_fit_bounds()
             initial_parameters = (
                 np.mean(self.parameterBounds, axis=1)
                 if self.parameterEstimates is None
@@ -1128,6 +1168,20 @@ class EvolutionaryAlgorithm:
             parameters, uncertainties
         )
         return uncertainties
+
+    def display_parameter_bounds(
+        self,
+        parameterBounds: ParameterBounds | None = None,
+        to_markdown: bool = False,
+    ) -> None:
+        """Display supplied bounds or the model's parameter bounds.
+
+        Missing bounds use the data-derived defaults. Set ``to_markdown=True``
+        to print a Markdown table instead of the terminal or notebook table.
+        """
+        if parameterBounds is None:
+            parameterBounds = self._require_fit_bounds()
+        display_parameter_bounds(parameterBounds, to_markdown=to_markdown)
 
     def display_resonator_parameters(
         self,

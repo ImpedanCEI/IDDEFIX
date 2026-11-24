@@ -72,3 +72,18 @@ def display_resonator_table(
     else:
         print("\n")
         print("\n".join(lines))
+
+
+def display_parameter_bounds(parameter_bounds, *, to_markdown: bool = False) -> None:
+    """Display bound triples in the shared resonator table layout."""
+    rows = []
+    for i in range(len(parameter_bounds) // 3):
+        rs_bounds, q_bounds, frequency_bounds = parameter_bounds[3 * i : 3 * i + 3]
+        rows.append(
+            (
+                " to ".join(f"{value:.4g}" for value in rs_bounds),
+                " to ".join(f"{value:.4g}" for value in q_bounds),
+                " to ".join(f"{value:.2e}" for value in frequency_bounds),
+            )
+        )
+    display_resonator_table(rows, to_markdown=to_markdown)
