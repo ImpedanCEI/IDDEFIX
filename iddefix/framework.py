@@ -302,36 +302,109 @@ class EvolutionaryAlgorithm:
             return self.time_data, self.wake_data
         return self.time_data, self.wake_potential_data
 
-    def downsample_data(self, factor: int, show: bool = False) -> None:
-        """Keep every ``factor``-th input pair, starting with the first sample.
+    def downsample_data(
+        self,
+        factor: int | None = None,
+        show: bool = False,
+        scale: str = "linear",
+        spacing: str | None = None,
+        *,
+        samples: int | None = None,
+    ) -> None:
+        """Downsample paired data, always retaining the first and last samples.
 
-        Updates the stored fitting data in place. With ``show=True``, compare
-        the original and retained y samples against x. Complex data use
-        separate real and imaginary subplots.
-        Prints the number of samples retained after downsampling.
-        Call this before fitting; narrow resonances may need a smaller factor.
+        Supply exactly one of ``factor`` (keep every Nth sample) or ``samples``
+        (approximate retained count). ``samples`` defaults to linear spacing;
+        ``spacing="log"`` selects near logarithmically spaced targets.
+        ``factor`` also accepts explicit linear or log spacing.
+
+        Selection uses original samples without interpolation. Duplicate
+        selections are removed; preserving endpoints may add points. Log
+        spacing also retains a zero sample and requires nonnegative x with
+        at least one positive value. FFT/deconvolution requires uniform times.
+
+        With ``show=True``, compare original and retained data. Complex data
+        use separate real and imaginary panels. ``scale`` controls plotting:
+        ``"linear"`` (default), ``"log"`` (x), or ``"loglog"`` (both).
+        Log axes omit nonpositive values without changing stored signs.
+        Call before fitting; preserve enough points to resolve narrow modes.
         """
-        if (
+        if (factor is None) == (samples is None):
+            raise ValueError("Supply exactly one of factor or samples")
+        if factor is not None and (
             isinstance(factor, (bool, np.bool_))
             or not isinstance(factor, (int, np.integer))
             or factor < 1
         ):
             raise ValueError("factor must be a positive integer")
 
+        if samples is not None and (
+            isinstance(samples, (bool, np.bool_))
+            or not isinstance(samples, (int, np.integer))
+            or samples < 2
+        ):
+            raise ValueError("samples must be an integer of at least two")
+
         fit_x, fit_y = self._fit_data
         x_data = np.asarray(fit_x)
         y_data = np.asarray(fit_y)
-        if x_data.ndim != 1 or y_data.ndim != 1 or x_data.shape != y_data.shape:
+        if (
+            x_data.ndim != 1
+            or y_data.ndim != 1
+            or x_data.shape != y_data.shape
+            or len(x_data) < 2
+        ):
             raise ValueError(
-                "x_data and y_data must be matching one-dimensional arrays"
+                "x_data and y_data must be matching one-dimensional arrays with at least two samples"
             )
-        indices = np.arange(0, len(x_data), factor)
-        if len(indices) < 2:
-            raise ValueError("factor must retain at least two samples")
+        if samples is None:
+            indices = np.unique(
+                np.r_[np.arange(0, len(x_data), factor), len(x_data) - 1]
+            )
+            count = len(indices)
+        else:
+            count = min(samples, len(x_data))
+            spacing = "linear" if spacing is None else spacing
+        if spacing is not None:
+            if spacing not in ("linear", "log"):
+                raise ValueError("spacing must be None, 'linear', or 'log'")
+            order = np.argsort(x_data)
+            zeros = np.array([], dtype=int)
+            if spacing == "log":
+                if np.any(x_data < 0) or not np.any(x_data > 0):
+                    raise ValueError(
+                        "log spacing requires nonnegative x and positive samples"
+                    )
+                zeros = order[x_data[order] == 0][:1]
+                order = order[x_data[order] > 0]
+                count -= len(zeros)
+            coordinates = np.log(x_data[order]) if spacing == "log" else x_data[order]
+            targets = (
+                np.linspace(coordinates[0], coordinates[-1], count)
+                if count > 1
+                else coordinates[-1:]
+            )
+            right = np.clip(np.searchsorted(coordinates, targets), 0, len(order) - 1)
+            left = np.maximum(right - 1, 0)
+            nearest = np.where(
+                np.abs(coordinates[left] - targets)
+                <= np.abs(coordinates[right] - targets),
+                left,
+                right,
+            )
+            indices = np.unique(np.r_[0, len(x_data) - 1, zeros, order[nearest]])
+            indices = indices[np.argsort(x_data[indices])]
+            if len(indices) < 2:
+                raise ValueError("spacing must retain at least two distinct samples")
 
         if show:
             import matplotlib.pyplot as plt
 
+            xscale, yscale = {
+                "linear": ("linear", "linear"),
+                "log": ("log", "linear"),
+                "loglog": ("log", "log"),
+            }[scale]
             components = (
                 (("Real", np.real), ("Imaginary", np.imag))
                 if np.iscomplexobj(y_data)
@@ -353,6 +426,7 @@ class EvolutionaryAlgorithm:
                     label="Downsampled",
                 )
                 axis.set_ylabel(f"{name} y_data" if name else "y_data")
+                axis.set(xscale=xscale, yscale=yscale)
                 axis.legend()
             axes[-1, 0].set(
                 xlabel="Frequency [Hz]"

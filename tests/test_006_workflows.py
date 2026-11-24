@@ -57,11 +57,11 @@ def test_downsample_keeps_paired_samples(fit_function, x_alias, y_alias):
 
     np.testing.assert_array_equal(model.x_data, x_data)
     np.testing.assert_array_equal(model.y_data, y_data)
-    np.testing.assert_array_equal(getattr(model, x_alias), x_data[::3])
-    np.testing.assert_array_equal(getattr(model, y_alias), y_data[::3])
+    np.testing.assert_array_equal(getattr(model, x_alias), x_data[[0, 3, 6, 9, 10]])
+    np.testing.assert_array_equal(getattr(model, y_alias), y_data[[0, 3, 6, 9, 10]])
 
 
-@pytest.mark.parametrize("factor", [0, -1, 1.5, True, 11])
+@pytest.mark.parametrize("factor", [0, -1, 1.5, True])
 def test_downsample_rejects_invalid_factor(factor):
     """Invalid factors leave the stored input untouched."""
     x_data = np.arange(10.0)
@@ -618,3 +618,52 @@ def test_explicit_bounds_override_defaults():
 
     np.testing.assert_allclose(model.parameterBounds, bounds)
     np.testing.assert_allclose(model.get_impedance(), target, atol=1e-8)
+
+
+@pytest.mark.parametrize("spacing", ["linear", "log"])
+def test_downsample_target_samples(spacing):
+    """Selections retain paired original values and endpoints, including DC."""
+    x = np.r_[0.0, np.geomspace(1, 1000, 100)]
+    y = x + 2j * x
+    model = iddefix.EvolutionaryAlgorithm(x, y)
+    model.downsample_data(samples=12, spacing=spacing)
+    retained_x, retained_y = model._fit_data
+    assert retained_x[0] == x[0]
+    assert retained_x[-1] == x[-1]
+    assert 2 <= len(retained_x) <= 12
+    np.testing.assert_array_equal(retained_y, y[np.searchsorted(x, retained_x)])
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {},
+        {"factor": 2, "samples": 5},
+        {"samples": 1},
+        {"samples": True},
+        {"samples": 2.5},
+        {"samples": 5, "spacing": "invalid"},
+    ],
+)
+def test_downsample_invalid_selection(kwargs):
+    """Invalid selection requests leave fitting samples unchanged."""
+    x = np.arange(10.0)
+    model = iddefix.EvolutionaryAlgorithm(x, x)
+    with pytest.raises(ValueError):
+        model.downsample_data(**kwargs)
+    np.testing.assert_array_equal(model.frequency_data, x)
+
+
+@pytest.mark.parametrize("scale", ["log", "loglog"])
+def test_downsample_plot_scale(monkeypatch, scale):
+    """Preview axis scales do not change stored sample signs."""
+    x = np.arange(1.0, 11.0)
+    y = x * (-1.0) ** np.arange(len(x))
+    model = iddefix.EvolutionaryAlgorithm(x, y)
+    monkeypatch.setattr(plt, "show", lambda: None)
+    model.downsample_data(3, show=True, scale=scale)
+    axis = plt.gcf().axes[0]
+    assert axis.get_xscale() == "log"
+    assert axis.get_yscale() == ("log" if scale == "loglog" else "linear")
+    np.testing.assert_array_equal(model.impedance_data, y[[0, 3, 6, 9]])
+    plt.close(axis.figure)
