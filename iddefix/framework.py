@@ -204,6 +204,7 @@ class EvolutionaryAlgorithm:
         self.minimizationParameters = None
         self.minimizationParametersUncertainties = None
         self.minimizationBounds = None
+        self.minimization_result = None
         self.flagged_params = None
 
         # Threshold on relative uncertainty (sigma/|value|) above which a
@@ -914,7 +915,9 @@ class EvolutionaryAlgorithm:
             Probability of recombining individuals in the DE algorithm.
             Default is 0.8.
         tol : float, optional
-            Convergence tolerance for stopping criteria. Default is 0.01.
+            Solver convergence tolerance; default 0.01. For SciPy DE, controls
+            the spread of population objective values relative to their mean;
+            it is not a target fitting error.
         solver : str, optional
             Specifies the DE solver to use. Valid options are:
             - `"scipy"`: Uses SciPy's built-in DE solver.
@@ -995,6 +998,7 @@ class EvolutionaryAlgorithm:
         sigma: float = 0.6,
         verbose: bool = False,
         x0: ArrayLike | None = None,
+        tol: float = 1e-4,
         **kwargs: Any,
     ) -> "Result":
         """
@@ -1021,9 +1025,13 @@ class EvolutionaryAlgorithm:
         x0 : array-like, optional
             Initial parameter vector. Defaults to ``parameterEstimates`` stored
             on the model. If both are ``None``, CMA-ES uses the bounds midpoint.
+        tol : float, optional
+            Solver convergence tolerance, mapped to CMA-ES ``tolx`` (parameter
+            convergence); default 1e-4. Uses normalized coordinates with
+            CMA-ES's default ``normalize=True``. Other stopping criteria remain active.
         **kwargs : Any
             Additional options passed to ``pymoo.algorithms.soo.nonconvex.cmaes.CMAES``.
-            For example, ``tolfun``, ``tolx``, ``maxfevals``, ``restarts``,
+            For example, ``tolx``, ``tolfun``, ``maxfevals``, ``restarts``,
             ``restart_from_best``, and ``seed``. IDDEFIX defaults to zero
             restarts and seed 42; a supplied keyword overrides these defaults.
             Use ``popsize`` above for the population size. Pymoo's
@@ -1062,6 +1070,7 @@ class EvolutionaryAlgorithm:
             popsize=popsize,
             verbose=verbose,
             x0=self.parameterEstimates if x0 is None else x0,
+            tol=tol,
             **kwargs,
         )
 
@@ -1084,115 +1093,157 @@ class EvolutionaryAlgorithm:
 
     def run_minimization_algorithm(
         self,
-        margin: float | Sequence[float] = [0.1, 0.1, 0.1],
+        margin: float | Sequence[float] | None = [0.1, 0.1, 0.1],
         method: str = "Nelder-Mead",
+        verbose: bool = True,
+        options: dict[str, Any] | None = None,
+        normalize_parameters: bool = False,
+        maxiter: int | None = None,
+        tol: float | None = None,
     ) -> None:
-        """
-        Runs a minimization algorithm to refine resonance parameters.
-
-        This function refines the parameters obtained from the Differential
-        Evolution (DE) algorithm by using a local optimization method.
-        If the DE algorithm has not been run, it directly minimizes the
-        objective function from ``parameterEstimates``, falling back to the
-        midpoint of ``parameterBounds`` when no estimate is available.
-
-        Each parameter is allowed to vary within a specified margin, where:
-        - Rs values use `margin[0]`
-        - Q values use `margin[1]`
-        - fres values use `margin[2]`
+        """Fit or refine resonators using local minimization.
 
         Parameters
         ----------
-        margin : float or list of float, optional
-            A list of three values specifying the relative margins for Rs, Q, and fres.
-            Each parameter is allowed to vary by ±(margin * value).
-            Default is [0.1, 0.1, 0.1].
+        margin : float, sequence of float, or None, optional
+            Relative refinement margins for (Rs, Q, fr), default 10% each.
+            Applied around the latest minimization result, or the evolution
+            result if no local fit exists. Resonant frequencies retain their
+            configured positive lower bound. ``None`` uses full parameter bounds.
         method : str, optional
-            Optimization method for `scipy.optimize.minimize`. Default is 'Nelder-Mead'.
+            SciPy minimization method; default ``"Nelder-Mead"``.
+        verbose : bool, optional
+            Print termination status and the parameter table; default True.
+        maxiter : int or None, optional
+            Per-fit iteration cap. None uses 1000 per resonator for
+            refinement or 5000 per resonator for full-bound fits. Nelder-Mead
+            and L-BFGS-B also use this value as their evaluation budget.
+        tol : float or None, optional
+            Solver convergence tolerance; its meaning depends on the method.
+            None retains the existing Nelder-Mead tolerances and uses SciPy
+            defaults for other methods.
+        options : dict or None, optional
+            Advanced method-specific settings, overriding derived budgets
+            and tolerances (e.g. xatol, fatol, ftol, gtol).
+        normalize_parameters : bool, optional
+            Optimize in coordinates scaled by finite bound spans; default
+            False preserves the existing search and runtime. When True,
+            default ``xatol=1e-6`` is in normalized coordinates; supplied
+            ``initial_simplex`` coordinates must also be normalized.
 
         Notes
         -----
-        - The optimization is constrained within ``self.minimizationBounds``,
-          which are computed using ``margin`` and the current
-          ``evolutionParameters``. For a minimization-only run, they equal
-          ``self.parameterBounds``.
-        - If the DE algorithm has not been run, the function initializes parameters
-          from `self.parameterEstimates` or the midpoint of `self.parameterBounds`.
-        - The minimization results are stored in `self.minimizationParameters`.
-        - Calls `self.display_resonator_parameters()` to display the refined parameters.
-
-        Returns
-        -------
-        None
-            The refined parameters are stored in `self.minimizationParameters`.
+        - Initial fits use ``parameterEstimates`` or the bounds midpoint.
+        - Repeated calls start from the latest fitted parameters.
+        - Without a fitted result, full parameter bounds are used regardless
+          of margin. Missing bounds are derived from the data.
+        - Results and used bounds are stored in ``minimizationParameters``
+          and ``minimizationBounds``. The SciPy ``OptimizeResult`` is retained
+          in ``minimization_result`` (parameters and final simplex in physical
+          units). Uncertainties are computed if requested.
         """
-
-        print("Method for minimization : " + method)
+        if verbose:
+            print("Method for minimization : " + method)
         objective_function = partial(
             self.objectiveFunction,
             fitFunction=self.fitFunction,
             x=self._fit_data[0],
             y=self._fit_data[1],
         )
-        if type(margin) is float:
-            margin = [margin] * 3
-
-        if self.evolutionParameters is not None:
-            # Apply different margins based on parameter type (Rs, Q, fres)
+        fitted_parameters = (
+            self.minimizationParameters
+            if self.minimizationParameters is not None
+            else self.evolutionParameters
+        )
+        refine = fitted_parameters is not None and margin is not None
+        if refine:
+            margins = np.broadcast_to(margin, (3,))
             minimizationBounds = [
-                sorted(((1 - margin[i % 3]) * p, (1 + margin[i % 3]) * p))
-                for i, p in enumerate(self.evolutionParameters)
+                sorted(((1 - margins[i % 3]) * p, (1 + margins[i % 3]) * p))
+                for i, p in enumerate(fitted_parameters)
             ]
-            minimizationParameters = minimize(
-                objective_function,
-                x0=self.evolutionParameters,
-                bounds=minimizationBounds,
-                tol=1,  # empiric value, documentation is cryptic
-                method=method,
-                options={
-                    "maxiter": self.N_resonators * 1000,
-                    "maxfev": self.N_resonators * 1000,
-                    "disp": False,
-                    "adaptive": True,
-                },
-            )
+            for i in range(2, len(minimizationBounds), 3):
+                lower = (
+                    self.parameterBounds[i][0]
+                    if self.parameterBounds is not None
+                    else 0.0
+                )
+                minimizationBounds[i][0] = max(
+                    minimizationBounds[i][0], lower, np.nextafter(0.0, 1.0)
+                )
         else:
-            print("Differential Evolution algorithm not run, minimization only")
-            self._require_fit_bounds()
+            if self.parameterBounds is None:
+                self.parameterBounds = self._default_parameterBounds()
+            minimizationBounds = self.parameterBounds
+        initial_parameters = fitted_parameters
+        if initial_parameters is None:
             initial_parameters = (
-                np.mean(self.parameterBounds, axis=1)
+                np.mean(minimizationBounds, axis=1)
                 if self.parameterEstimates is None
                 else self.parameterEstimates
             )
-            minimizationParameters = minimize(
-                objective_function,
-                x0=initial_parameters,
-                bounds=self.parameterBounds,
-                method=method,
-                tol=1,
-                options={
-                    "maxiter": self.N_resonators * 5000,
-                    "maxfev": self.N_resonators * 5000,
-                    "disp": False,
-                    "adaptive": True,
-                },
-            )
-        self.minimizationParameters = minimizationParameters.x
-        self.minimizationBounds = (
-            minimizationBounds
-            if self.evolutionParameters is not None
-            else self.parameterBounds
+        budget = (
+            self.N_resonators * (1000 if refine else 5000)
+            if maxiter is None
+            else maxiter
         )
+        solver_options = {"maxiter": budget, "disp": False}
+        if method.lower() == "nelder-mead":
+            solver_options.update(
+                maxfev=budget,
+                adaptive=True,
+                xatol=(1e-6 if normalize_parameters else 1.0) if tol is None else tol,
+                fatol=1.0 if tol is None else tol,
+            )
+        elif method.lower() == "l-bfgs-b":
+            solver_options["maxfun"] = budget
+        solver_options.update(options or {})
+        solver_objective = objective_function
+        solver_bounds = minimizationBounds
+        x0 = np.asarray(initial_parameters)
+        if normalize_parameters:
+            lower, upper = np.asarray(minimizationBounds, dtype=float).T
+            scale = np.where(upper > lower, upper - lower, 1.0)
+            x0 = (x0 - lower) / scale
+            solver_bounds = list(zip(np.zeros_like(lower), (upper - lower) / scale))
+
+            def solver_objective(values):
+                return objective_function(lower + scale * values)
+
+        result = minimize(
+            solver_objective,
+            x0=x0,
+            bounds=solver_bounds,
+            method=method,
+            tol=tol,
+            options=solver_options,
+        )
+        if normalize_parameters:
+            result.x = lower + scale * result.x
+            if "final_simplex" in result:
+                vertices, values = result.final_simplex
+                result.final_simplex = (lower + scale * vertices, values)
+        self.minimization_result = result
+        self.minimizationParameters = result.x
+        self.minimizationBounds = minimizationBounds
         self.minimizationParametersUncertainties = None
         self.flagged_params = None
         if self.compute_uncertainties:
             self.get_uncertainties(parameterBounds=self.minimizationBounds)
-        self.display_resonator_parameters(
-            params=self.minimizationParameters,
-            to_markdown=False,
-            uncertainties=self.minimizationParametersUncertainties,
-            display_warnings=True,
-        )
+        if verbose:
+            print(f"Minimization: {result.message}")
+            print(
+                f"Iterations: {result.nit} / {solver_options['maxiter']} (maxiter); "
+                f"evaluations: {result.nfev} / "
+                f"{solver_options.get('maxfev', solver_options.get('maxfun', 'solver default'))} "
+                f"({'maxfev' if 'maxfev' in solver_options else 'maxfun' if 'maxfun' in solver_options else 'solver default'})"
+            )
+            self.display_resonator_parameters(
+                params=self.minimizationParameters,
+                to_markdown=False,
+                uncertainties=self.minimizationParametersUncertainties,
+                display_warnings=True,
+            )
 
     def get_uncertainties(
         self,

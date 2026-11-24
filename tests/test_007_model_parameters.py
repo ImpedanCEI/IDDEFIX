@@ -11,6 +11,7 @@ from types import SimpleNamespace
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
+from scipy.optimize import OptimizeResult
 
 import iddefix
 
@@ -249,7 +250,9 @@ def test_minimization_uses_margin_bounds(monkeypatch):
     model.load_resonator_parameters("1 | 100 | 3 | 1e9", use_minimization=False)
 
     def minimize_at_upper_bound(function, x0, bounds, **kwargs):
-        return SimpleNamespace(x=np.array([bounds[0][1], x0[1], x0[2]]))
+        return OptimizeResult(
+            x=np.array([bounds[0][1], x0[1], x0[2]]), message="Finished", nit=0, nfev=0
+        )
 
     monkeypatch.setattr("iddefix.framework.minimize", minimize_at_upper_bound)
     model.run_minimization_algorithm()

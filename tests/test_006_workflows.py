@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 from scipy.constants import c
+from scipy.optimize import OptimizeResult
 
 import iddefix
 import iddefix.solvers as solver_module
@@ -385,6 +386,7 @@ def test_solver_fits_complex_impedance_with_public_options(resonance, solver):
             seed=7,
             restarts=0,
             tolfun=1e-9,
+            tol=1e-6,
         )
     fitted = model.get_impedance(frequency, use_minimization=False)
     fitted_loss = np.sum(np.abs(fitted - target) ** 2)
@@ -392,9 +394,15 @@ def test_solver_fits_complex_impedance_with_public_options(resonance, solver):
     assert fitted_loss < initial_loss
 
 
+@pytest.mark.parametrize(
+    ("tolerance_options", "expected_tolx"),
+    [({}, 1e-4), ({"tol": 1e-6}, 1e-6), ({"tol": 1e-6, "tolx": 1e-8}, 1e-8)],
+)
 @pytest.mark.parametrize("maxiter", [None, 10])
 @pytest.mark.parametrize(("restarts", "expected_runs"), [(None, 1), (2, 3)])
-def test_cmaes_progress(monkeypatch, maxiter, restarts, expected_runs):
+def test_cmaes_progress(
+    monkeypatch, maxiter, restarts, expected_runs, tolerance_options, expected_tolx
+):
     """Finite limits show a budget; convergence-led runs count iterations."""
     import pymoo.algorithms.soo.nonconvex.cmaes as cmaes_module
     import pymoo.optimize as pymoo_optimize
@@ -403,6 +411,7 @@ def test_cmaes_progress(monkeypatch, maxiter, restarts, expected_runs):
 
     class FakeCMAES:
         def __init__(self, **options):
+            observed["tolx"] = options["tolx"]
             observed["restarts"] = options["restarts"]
             observed["maxiter"] = options["maxiter"]
 
@@ -422,9 +431,14 @@ def test_cmaes_progress(monkeypatch, maxiter, restarts, expected_runs):
     options = {} if restarts is None else {"restarts": restarts}
 
     Solvers.run_pymoo_cmaes_solver(
-        [(0.0, 1.0)], lambda x: x[0] ** 2, maxiter=maxiter, **options
+        [(0.0, 1.0)],
+        lambda x: x[0] ** 2,
+        maxiter=maxiter,
+        **options,
+        **tolerance_options,
     )
 
+    assert observed["tolx"] == expected_tolx
     assert observed["restarts"] == expected_runs - 1
     if maxiter is None:
         assert np.isinf(observed["maxiter"])
@@ -667,3 +681,51 @@ def test_downsample_plot_scale(monkeypatch, scale):
     assert axis.get_yscale() == ("log" if scale == "loglog" else "linear")
     np.testing.assert_array_equal(model.impedance_data, y[[0, 3, 6, 9]])
     plt.close(axis.figure)
+
+
+@pytest.mark.parametrize("tol", [1e-4, 1e-7])
+def test_cmaes_public_tolerance(monkeypatch, resonance, tol):
+    """The public tolerance reaches the CMA-ES backend unchanged."""
+    frequency, parameters, target, bounds = resonance
+    observed = {}
+
+    def solve(parameterBounds, objective_function, **kwargs):
+        observed.update(kwargs)
+        return parameters.copy(), "Finished", object()
+
+    monkeypatch.setattr(Solvers, "run_pymoo_cmaes_solver", solve)
+    model = iddefix.EvolutionaryAlgorithm(frequency, target, parameterBounds=bounds)
+    model.run_cmaes(tol=tol)
+    assert observed["tol"] == tol
+    np.testing.assert_allclose(model.get_impedance(), target)
+
+
+@pytest.mark.parametrize("normalized", [False, True])
+def test_minimization_tolerance(monkeypatch, resonance, normalized):
+    """Local tolerance and advanced overrides reach SciPy for either coordinate system."""
+    frequency, parameters, target, bounds = resonance
+    observed = {}
+
+    def solve(function, x0, **kwargs):
+        observed.update(kwargs)
+        return OptimizeResult(
+            x=np.asarray(x0).copy(), message="Finished", nit=0, nfev=0
+        )
+
+    monkeypatch.setattr("iddefix.framework.minimize", solve)
+    model = iddefix.EvolutionaryAlgorithm(
+        frequency,
+        target,
+        parameterBounds=bounds,
+        parameterEstimates=parameters,
+    )
+    model.run_minimization_algorithm(
+        tol=1e-5,
+        options={"fatol": 1e-8},
+        normalize_parameters=normalized,
+        verbose=False,
+    )
+    assert observed["tol"] == 1e-5
+    assert observed["options"]["xatol"] == 1e-5
+    assert observed["options"]["fatol"] == 1e-8
+    np.testing.assert_allclose(model.minimizationParameters, parameters)
