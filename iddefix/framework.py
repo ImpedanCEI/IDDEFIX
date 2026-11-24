@@ -8,6 +8,7 @@ Created on Mon Mar 23 13:20:11 2020
 """
 
 import re
+from copy import copy, deepcopy
 from functools import partial
 from typing import TYPE_CHECKING, Any, Callable, Sequence
 
@@ -205,6 +206,8 @@ class EvolutionaryAlgorithm:
         self.minimizationParametersUncertainties = None
         self.minimizationBounds = None
         self.minimization_result = None
+        self.best_trials = {}
+        self.trial_history = {}
         self.flagged_params = None
 
         # Threshold on relative uncertainty (sigma/|value|) above which a
@@ -1244,6 +1247,274 @@ class EvolutionaryAlgorithm:
                 uncertainties=self.minimizationParametersUncertainties,
                 display_warnings=True,
             )
+
+    def run_iterative_minimization(
+        self,
+        max_resonators: int = 20,
+        maxiter: int | None = None,
+        initial_q: float = 1.0,
+        rms_target: float = 0.01,
+        rms_floor: float = 1e-6,
+        method: str = "Nelder-Mead",
+        verbose: bool = False,
+        options: dict[str, Any] | None = None,
+    ) -> dict[int, "EvolutionaryAlgorithm"]:
+        """Fit increasing numbers of resonators and keep the lowest-RMS model.
+
+        Start with ``self.N_resonators`` (or 1 if unset). Fit all parameters,
+        add a mode in the largest logarithmic frequency gap, and repeat until
+        ``rms_target`` is reached or ``max_resonators`` is exhausted.
+        Supplied estimates or existing fits seed the first trial; otherwise,
+        frequencies are log-spaced and amplitudes come from the input spectrum.
+        Added modes use data-derived default bounds. Each trial uses full bounds
+        and normalized parameters.
+
+        Parameters
+        ----------
+        max_resonators : int, optional
+            Largest resonator count to try, inclusive. Default is 20.
+        maxiter : int or None, optional
+            Iteration limit per trial; defaults to 5000 per resonator.
+            Function evaluations are unlimited unless capped in ``options``.
+        initial_q : float, optional
+            Starting Q for automatically seeded modes. Default is 1.
+        rms_target : float, optional
+            Relative RMS target; 0.01 means 1%. For complex fits, both real
+            and imaginary components must meet it. Default is 0.01.
+        rms_floor : float, optional
+            Relative denominator floor near zero crossings. Default is 1e-6.
+        method : str, optional
+            SciPy local minimization method. Default is "Nelder-Mead".
+        verbose : bool, optional
+            Show solver details and parameter tables. Default is False;
+            brief trial summaries are always printed.
+        options : dict or None, optional
+            Solver settings, including ``tol``. Method-specific settings
+            override it. Nelder-Mead defaults to normalized ``xatol=1e-3``
+            when ``tol`` is absent.
+
+        Returns
+        -------
+        dict[int, EvolutionaryAlgorithm]
+            Best fitted model per resonator count, also stored in ``best_trials``.
+            ``trial_history`` retains every attempt. Repeated calls preserve
+            these histories. The lowest-RMS model is restored on ``self``.
+
+        Notes
+        -----
+        The configured objective drives fitting; relative RMS selects trials
+        and controls stopping. RMS is computed per component as
+        ``sqrt(mean(((prediction - data) / scale)**2))``, where
+        ``scale = maximum(abs(data), rms_floor * max(abs(data)))``.
+        Complex fits use the worse component; magnitude fits use absolute
+        values. Entirely zero reference components are excluded.
+
+        Saved models provide ``rms_error``, ``rms_components``, and the SciPy
+        ``minimization_result``. Uncertainties, if requested, are computed only
+        for the selected model. This growth search does not guarantee the
+        globally optimal resonator count.
+        """
+
+        count = 1 if self.N_resonators is None else self.N_resonators
+        if (
+            isinstance(count, (bool, np.bool_))
+            or not isinstance(count, (int, np.integer))
+            or count < 1
+            or isinstance(max_resonators, (bool, np.bool_))
+            or not isinstance(max_resonators, (int, np.integer))
+            or max_resonators < count
+        ):
+            raise ValueError("Require 1 <= N_resonators <= max_resonators")
+        if not np.isfinite(rms_target) or rms_target < 0:
+            raise ValueError("rms_target must be finite and nonnegative")
+        if not np.isfinite(rms_floor) or rms_floor <= 0:
+            raise ValueError("rms_floor must be finite and positive")
+
+        options = dict(options or {})
+        tol = options.pop("tol", None)
+        evaluation_limit = {"nelder-mead": "maxfev", "l-bfgs-b": "maxfun"}.get(
+            method.lower()
+        )
+        if evaluation_limit is not None:
+            options.setdefault(evaluation_limit, np.inf)
+        if tol is None and method.lower() == "nelder-mead":
+            options = {"xatol": 1e-3, **(options or {})}
+
+        # Retrieve or calculate impedance from input data
+        frequency, impedance = self._impedance_for_bounds()
+        order = np.argsort(frequency)
+        frequency, amplitude = frequency[order], np.abs(impedance[order])
+        trial = copy(self)
+        trial.N_resonators = count
+        trial.compute_uncertainties = False
+        trial.best_trials = {}
+        trial.trial_history = {}
+        trial._smart_bounds = None
+
+        # Start with default parameter bounds if None
+        if trial.parameterBounds is None:
+            trial.parameterBounds = trial._default_parameterBounds()
+        new_bounds = trial.parameterBounds[:3]
+        f_lower, f_upper = new_bounds[2]
+
+        # Distribute trial resonators across the frequency grid
+        def seed(fr):
+            return np.clip(
+                [np.interp(fr, frequency, amplitude), initial_q, fr],
+                np.asarray(new_bounds)[:, 0],
+                np.asarray(new_bounds)[:, 1],
+            )
+
+        if trial.parameterEstimates is None:
+            if trial.minimizationParameters is not None:
+                trial.parameterEstimates = trial.minimizationParameters.copy()
+            elif trial.evolutionParameters is not None:
+                trial.parameterEstimates = trial.evolutionParameters.copy()
+            else:
+                frequencies = np.geomspace(f_lower, f_upper, trial.N_resonators + 2)[
+                    1:-1
+                ]
+                estimates = np.array([seed(fr) for fr in frequencies])
+                trial.parameterEstimates = estimates.ravel()
+        trial.evolutionParameters = None
+        trial.evolutionParametersUncertainties = None
+        new_bounds = trial._default_parameterBounds(N_resonators=1)
+        f_lower, f_upper = new_bounds[2]
+        trials = self.best_trials
+        history = self.trial_history
+        best = (
+            min(trials.values(), key=lambda model: model.rms_error) if trials else None
+        )
+        best_error = best.rms_error if best is not None else np.inf
+        x, y = trial._fit_data
+
+        if self.objectiveFunction in (
+            obj.sumOfSquaredErrorAbs,
+            obj.logsumOfSquaredErrorAbs,
+        ):
+            diagnostic = "abs"
+        elif self.objectiveFunction in (
+            obj.sumOfSquaredErrorReal,
+            obj.logsumOfSquaredErrorReal,
+        ):
+            diagnostic = "real"
+        elif self.objectiveFunction in (
+            obj.sumOfSquaredError,
+            obj.logsumOfSquaredError,
+        ):
+            diagnostic = "complex"
+        else:
+            diagnostic = "complex" if np.iscomplexobj(y) else "real"
+
+        def relative_rms(predicted, data):
+            peak = np.max(np.abs(data))
+            if peak == 0:
+                return np.nan
+            scale = np.maximum(np.abs(data), rms_floor * peak)
+            return float(np.sqrt(np.mean(((predicted - data) / scale) ** 2)))
+
+        def rms_summary(errors):
+            return " | ".join(
+                f"{name} RMS: {error:.2%}" if np.isfinite(error) else f"{name} RMS: n/a"
+                for name, error in errors.items()
+            )
+
+        while trial.N_resonators <= max_resonators:
+            print(f"\nTrial: {trial.N_resonators} resonators")
+            trial.run_minimization_algorithm(
+                margin=None,
+                method=method,
+                verbose=verbose,
+                options=options,
+                normalize_parameters=True,
+                maxiter=maxiter,
+                tol=tol,
+            )
+            result = trial.minimization_result
+            order = np.argsort(trial.minimizationParameters.reshape(-1, 3)[:, 2])
+            indices = (3 * order[:, None] + np.arange(3)).ravel()
+            trial.minimizationParameters = trial.minimizationParameters[indices]
+            result.x = trial.minimizationParameters.copy()
+            if "final_simplex" in result:
+                vertices, values = result.final_simplex
+                result.final_simplex = (vertices[:, indices], values)
+            trial.parameterBounds = [trial.parameterBounds[i] for i in indices]
+            trial.minimizationBounds = [trial.minimizationBounds[i] for i in indices]
+            parameters = trial.minimizationParameters.copy()
+            trial.parameterEstimates = parameters.copy()
+            trial.objective_value = float(
+                trial.objectiveFunction(
+                    parameters, fitFunction=trial.fitFunction, x=x, y=y
+                )
+            )
+            predicted = trial.fitFunction(x, parameters)
+            if diagnostic == "abs":
+                errors = {"Magnitude": relative_rms(np.abs(predicted), np.abs(y))}
+            elif diagnostic == "real":
+                errors = {"Real": relative_rms(predicted.real, np.real(y))}
+            else:
+                errors = {
+                    "Real": relative_rms(predicted.real, np.real(y)),
+                    "Imaginary": relative_rms(predicted.imag, np.imag(y)),
+                }
+            error = float(np.nanmax(list(errors.values())))
+            trial.rms_error = error
+            trial.rms_components = errors
+            trial.real_rms_error = errors.get("Real", np.nan)
+            trial.imag_rms_error = errors.get("Imaginary", np.nan)
+            snapshot = deepcopy(trial)
+            history[max(history, default=0) + 1] = snapshot
+            previous = trials.get(trial.N_resonators)
+            if previous is None or error < previous.rms_error:
+                trials[trial.N_resonators] = snapshot
+            print(rms_summary(errors))
+            if best is None or error < best_error:
+                best, best_error = snapshot, error
+                print("New best fit.")
+            else:
+                print(f"Best remains: {best.N_resonators} resonators.")
+            if error <= rms_target:
+                print(f"Stopping: pointwise RMS at or below {rms_target:.2%}.")
+                break
+            if trial.N_resonators == max_resonators:
+                print(
+                    "Stopping: maximum resonator count reached; error target not met."
+                )
+                break
+
+            existing = parameters.reshape(-1, 3)[:, 2]
+            existing = existing[(existing > f_lower) & (existing < f_upper)]
+            gaps = np.sort(np.r_[f_lower, existing, f_upper])
+            gap = np.argmax(np.diff(np.log(gaps)))
+            fr = np.sqrt(gaps[gap] * gaps[gap + 1])
+            trial.add_resonator(*seed(fr), parameter_bounds=new_bounds)
+            trial.minimizationParameters = None
+
+        for name in (
+            "N_resonators",
+            "parameterBounds",
+            "minimizationParameters",
+            "minimizationBounds",
+            "minimization_result",
+            "rms_error",
+            "real_rms_error",
+            "imag_rms_error",
+            "rms_components",
+        ):
+            setattr(self, name, deepcopy(getattr(best, name)))
+        self.parameterEstimates = self.minimizationParameters.copy()
+        self.evolutionParameters = self.evolutionParametersUncertainties = None
+        self.minimizationParametersUncertainties = None
+        self.best_trials = trials
+        self.trial_history = history
+        self.objective_value = best.objective_value
+        self._smart_bounds = None
+        self._update_parameter_flags()
+        if self.compute_uncertainties:
+            self.get_uncertainties(parameterBounds=self.minimizationBounds)
+        print(f"Selected: {self.N_resonators} resonators.")
+        print(rms_summary(self.rms_components))
+        return trials
 
     def get_uncertainties(
         self,

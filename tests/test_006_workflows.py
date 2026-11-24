@@ -729,3 +729,276 @@ def test_minimization_tolerance(monkeypatch, resonance, normalized):
     assert observed["options"]["xatol"] == 1e-5
     assert observed["options"]["fatol"] == 1e-8
     np.testing.assert_allclose(model.minimizationParameters, parameters)
+
+
+def test_iterative_initial_estimates(monkeypatch):
+    """Missing estimates use interior log spacing, spectral amplitudes, and Q."""
+    frequency = np.array([0.0, 1.0, 10.0, 100.0])
+    target = np.array([1.0, 2.0, 3.0, 4.0])
+    bounds = [(0, 10), (0.01, 1000), (1, 100)] * 2
+    model = iddefix.EvolutionaryAlgorithm(
+        frequency,
+        target,
+        N_resonators=2,
+        parameterBounds=bounds,
+    )
+    observed = {}
+
+    def keep_estimates(trial, **kwargs):
+        observed["estimates"] = trial.parameterEstimates.copy()
+        _retain_iterative_fit(trial, trial.parameterEstimates)
+
+    monkeypatch.setattr(
+        iddefix.EvolutionaryAlgorithm, "run_minimization_algorithm", keep_estimates
+    )
+    history = model.run_iterative_minimization(max_resonators=2, initial_q=0.2)
+
+    fr = np.geomspace(1, 100, 4)[1:-1]
+    expected = np.column_stack((np.interp(fr, frequency, target), [0.2, 0.2], fr))
+    np.testing.assert_allclose(observed["estimates"].reshape(-1, 3), expected)
+    assert len(history) == 1
+    np.testing.assert_allclose(model.parameterEstimates, expected.ravel())
+
+
+@pytest.mark.parametrize("fit_function", ["impedance", "wake", "wake potential"])
+def test_iterative_supplied_estimates(fit_function):
+    """An exact starting model retains accurate predictions in each input domain."""
+    plane = "transverse"
+    x = (
+        np.linspace(0, 2e9, 81)
+        if fit_function == "impedance"
+        else np.linspace(-1e-9, 30e-9, 601)
+    )
+    parameters = np.array([100.0, 1.0, 1e9])
+    if fit_function == "impedance":
+        target = iddefix.Impedances.Resonator_transverse_imp(x, *parameters)
+    else:
+        formula = getattr(
+            iddefix.Wakes, f"Resonator_transverse_{fit_function.replace(' ', '_')}"
+        )
+        target = (
+            formula(x, *parameters, sigma=0.1e-9)
+            if fit_function == "wake potential"
+            else formula(x, *parameters)
+        )
+    bounds = [(0, 200), (0.01, 1000), (0.1e9, 2e9)]
+    model = iddefix.EvolutionaryAlgorithm(
+        x,
+        target,
+        plane=plane,
+        fitFunction=fit_function,
+        sigma=0.1e-9,
+        N_resonators=1,
+        parameterBounds=bounds,
+        parameterEstimates=parameters,
+    )
+
+    history = model.run_iterative_minimization(max_resonators=1)
+
+    assert len(history) == 1
+    assert model.N_resonators == 1
+    np.testing.assert_allclose(
+        model.fitFunction(x, model.minimizationParameters), target
+    )
+    assert model.fitFunctionType == fit_function
+
+
+def test_iterative_restores_best(monkeypatch):
+    """Growth keeps fitted seeds and restores the best count after a stalled trial."""
+    frequency = np.geomspace(0.1, 10, 51)
+    exact = np.array([5.0, 1.0, 2.0, 3.0, 1.0, 7.0])
+    target = iddefix.Impedances.n_Resonator_longitudinal_imp(frequency, exact)
+    reference = target.copy()
+    target = target + 0.001
+    model = iddefix.EvolutionaryAlgorithm(
+        frequency,
+        target,
+        N_resonators=1,
+        parameterEstimates=exact[:3],
+        parameterBounds=[(0, 10), (0.01, 1000), (0.1, 10)],
+    )
+    seeds = []
+
+    def fit_by_count(trial, **kwargs):
+        seeds.append(trial.parameterEstimates.copy())
+        n = trial.N_resonators
+        parameters = (
+            exact[:3] if n == 1 else exact if n == 2 else np.r_[exact, [2, 1, 5]]
+        )
+        _retain_iterative_fit(trial, parameters)
+
+    monkeypatch.setattr(
+        iddefix.EvolutionaryAlgorithm, "run_minimization_algorithm", fit_by_count
+    )
+    history = model.run_iterative_minimization(max_resonators=3, rms_target=0.0)
+
+    assert list(history) == [1, 2, 3]
+    np.testing.assert_allclose(seeds[1][:3], exact[:3])
+    np.testing.assert_allclose(seeds[2][:6], exact)
+    assert model.N_resonators == 2
+    assert len(model.parameterBounds) == len(model.minimizationBounds) == 6
+    assert model.evolutionParameters is None
+    np.testing.assert_allclose(model.get_impedance(), reference)
+    np.testing.assert_allclose(model.get_resonator_components().sum(axis=0), reference)
+    assert model.best_trials is history
+
+
+def test_iterative_finds_two_resonators():
+    """An additional mode resolves a second resonance without peak detection."""
+    frequency = np.geomspace(1e8, 4e9, 151)
+    target = iddefix.Impedances.n_Resonator_longitudinal_imp(
+        frequency, [100, 2, 5e8, 60, 3, 2e9]
+    )
+    model = iddefix.EvolutionaryAlgorithm(frequency, target, N_resonators=1)
+
+    history = model.run_iterative_minimization(
+        max_resonators=2, options={"xatol": 1e-9, "fatol": 1e-12}
+    )
+
+    assert list(history) == [1, 2]
+    assert model.N_resonators == 2
+    np.testing.assert_allclose(model.get_impedance(), target, atol=1e-5)
+
+
+def test_iterative_gap_seeding(monkeypatch):
+    """Growth fills the largest log gap, independently of residual peaks."""
+    frequency = np.geomspace(1, 1000, 101)
+    target = iddefix.Impedances.Resonator_longitudinal_imp(frequency, 5, 1, 2)
+    model = iddefix.EvolutionaryAlgorithm(
+        frequency,
+        target,
+        N_resonators=1,
+        parameterBounds=[(0, 10), (0.1, 10), (1, 1000)],
+        parameterEstimates=np.array([4.0, 1.0, 10.0]),
+    )
+    seeds = []
+
+    def keep_seed(trial, **kwargs):
+        seeds.append(trial.parameterEstimates.copy())
+        _retain_iterative_fit(trial, trial.parameterEstimates)
+
+    monkeypatch.setattr(
+        iddefix.EvolutionaryAlgorithm, "run_minimization_algorithm", keep_seed
+    )
+    model.run_iterative_minimization(
+        max_resonators=2,
+        rms_target=0,
+    )
+    np.testing.assert_allclose(seeds[1][:3], seeds[0])
+    assert seeds[1][-1] == pytest.approx(np.sqrt(10 * 10000))
+    assert len(model.trial_history) == 2
+    first = model.trial_history[1]
+    original = first.minimizationParameters.copy()
+    model.run_iterative_minimization(
+        max_resonators=model.N_resonators,
+    )
+    assert len(model.trial_history) == 3
+    np.testing.assert_array_equal(first.minimizationParameters, original)
+    model.minimizationParameters[0] = 0
+    np.testing.assert_array_equal(first.minimizationParameters, original)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"max_resonators": 0},
+        {"max_resonators": True},
+        {"rms_floor": 0},
+        {"rms_target": -1},
+    ],
+)
+def test_iterative_invalid_settings(kwargs):
+    """Reject invalid trial ranges and RMS settings before fitting."""
+    model = iddefix.EvolutionaryAlgorithm(np.arange(1.0, 11.0), np.ones(10))
+    with pytest.raises(ValueError):
+        model.run_iterative_minimization(**kwargs)
+
+
+def _retain_iterative_fit(trial, parameters):
+    """Keep a controlled physical fit for model-growth scenarios."""
+    trial.minimizationParameters = np.asarray(parameters).copy()
+    trial.minimizationBounds = list(trial.parameterBounds)
+    trial.minimization_result = OptimizeResult(
+        x=trial.minimizationParameters.copy(),
+        message="Finished",
+        nit=0,
+        nfev=0,
+    )
+
+
+@pytest.mark.parametrize("options", [{}, {"tol": 1e-6}, {"tol": 1e-6, "xatol": 1e-8}])
+def test_iterative_solver_options(monkeypatch, options):
+    """An unset count starts at one; solver options preserve physical results."""
+    frequency = np.linspace(1e8, 2e9, 39)
+    parameters = np.array([100.0, 3.0, 1e9])
+    target = iddefix.Impedances.Resonator_longitudinal_imp(frequency, *parameters)
+    model = iddefix.EvolutionaryAlgorithm(
+        frequency, target, parameterEstimates=parameters
+    )
+    original_options = dict(options)
+    observed = {}
+
+    def solve(function, x0, **kwargs):
+        observed.update(kwargs)
+        assert np.all(np.asarray(x0) >= 0)
+        assert np.all(np.asarray(x0) <= 1)
+        return OptimizeResult(
+            x=np.asarray(x0).copy(), message="Finished", nit=0, nfev=0
+        )
+
+    monkeypatch.setattr("iddefix.framework.minimize", solve)
+    model.run_iterative_minimization(1, 25, options=options)
+    assert model.N_resonators == 1
+    assert observed["tol"] == options.get("tol")
+    assert "tol" not in observed["options"]
+    assert observed["options"]["xatol"] == options.get(
+        "xatol", options.get("tol", 1e-3)
+    )
+    assert observed["options"]["maxiter"] == 25
+    assert options == original_options
+    np.testing.assert_allclose(model.minimizationParameters, parameters)
+
+
+@pytest.mark.parametrize(
+    ("method", "limit"), [("Nelder-Mead", "maxfev"), ("L-BFGS-B", "maxfun")]
+)
+@pytest.mark.parametrize("explicit_cap", [None, 100])
+def test_iterative_evaluation_budget(
+    monkeypatch, resonance, method, limit, explicit_cap
+):
+    """Iterations stay bounded while evaluation caps are opt-in for each solver."""
+    frequency, parameters, target, bounds = resonance
+    model = iddefix.EvolutionaryAlgorithm(
+        frequency,
+        target,
+        parameterBounds=bounds,
+        parameterEstimates=parameters,
+    )
+    observed = {}
+
+    def solve(function, x0, **kwargs):
+        observed.update(kwargs["options"])
+        return OptimizeResult(
+            x=np.asarray(x0).copy(), message="Finished", nit=0, nfev=0
+        )
+
+    monkeypatch.setattr("iddefix.framework.minimize", solve)
+    options = {} if explicit_cap is None else {limit: explicit_cap}
+    model.run_iterative_minimization(1, 2, method=method, options=options)
+    assert observed["maxiter"] == 2
+    assert observed[limit] == (np.inf if explicit_cap is None else explicit_cap)
+    assert options == ({} if explicit_cap is None else {limit: explicit_cap})
+
+
+def test_iterative_evaluations_exceed_iterations(resonance):
+    """A short Nelder-Mead trial can evaluate its full initial simplex."""
+    frequency, parameters, target, bounds = resonance
+    model = iddefix.EvolutionaryAlgorithm(
+        frequency,
+        target,
+        parameterBounds=bounds,
+        parameterEstimates=parameters,
+    )
+    model.run_iterative_minimization(1, 2)
+    assert model.minimization_result.nit <= 2
+    assert model.minimization_result.nfev > 2
