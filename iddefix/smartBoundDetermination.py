@@ -1293,8 +1293,7 @@ class SmartBoundDetermination:
                 legend_handles.append(total_handle)
             plt.legend(
                 handles=legend_handles,
-                loc="upper center",
-                bbox_to_anchor=(0.5, -0.13),
+                loc="upper left",
                 ncol=4,
                 frameon=False,
             )
@@ -1326,7 +1325,7 @@ class SmartBoundDetermination:
                 legend_handles.append(hann_line)
             legend_handles.extend(resonance_handles)
             legend_handles.append(total_handle)
-            plt.legend(handles=legend_handles, ncol=3, frameon=False)
+            plt.legend(handles=legend_handles, loc="upper left", ncol=3, frameon=False)
             fig.tight_layout()
         elif show_bounds and self.peaks is not None and len(self.peaks) > 0:
             legend_handles = [original_line]
@@ -1339,16 +1338,14 @@ class SmartBoundDetermination:
                 plt.legend(
                     handles=legend_handles,
                     ncol=3,
-                    loc="upper center",
-                    bbox_to_anchor=(0.5, -0.13),
+                    loc="upper left",
                     frameon=False,
                 )
             else:
                 plt.legend(
                     handles=legend_handles,
                     ncol=3,
-                    loc="upper center",
-                    bbox_to_anchor=(0.5, -0.13),
+                    loc="upper left",
                     frameon=False,
                 )
             fig.tight_layout()
@@ -1359,8 +1356,7 @@ class SmartBoundDetermination:
             legend_handles.append(hann_line)
             plt.legend(
                 handles=legend_handles,
-                loc="upper center",
-                bbox_to_anchor=(0.5, -0.13),
+                loc="upper left",
                 frameon=False,
             )
             fig.tight_layout()
