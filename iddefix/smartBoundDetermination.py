@@ -1117,7 +1117,7 @@ class SmartBoundDetermination:
             self.analysis_impedance_data,
             "-",
             color="tab:blue" if show_components else None,
-            linewidth=2.5,
+            linewidth=2.0,
             alpha=0.5 if self.hann_trace is not None else 1.0,
             label=input_label
             if show_bounds or show_components or self.hann_trace is not None
@@ -1144,7 +1144,7 @@ class SmartBoundDetermination:
             hann_line = plt.plot(
                 self.analysis_frequency_data,
                 self.hann_trace,
-                linewidth=1.0,
+                linewidth=1.5,
                 color="tab:blue",
                 zorder=4,
                 label="Hann trace",
@@ -1250,9 +1250,9 @@ class SmartBoundDetermination:
                         self.analysis_frequency_data,
                         component_values(components[i]),
                         color=color,
-                        linewidth=1.2,
-                        linestyle=":",
-                        alpha=0.7,
+                        linewidth=1.0,
+                        linestyle="-",
+                        alpha=0.6,
                         label=f"Resonator {i + 1}",
                     )[0]
                     resonance_handles.append(component_handle)

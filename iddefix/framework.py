@@ -439,13 +439,13 @@ class EvolutionaryAlgorithm:
     def estimate_bounds(
         self,
         impedance_type: str | None = None,
-        prominence: float | None = 0.01,
+        prominence: float | None = 1e-4,
         show_table: bool = True,
         show_inspect: bool = True,
         remove_baseline: bool | float = False,
         use_Hann: bool = True,
         fmax: float | None = None,
-        fft_samples: int = 1001,
+        fft_samples: int = 10001,
         rolloff: float = 0.0,
         **kwargs: Any,
     ) -> SmartBoundDetermination:
