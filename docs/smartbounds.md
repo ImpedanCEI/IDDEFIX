@@ -283,17 +283,21 @@ change the peak position and width.
 
 ### Hann peak detection
 
-For a wake of length $L$, Hann windowing suppresses truncation ripples in peak detection. Pass `use_Hann=True` to SmartBounds; `model.estimate_bounds()` enables it by default when `wake_length` is supplied. With $T=L/c$ and $f_H=c/L$, the windowed impedance is
+For a wake of length $L$, a one-sided Hann taper suppresses truncation ripples in peak detection. Pass `use_Hann=True` to SmartBounds; `model.estimate_bounds()` enables it by default when `wake_length` is supplied. For $0\leq t\leq T$, the descending half Hann $w(t)=\frac{1}{2}[1+\cos(\pi t/T)]$ starts at 1 with zero slope and ends at 0, preserving the prompt wake while damping the end of the record. It weights the midpoint by 0.5. With $T=L/c$ and $f_H=c/(2L)$, the windowed impedance is
 
 $$
-Z_H(f)=\frac{1}{2}Z(f)-\frac{1}{4}Z(f-f_H)-\frac{1}{4}Z(f+f_H).
+Z_H(f)=\frac{1}{2}Z(f)+\frac{1}{4}Z(f-f_H)+\frac{1}{4}Z(f+f_H).
 $$
+
+The three terms follow directly from the Fourier shift property. Relative to the previous full Hann, the shift is halved (from $c/L$ to $c/(2L)$) and the side weights change from $-1/4$ to $+1/4$. The shifted complex impedance is interpolated before taking its real part or magnitude. For real-part input, interpolating the real part gives the same detection trace.
 
 Negative frequencies follow the symmetry of a real wake: $Z_\parallel(-f)=Z_\parallel(f)^*$ and $Z_\perp(-f)=-Z_\perp(f)^*$. This extends the Hann trace to DC when the supplied grid starts at zero.
 
 For data starting above DC, Hann detection uses the continuous interval $f_{\min}+f_H\leq f\leq f_{\max}-f_H$. For data starting at DC, symmetry extends this interval down to zero.
 
 With Hann enabled, `impedance_type="real"` finds peaks in $\Re(Z_H)$; `"absolute"` uses $|Z_H|$ when the complex impedance is available. Magnitude-only input lacks the phase needed for Hann windowing, so peak detection uses the original magnitude. Peak heights and widths always come from the unwindowed trace.
+
+A smoother detection trace can merge neighboring resonances, so inspect the detected peaks before fitting. This change does not imply a smaller fitting error or change the prominence and parameter-bound defaults.
 
 ### Linear wake baseline
 

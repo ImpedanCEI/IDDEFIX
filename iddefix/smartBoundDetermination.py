@@ -126,7 +126,7 @@ class SmartBoundDetermination:
             wake transform before peak detection and parameter estimation.
             Requires ``wake_length``. Default is False.
         use_Hann : bool, optional
-            Find peaks in a Hann-windowed impedance trace. Requires
+            Find peaks using a descending half-Hann impedance trace. Requires
             ``wake_length``. Default is False.
         sigma : float, optional
             Gaussian bunch length in seconds. When removing a baseline from
@@ -563,8 +563,14 @@ class SmartBoundDetermination:
         wake_length: float,
         plane: str,
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Apply a Hann window to finite-wake impedance on valid frequencies."""
-        shift = c / wake_length
+        """Apply a descending half Hann to finite-wake impedance.
+
+        For T = wake_length / c, use w(t) = (1 + cos(pi*t/T)) / 2.
+        Its Fourier shifts are +/- c / (2*wake_length), both weighted +1/4.
+        Preserve the real-wake symmetry near DC and exclude frequencies
+        whose shifted samples lie outside the measured band.
+        """
+        shift = c / (2 * wake_length)
         valid = (frequency >= frequency_data[0]) & (
             frequency + shift <= frequency_data[-1]
         )
@@ -589,8 +595,8 @@ class SmartBoundDetermination:
         interpolate = CubicSpline(frequency_extended, impedance_extended)
         windowed = (
             0.5 * interpolate(selected_frequency)
-            - 0.25 * interpolate(selected_frequency - shift)
-            - 0.25 * interpolate(selected_frequency + shift)
+            + 0.25 * interpolate(selected_frequency - shift)
+            + 0.25 * interpolate(selected_frequency + shift)
         )
         return windowed, valid
 
@@ -1111,7 +1117,8 @@ class SmartBoundDetermination:
             self.analysis_impedance_data,
             "-",
             color="tab:blue" if show_components else None,
-            linewidth=2.0 if show_components else None,
+            linewidth=2.0,
+            alpha=0.5 if self.hann_trace is not None else 1.0,
             label=input_label
             if show_bounds or show_components or self.hann_trace is not None
             else None,
@@ -1137,8 +1144,9 @@ class SmartBoundDetermination:
             hann_line = plt.plot(
                 self.analysis_frequency_data,
                 self.hann_trace,
-                linewidth=0.6,
+                linewidth=1.5,
                 color="tab:blue",
+                zorder=4,
                 label="Hann trace",
                 scaley=False,
             )[0]
@@ -1242,9 +1250,9 @@ class SmartBoundDetermination:
                         self.analysis_frequency_data,
                         component_values(components[i]),
                         color=color,
-                        linewidth=1.2,
-                        linestyle=":",
-                        alpha=0.7,
+                        linewidth=1.0,
+                        linestyle="-",
+                        alpha=0.6,
                         label=f"Resonator {i + 1}",
                     )[0]
                     resonance_handles.append(component_handle)
