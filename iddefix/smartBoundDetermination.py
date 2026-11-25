@@ -1,9 +1,8 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 Created on Sat Dec  5 16:34:10 2020
 
 @author: MaltheRaschke
+@modified by: edelafue
 """
 
 from __future__ import annotations
