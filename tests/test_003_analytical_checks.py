@@ -68,7 +68,13 @@ class TestAnalyticalImpedance:
             compute_uncertainties=True,
         )
         cls.CMAES_model.run_cmaes(
-            maxiter=5000, popsize=50, sigma=0.6, verbose=False, restarts=3
+            # Resolve imaginary-part zero crossings in this exact-data check.
+            maxiter=5000,
+            popsize=50,
+            sigma=0.6,
+            verbose=False,
+            restarts=3,
+            tol=1e-8,
         )
         cls.CMAES_model.run_minimization_algorithm()
 
