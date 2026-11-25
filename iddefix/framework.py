@@ -2493,10 +2493,14 @@ class EvolutionaryAlgorithm:
             ]
         )
 
-    def plot_resonator_components(
+    def plot(
         self,
         x_data: ArrayLike | None = None,
         y_data: ArrayLike | None = None,
+        *,
+        function: str | None = None,
+        type: str | None = None,
+        show_components: bool = False,
         use_minimization: bool = True,
         cmap: str = "rainbow",
         figsize: tuple[float, float] | None = None,
@@ -2504,209 +2508,255 @@ class EvolutionaryAlgorithm:
         input_data_kwargs: dict[str, Any] | None = None,
         component_kwargs: dict[str, Any] | None = None,
         total_model_kwargs: dict[str, Any] | None = None,
+        sigma: float | None = None,
+        wake_length: float | None = None,
         scale: str = "linear",
+        show: bool = True,
         **subplot_kwargs: Any,
     ):
-        """Plot input data, individual resonators, and the total model.
+        """Plot reference data and the fitted model in the requested domain.
 
         Parameters
         ----------
         x_data : array_like or None, optional
-            Input or evaluation grid: frequency [Hz] or time [s], matching the domain.
+            Evaluation grid: frequency [Hz] or time [s]. None uses the stored
+            grid for the selected function. Values are evaluated directly;
+            plotting does not interpolate or modify the fitting data.
         y_data : array_like or None, optional
-            Paired data in the model domain and normalization.
+            Reference data on x_data in the selected function's units. When
+            omitted, include fitting data only if both function and grid match.
+        function : {"impedance", "wake", "wake potential"} or None, optional
+            Function to evaluate. None uses the model's fitting domain.
+        type : {"real", "imag", "abs", "both"} or None, optional
+            Mathematical part to display. None selects magnitude for impedance
+            with an absolute objective, both impedance parts otherwise, and
+            real values for wakes/potentials. This does not change the objective.
+        show_components : bool, optional
+            Include individual resonators. Default is False.
         use_minimization : bool, optional
-            Prefer minimization parameters when available. False selects evolution results.
+            Prefer minimization parameters when available. False uses evolution
+            results. Default is True.
         cmap : str, optional
-            Matplotlib colormap for the individual resonators.
-        figsize : tuple[float, float] or None, optional
-            Figure size (width, height) in inches.
+            Component colormap. Default is "rainbow".
+        figsize : tuple of float or None, optional
+            Figure width and height in inches. None uses the panel defaults.
         dpi : float or None, optional
-            Figure resolution in dots per inch; None uses the Matplotlib default.
-        input_data_kwargs : dict[str, object] or None, optional
-            Line-style overrides for the input data.
-        component_kwargs : dict[str, object] or None, optional
-            Line-style overrides for individual resonators.
-        total_model_kwargs : dict[str, object] or None, optional
-            Line-style overrides for the summed model.
-        scale : str, optional
-            Plot scale: "linear", "log" (x), or "loglog" (both axes).
+            Figure resolution; None uses the Matplotlib default.
+        input_data_kwargs, component_kwargs, total_model_kwargs : dict or None, optional
+            Line-style overrides for reference data, resonators, and total model.
+        sigma : float or None, optional
+            RMS Gaussian bunch duration [s] for wake potentials. None uses the
+            model's sigma, or 1e-10 s if unset. The stored sigma is unchanged.
+        wake_length : float or None, optional
+            Impedance truncation length [m]. None uses the model's wake length;
+            if both are None, evaluate fully decayed impedance.
+        scale : {"linear", "log", "loglog"}, optional
+            Linear axes, logarithmic x, or logarithmic x and y. Explicit
+            subplot_kw axis settings take precedence. Default is "linear".
+        show : bool, optional
+            Call matplotlib.pyplot.show(). Set False to customize the returned
+            figure before displaying it. Default is True.
         **subplot_kwargs : object
-            Additional keyword arguments passed to matplotlib.pyplot.subplots.
+            Extra arguments for matplotlib.pyplot.subplots. The number of
+            panels is determined by type.
 
         Returns
         -------
         figure : matplotlib.figure.Figure
-            Figure containing the data and model curves.
+            Plot containing the selected data and model curves.
         axes : ndarray of matplotlib.axes.Axes
-            One axis for each plotted component of the data.
+            One-dimensional array of plotting axes, even for a single panel.
 
         Notes
         -----
-        ``input_data_kwargs``, ``component_kwargs``, and
-        ``total_model_kwargs`` override the default line styles. Remaining
-        keyword arguments are forwarded to ``matplotlib.pyplot.subplots``.
-        For 10 or more resonators, a shared colorbar replaces the component
-        entries in the legends. Real-valued impedance fitted with the
-        ``"abs"`` objective is shown as a single magnitude panel.
-        ``scale="log"`` makes x logarithmic; ``"loglog"`` makes both axes
-        logarithmic. Default is ``"linear"``. Explicit ``subplot_kw`` axis
-        settings take precedence. Log axes omit nonpositive values without
-        changing the stored samples. Returns (figure, axes) and calls plt.show().
-        For complex input, real and imaginary panels are shown even with the
-        magnitude objective. To show magnitudes with that objective, pass
-        ``y_data=np.abs(model.impedance_data)`` on the stored frequency grid.
+        A different function uses the same fitted resonator parameters, not a
+        transform of the reference data. Supply a suitable x_data grid if one
+        is not stored. Impedance units are Ohm longitudinally and Ohm/m
+        transversely; wake/potential units are V/C and V/C/m, respectively.
+        Log axes hide nonpositive values without changing their signs.
+        Ten or more displayed resonators use a colorbar instead of individual
+        legend entries. Magnitudes of individual modes need not sum to the
+        magnitude of the total complex model.
+
+        Examples
+        --------
+        Customize a magnitude plot before displaying it:
+
+        >>> fig, axes = model.plot(type="abs", show=False)
+        >>> axes[0].set_title("Fitted impedance")
+
+        Evaluate a wake potential from the same fitted parameters:
+
+        >>> fig, axes = model.plot(time, function="wake potential", sigma=sigma)
         """
         import matplotlib.pyplot as plt
 
-        xscale, yscale = {
+        # Choose which function to plot
+        function = self.fitFunctionType if function is None else function
+        if function == "wake function":
+            function = "wake"
+        if function not in ("impedance", "wake", "wake potential"):
+            raise ValueError(
+                "function must be 'impedance', 'wake', or 'wake potential'"
+            )
+        if type is None:
+            if function == "impedance":
+                absolute_objective = self.objectiveFunction in (
+                    obj.sumOfSquaredErrorAbs,
+                    obj.logsumOfSquaredErrorAbs,
+                )
+                type = "abs" if absolute_objective else "both"
+            else:
+                type = "real"
+        if type not in ("real", "imag", "abs", "both"):
+            raise ValueError("type must be 'real', 'imag', 'abs', or 'both'")
+        scales = {
             "linear": ("linear", "linear"),
             "log": ("log", "linear"),
             "loglog": ("log", "log"),
-        }[scale]
-        subplot_kwargs["subplot_kw"] = {
-            "xscale": xscale,
-            "yscale": yscale,
-            **subplot_kwargs.get("subplot_kw", {}),
         }
+        if scale not in scales:
+            raise ValueError("scale must be 'linear', 'log', or 'loglog'")
 
-        # Custom input data
+        # Choose the x_data values and matching input y_data
         if x_data is None:
-            x_data = self._fit_data[0]
+            x_data = self.frequency_data if function == "impedance" else self.time_data
+        if x_data is None:
+            raise ValueError(f"Provide x_data for plotting {function}")
         x_data = np.asarray(x_data)
-        if y_data is None and np.array_equal(x_data, self._fit_data[0]):
+        if x_data.ndim != 1 or x_data.size == 0:
+            raise ValueError("x_data must be a nonempty one-dimensional grid")
+        if (
+            y_data is None
+            and function == self.fitFunctionType
+            and np.array_equal(x_data, self._fit_data[0])
+        ):
             y_data = self._fit_data[1]
         if y_data is not None:
             y_data = np.asarray(y_data)
             if y_data.shape != x_data.shape:
                 raise ValueError("x_data and y_data must have the same shape")
-        plot_data = self._fit_data[1] if y_data is None else y_data
 
-        # Compute components and total model
-        components = self.get_resonator_components(
-            x_data,
-            use_minimization=use_minimization,
+        # Calculate the model without changing stored data
+        parameters = (
+            self.minimizationParameters
+            if use_minimization and self.minimizationParameters is not None
+            else self.evolutionParameters
         )
-        if use_minimization and self.minimizationParameters is not None:
-            parameters = self.minimizationParameters
+        if parameters is None:
+            raise ValueError("No resonator parameters are available")
+        if function == "impedance":
+            evaluate = partial(
+                getattr(imp, f"n_Resonator_{self.plane}_imp"),
+                wake_length=self.wake_length if wake_length is None else wake_length,
+            )
+            units = r"[$\Omega$]" if self.plane == "longitudinal" else r"[$\Omega$/m]"
+            name, xlabel = "Impedance", "Frequency [Hz]"
         else:
-            parameters = self.evolutionParameters
-        total_model = self.fitFunction(x_data, parameters)
+            evaluate = getattr(
+                wak, f"n_Resonator_{self.plane}_{function.replace(' ', '_')}"
+            )
+            if function == "wake potential":
+                if sigma is None:
+                    sigma = self.sigma if self.sigma is not None else 1e-10
+                if not np.isfinite(sigma) or sigma <= 0:
+                    raise ValueError("sigma must be finite and positive")
+                evaluate = partial(evaluate, sigma=sigma)
+            units = "[V/C]" if self.plane == "longitudinal" else "[V/C/m]"
+            name, xlabel = (
+                ("Wake" if function == "wake" else "Wake potential"),
+                "Time [s]",
+            )
+        total_model = evaluate(x_data, parameters)
+        components = (
+            [evaluate(x_data, row) for row in np.asarray(parameters).reshape(-1, 3)]
+            if show_components
+            else []
+        )
+
+        # Set up the axes and labels
+        selected_parts = ("real", "imag") if type == "both" else (type,)
+        transforms = {"real": np.real, "imag": np.imag, "abs": np.abs}
+        descriptions = {
+            "real": r"Real part $\Re(Z)$",
+            "imag": r"Imaginary part $\Im(Z)$",
+            "abs": r"Magnitude $|Z|$",
+        }
+        if function != "impedance":
+            descriptions = {
+                "real": name,
+                "imag": "Imaginary " + name.lower(),
+                "abs": "Magnitude " + name.lower(),
+            }
+        xscale, yscale = scales[scale]
+        figure_options = {
+            "figsize": (10, 7 if len(selected_parts) == 2 else 5)
+            if figsize is None
+            else figsize,
+            "sharex": True,
+            **subplot_kwargs,
+        }
+        figure_options["subplot_kw"] = {
+            "xscale": xscale,
+            "yscale": yscale,
+            **figure_options.get("subplot_kw", {}),
+        }
+        if dpi is not None:
+            figure_options["dpi"] = dpi
+        fig, axes = plt.subplots(len(selected_parts), 1, **figure_options)
+        axes = np.asarray(axes).reshape(-1)
         colors = plt.get_cmap(cmap, max(len(components), 1))
 
-        # Absolute impedance
-        magnitude_only = (
-            self.fitFunctionType == "impedance"
-            and self.objectiveFunction is obj.sumOfSquaredErrorAbs
-            and not np.iscomplexobj(plot_data)
-        )
-        if magnitude_only:
-            figure_options = {
-                "figsize": (10, 5) if figsize is None else figsize,
-                **subplot_kwargs,
-            }
-            if dpi is not None:
-                figure_options["dpi"] = dpi
-            fig, axis = plt.subplots(**figure_options)
-            axes = np.asarray([axis])
-            units = r"[$\Omega$]" if self.plane == "longitudinal" else r"[$\Omega$/m]"
-            panels = ((axis, np.abs, r"Magnitude $|Z|$ " + units, "blue"),)
-            xlabel = "Frequency [Hz]"
-
-        # Real and impaginary impedance (2 panels)
-        elif self.fitFunctionType == "impedance":
-            figure_options = {
-                "figsize": (10, 7) if figsize is None else figsize,
-                "sharex": True,
-                **subplot_kwargs,
-            }
-            if dpi is not None:
-                figure_options["dpi"] = dpi
-            fig, axes = plt.subplots(2, 1, **figure_options)
-            units = r"[$\Omega$]" if self.plane == "longitudinal" else r"[$\Omega$/m]"
-            panels = (
-                (axes[0], np.real, r"Real part $\Re(Z)$ " + units, "red"),
-                (axes[1], np.imag, r"Imaginary part $\Im(Z)$ " + units, "blue"),
-            )
-            xlabel = "Frequency [Hz]"
-
-        # Wake and wake potential
-        else:
-            figure_options = {
-                "figsize": (10, 5) if figsize is None else figsize,
-                **subplot_kwargs,
-            }
-            if dpi is not None:
-                figure_options["dpi"] = dpi
-            fig, axis = plt.subplots(**figure_options)
-            axes = np.asarray([axis])
-            ylabel = "Wake" if self.fitFunctionType == "wake" else "Wake potential"
-            units = "[V/C]" if self.plane == "longitudinal" else "[V/C/m]"
-            panels = ((axis, np.real, ylabel + " " + units, "red"),)
-            xlabel = "Time [s]"
-
-        # Plot curves
-        for axis, values, ylabel, input_color in panels:
-            # Input data
+        # Draw the curves, with individual resonators behind the data and total
+        for axis, part in zip(axes, selected_parts):
+            values = transforms[part]
             if y_data is not None:
                 input_style = {
                     "linestyle": "-",
-                    "color": input_color,
+                    "color": "blue" if part in ("abs", "imag") else "red",
                     "linewidth": 2.0,
                     "label": "Input data",
                     "alpha": 0.7,
+                    "zorder": 3,
                 }
                 input_style.update(input_data_kwargs or {})
-                axis.plot(
-                    x_data,
-                    values(y_data),
-                    **input_style,
-                )
-
-            # Total model
+                axis.plot(x_data, values(y_data), **input_style)
             total_style = {
                 "linestyle": "--",
                 "color": "black",
                 "linewidth": 1.8,
                 "alpha": 0.9,
                 "label": "Total model",
+                "zorder": 4,
             }
             total_style.update(total_model_kwargs or {})
-            axis.plot(
-                x_data,
-                values(total_model),
-                **total_style,
-            )
-
-            # Resonator components
-            for index, component in enumerate(components):
+            axis.plot(x_data, values(total_model), **total_style)
+            for index, contribution in enumerate(components):
                 component_style = {
                     "linestyle": "-",
                     "color": colors(index),
                     "linewidth": 1.5,
                     "alpha": 0.7,
                     "label": f"Resonator {index + 1}",
+                    "zorder": 2,
                 }
                 component_style.update(component_kwargs or {})
-                axis.plot(
-                    x_data,
-                    values(component),
-                    **component_style,
-                )
-            axis.set_ylabel(ylabel)
-
+                axis.plot(x_data, values(contribution), **component_style)
+            axis.set_ylabel(descriptions[part] + " " + units)
         axes[-1].set_xlabel(xlabel)
 
-        # Colorbar and legend
+        # Use a colorbar when there are too many resonators for the legend
         if len(components) >= 10:
             from matplotlib.cm import ScalarMappable
             from matplotlib.colors import BoundaryNorm
 
             for axis in axes:
-                legend_lines = axis.lines[: 2 if y_data is not None else 1]
-                axis.legend(handles=legend_lines, loc="upper right", frameon=False)
+                axis.legend(
+                    handles=axis.lines[: 2 if y_data is not None else 1],
+                    loc="upper right",
+                    frameon=False,
+                )
             fig.tight_layout()
-
             boundaries = np.arange(0.5, len(components) + 1.5)
             colorbar = fig.colorbar(
                 ScalarMappable(
@@ -2726,8 +2776,93 @@ class EvolutionaryAlgorithm:
             for axis in axes:
                 axis.legend(ncol=3, frameon=False)
             fig.tight_layout()
-        plt.show()
+        if show:
+            plt.show()
         return fig, axes
+
+    def plot_resonator_components(
+        self,
+        x_data: ArrayLike | None = None,
+        y_data: ArrayLike | None = None,
+        use_minimization: bool = True,
+        cmap: str = "rainbow",
+        figsize: tuple[float, float] | None = None,
+        dpi: float | None = None,
+        input_data_kwargs: dict[str, Any] | None = None,
+        component_kwargs: dict[str, Any] | None = None,
+        total_model_kwargs: dict[str, Any] | None = None,
+        scale: str = "linear",
+        *,
+        function: str | None = None,
+        type: str | None = None,
+        sigma: float | None = None,
+        wake_length: float | None = None,
+        show: bool = True,
+        **subplot_kwargs: Any,
+    ):
+        """Plot the fitted model with individual resonators using :meth:`plot`.
+
+        Parameters
+        ----------
+        x_data, y_data : array_like or None, optional
+            Evaluation grid and reference data; defaults follow plot().
+        use_minimization : bool, optional
+            Prefer minimization results; False selects evolutionary parameters.
+        cmap : str, optional
+            Colormap for the resonators. Default is "rainbow".
+        figsize : tuple of float or None, optional
+            Figure size in inches; None uses the panel defaults.
+        dpi : float or None, optional
+            Resolution; None uses the Matplotlib default.
+        input_data_kwargs, component_kwargs, total_model_kwargs : dict or None, optional
+            Line styles for reference data, individual modes, and total model.
+        scale : {"linear", "log", "loglog"}, optional
+            Axis scales. Default is "linear".
+        function : {"impedance", "wake", "wake potential"} or None, optional
+            Function to evaluate; None uses the fitting domain.
+        type : {"real", "imag", "abs", "both"} or None, optional
+            Displayed part; the absolute objective defaults to magnitude for
+            impedance, including when the reference data are complex.
+        sigma : float or None, optional
+            RMS Gaussian bunch duration [s] for wake potentials.
+        wake_length : float or None, optional
+            Impedance truncation length [m]; None uses the model's setting.
+        show : bool, optional
+            Display immediately. False allows customization before display.
+        **subplot_kwargs : object
+            Additional arguments for matplotlib.pyplot.subplots.
+
+        Returns
+        -------
+        figure : matplotlib.figure.Figure
+            Figure containing reference data, total model, and resonators.
+        axes : ndarray of matplotlib.axes.Axes
+            One-dimensional array of data axes, excluding any colorbar.
+
+        See Also
+        --------
+        plot : Shared plotting implementation and evaluation semantics.
+        """
+        # Use plot() to draw the model and its resonators
+        return self.plot(
+            x_data,
+            y_data,
+            function=function,
+            type=type,
+            show_components=True,
+            use_minimization=use_minimization,
+            cmap=cmap,
+            figsize=figsize,
+            dpi=dpi,
+            input_data_kwargs=input_data_kwargs,
+            component_kwargs=component_kwargs,
+            total_model_kwargs=total_model_kwargs,
+            sigma=sigma,
+            wake_length=wake_length,
+            scale=scale,
+            show=show,
+            **subplot_kwargs,
+        )
 
     def get_impedance_uncertainty(
         self,

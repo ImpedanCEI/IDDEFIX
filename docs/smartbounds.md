@@ -27,7 +27,7 @@ model.plot_resonator_components()
 
 For wake and wake-potential inputs, EA transforms the data to impedance for peak detection and fits the original time-domain data. Use `fmax` and `fft_samples` to control the temporary frequency grid.
 
-CMA-ES is the recommended global optimizer here; `run_differential_evolution()` remains available as an alternative. Local refinement with `run_minimization_algorithm()` is optional. `plot_resonator_components()` shows the fitted total and individual resonators.
+CMA-ES is the recommended global optimizer here; `run_differential_evolution()` remains available as an alternative. Local refinement with `run_minimization_algorithm()` is optional. `plot()` shows reference data and the fitted total; `plot_resonator_components()` also shows individual resonators.
 
 Uncertainty estimates are off by default. Set `compute_uncertainties=True` at construction or call `model.get_uncertainties()` after fitting; see [Parameter uncertainty estimates](theory.md#parameter-uncertainty-estimates).
 
@@ -74,6 +74,56 @@ model.add_resonator(
 Adding a mode manually detaches the SmartBounds estimator because its detected
 peak list no longer describes the model. Existing fitted parameters remain
 available for evaluation and refinement.
+
+## Plotting fitted functions
+
+Use `plot()` for the reference data and total model, or
+`plot_resonator_components()` to include individual resonators. Both accept
+`function="impedance"`, `"wake"`, or `"wake potential"`, independently of the
+original fitting domain. Omit `function` to use that domain.
+
+```python
+fig, axes = model.plot()  # Uses the fitting grid and reference data.
+fig, axes = model.plot_resonator_components(type="abs")
+```
+
+`type` selects `"real"`, `"imag"`, `"abs"`, or `"both"`. Impedance defaults to
+magnitude for an absolute objective, including complex reference data;
+otherwise it shows real and imaginary panels. Wake plots default to real
+values. Changing the displayed part does not change the objective or fit.
+
+Passing `x_data` evaluates the fitted model directly on that grid. It does
+not resample or modify the reference data. Data are overlaid automatically
+only when the function and grid match the fitting data. Pass `y_data`
+explicitly to compare other data on the requested grid.
+
+```python
+frequency_plot = np.linspace(0.1e9, 3e9, 2001)
+fig, axes = model.plot(frequency_plot, function="impedance", type="abs")
+time_plot = np.linspace(-1e-9, 30e-9, 2001)
+fig, axes = model.plot(time_plot, function="wake")
+fig, axes = model.plot(time_plot, function="wake potential", sigma=1e-10)
+```
+
+Frequency is in Hz; time and Gaussian RMS duration `sigma` are in seconds.
+Omitting `x_data` requires a stored grid in the selected domain. Impedance
+uses the model's `wake_length` by default; an explicit value overrides it
+for that plot. Gaussian potentials use the stored `sigma`, or 1e-10 s if
+unset. Plotting leaves both stored settings unchanged.
+
+Both methods return `(figure, axes)`, with a one-dimensional array of axes.
+Use `show=False` to customize the figure before displaying it in a notebook:
+
+```python
+fig, axes = model.plot(type="abs", scale="loglog", show=False)
+axes[0].set_title("Fitted impedance")
+fig.tight_layout()
+plt.show()
+```
+
+The existing `figsize`, `dpi`, `cmap`, line-style dictionaries, and additional
+Matplotlib subplot arguments remain available. Individual magnitudes do not
+necessarily sum to the magnitude of the total complex impedance.
 
 ## Parameter estimation
 
