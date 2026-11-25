@@ -918,7 +918,8 @@ class SmartBoundDetermination:
         fig, ax = plt.subplots()
         ax.plot(frequency_data, impedance_data)
         ax.set_xlabel("Frequency [Hz]")
-        ax.set_ylabel("Impedance [Ohm]")
+        units = r"[$\Omega$]" if plane == "longitudinal" else r"[$\Omega$/m]"
+        ax.set_ylabel("Impedance " + units)
         markers = ax.plot([], [], "rx", markersize=8)[0]
         selection_lines = []
         selected_indices: list[int] = []
@@ -1301,7 +1302,8 @@ class SmartBoundDetermination:
 
         # Axes and legend
         plt.xlabel("Frequency [Hz]")
-        plt.ylabel("Impedance [Ohm]")
+        units = r"[$\Omega$]" if self.plane == "longitudinal" else r"[$\Omega$/m]"
+        plt.ylabel("Impedance " + units)
         plt.title("Smart Bound Determination")
         if (
             (show_bounds or show_components)

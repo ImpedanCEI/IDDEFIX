@@ -409,18 +409,18 @@ def test_wake_length_longitudinal_absolute():
     ("show_bounds", "show_components"),
     [(False, False), (True, False), (True, True)],
 )
-def test_inspect(request, monkeypatch, show_bounds, show_components):
-    """Plot options run for an analytical finite-wake transverse trace."""
+@pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
+def test_inspect(request, monkeypatch, show_bounds, show_components, plane):
+    """Finite-wake inspection plots show impedance units for the selected plane."""
     frequency = np.linspace(1e6, 2e9, 5001)
     expected = np.array([4e6, 0.8, 0.8e9])
-    impedance = iddefix.Impedances.Resonator_transverse_imp(
-        frequency, *expected, wake_length=0.5
-    ).real
+    formula = getattr(iddefix.Impedances, f"Resonator_{plane}_imp")
+    impedance = formula(frequency, *expected, wake_length=0.5).real
     bounds = iddefix.SmartBoundDetermination(
         frequency,
         impedance,
         impedance_type="real",
-        plane="transverse",
+        plane=plane,
         wake_length=0.5,
         minimum_peak_height=impedance.max() * 0.2,
         use_Hann=True,
@@ -429,7 +429,8 @@ def test_inspect(request, monkeypatch, show_bounds, show_components):
     if not request.config.getoption("--debug-plots"):
         monkeypatch.setattr(plt, "show", lambda: None)
     bounds.inspect(show_bounds=show_bounds, show_components=show_components)
-    assert plt.gcf().axes
+    units = r"[$\Omega$]" if plane == "longitudinal" else r"[$\Omega$/m]"
+    assert plt.gcf().axes[0].get_ylabel() == "Impedance " + units
     plt.close("all")
 
 
@@ -549,3 +550,18 @@ def test_remove_peak_invalid(numbers):
         bounds.remove_peak(numbers)
     np.testing.assert_array_equal(bounds.parameterEstimates, before)
     assert bounds.N_resonators == 1
+
+
+@pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
+def test_interactive_impedance_units(monkeypatch, plane):
+    """The interactive peak picker uses the same units as impedance inspection."""
+    frequency = np.linspace(0.5e9, 1.5e9, 101)
+    formula = getattr(iddefix.Impedances, f"Resonator_{plane}_imp")
+    impedance = formula(frequency, 100, 8, 1e9)
+    monkeypatch.setattr("matplotlib.get_backend", lambda: "agg")
+    monkeypatch.setattr(plt, "show", lambda **kwargs: None)
+    iddefix.SmartBoundDetermination(frequency, impedance, plane=plane, interactive=True)
+    figure = plt.gcf()
+    units = r"[$\Omega$]" if plane == "longitudinal" else r"[$\Omega$/m]"
+    assert figure.axes[0].get_ylabel() == "Impedance " + units
+    plt.close(figure)

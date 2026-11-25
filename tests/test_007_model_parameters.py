@@ -379,13 +379,15 @@ def test_get_resonator_components(fit_function, plane):
 @pytest.mark.parametrize(
     ("fit_function", "plane", "ylabel"),
     [
+        ("impedance", "longitudinal", r"Real part $\Re(Z)$ [$\Omega$]"),
+        ("impedance", "transverse", r"Real part $\Re(Z)$ [$\Omega$/m]"),
         ("wake", "longitudinal", "Wake [V/C]"),
         ("wake potential", "longitudinal", "Wake potential [V/C]"),
         ("wake", "transverse", "Wake [V/C/m]"),
     ],
 )
 def test_plot_resonator_components(request, monkeypatch, fit_function, plane, ylabel):
-    """Component plots label wake amplitudes with the selected plane's units."""
+    """Component plots use the selected plane's impedance or wake units."""
     model = _model(n_resonators=1, fitFunction=fit_function, plane=plane, sigma=1e-10)
     model.load_resonator_parameters("1 | 100 | 3 | 1e9")
 
@@ -394,6 +396,9 @@ def test_plot_resonator_components(request, monkeypatch, fit_function, plane, yl
     fig, axes = model.plot_resonator_components()
 
     assert axes[0].get_ylabel() == ylabel
+    if fit_function == "impedance":
+        units = r"[$\Omega$]" if plane == "longitudinal" else r"[$\Omega$/m]"
+        assert axes[1].get_ylabel() == r"Imaginary part $\Im(Z)$ " + units
     plt.close(fig)
 
 
