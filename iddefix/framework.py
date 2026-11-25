@@ -7,6 +7,8 @@ Created on Mon Mar 23 13:20:11 2020
 @modified by: MaltheRaschke, edelafue
 """
 
+from __future__ import annotations
+
 import re
 from copy import copy, deepcopy
 from functools import partial
@@ -52,119 +54,82 @@ class EvolutionaryAlgorithm:
         parameterEstimates: ArrayLike | None = None,
         compute_uncertainties: bool = False,
     ) -> None:
-        """
-        Implements an evolutionary algorithm for fitting impedance models to data.
-
-        This class optimizes a resonator-based impedance model to fit measured or
-        simulated impedance data using an evolutionary algorithm. It supports both
-        longitudinal and transverse impedance models with a variable number of resonators.
+        """Fit longitudinal or transverse resonators to impedance or wake data.
 
         Parameters
         ----------
-        x_data : numpy.ndarray
-            Stores the input x data: frequencies for impedance [Hz], or
-            times for wake function and wake potential [s]
-        y_data : numpy.ndarray
-            Stores the input y data: impedance data [Ohm] or Wake function/potential [V/C/s]
+        x_data : array_like
+            Frequencies [Hz] for impedance, or times [s] for wakes and potentials.
+            Time-domain transforms require uniform sampling about the bunch center.
+        y_data : array_like
+            Paired impedance [Ohm] or wake function/potential [V/C] samples.
+            Transverse values also carry inverse-metre displacement normalization
+            (the driving offset for dipolar wakes). Convert simulation exports
+            such as V/pC to these units before fitting.
         N_resonators : int or None, optional
-            Number of resonators in the model. If omitted, inferred from
-            ``parameterBounds`` or a subsequently loaded parameter table.
+            Resonator count. Inferred from explicit bounds or a loaded table when
+            omitted. Peak detection can also set it; iterative fitting starts at 1
+            when no count is available.
         parameterBounds : list of tuple or None, optional
-            List of parameter bounds for the optimization. Each resonator has three
-            parameters: Rs (shunt resistance), Q (quality factor), and fr (resonant frequency).
-            May be omitted when loading a table for evaluation or plotting.
-            For fitting, omitted bounds use Rs from zero to the peak real
+            One (lower, upper) pair per parameter in repeated (Rs, Q, fr) order.
+            Missing bounds are derived when needed: Rs from zero to the peak real
             impedance, Q from 0.001 to 1000, and fr from the smallest positive
-            frequency to ten times the maximum frequency. Wake inputs use
-            FFT or Gaussian deconvolution to derive these bounds only.
-        fitFunction: str, optional
-            Specify which fitFunction to use: ["impedance", "wake", "wake_potential"]
-        plane : str, optional
-            Type of impedance model, either `"longitudinal"` or `"transverse"`.
-            Default is `"longitudinal"`.
-        objectiveFunction : callable or str, optional
-            The objective function to minimize. If str, it should be in
-            ['Real', 'Complex', 'Abs', 'Absolute'] (no case distinction). Default if
-            `y_data` is complex: ``obj.sumOfSquaredError``; otherwise it is
-            ``obj.sumOfSquaredErrorReal``.
-        wake_length : float, optional
-            Length of the wake function in meters. Required for wake computations.
-        sigma : float, optional
-            Standard deviation for the bunch's Gaussian distribution used in
-            wake potential getters and optional SmartBounds baseline
-            deconvolution, in seconds. Default is ``None``. When ``None`` and
-            wake-potential getter is used, a default value of 1e-10 s is applied internally.
+            frequency to ten times the largest. Wake inputs use FFT/deconvolution
+            for bounds only; fitting remains in the input domain.
+        plane : {"longitudinal", "transverse"}, optional
+            Impedance plane. Default is "longitudinal".
+        fitFunction : {"impedance", "wake", "wake potential"}, optional
+            Input and fitting domain. Default is "impedance". Use a space in
+            "wake potential"; "wake function" is also accepted for wakes.
+        objectiveFunction : callable, str, or None, optional
+            "real", "complex", or "abs"/"absolute" (case-insensitive), or a callable
+            accepting (parameters, fitFunction, x, y). Default is complex SSE when
+            any input sample has a nonzero imaginary part, otherwise real SSE.
+            Magnitude fitting discards phase information.
+        wake_length : float or None, optional
+            Wake truncation length [m] for finite-duration impedance and SmartBounds
+            analysis. None uses fully decayed impedance. Not required to evaluate
+            a time-domain wake or potential.
+        sigma : float or None, optional
+            RMS Gaussian bunch duration [s], centered at time zero. Used for
+            wake-potential evaluation and deconvolution; defaults to 1e-10 s for
+            potential fits/getters. For impedance baseline removal, supply it only
+            when the spectrum was deconvolved from a Gaussian wake potential.
         uncertainty_warning : float, optional
-            Threshold for relative uncertainty warnings when uncertainties
-            are available. Default is 0.2 (20%).
-        parameterEstimates : array-like, optional
-            Initial parameter vector in the same flattened order as
-            ``parameterBounds``. The value is stored unchanged. Individual
-            solver calls can override it with ``x0``.
+            Relative standard-deviation threshold for warnings. Default is 0.2.
+        parameterEstimates : array_like or None, optional
+            Starting values in flattened (Rs, Q, fr) order. Defaults to None.
+            Solver x0 overrides these values. Without estimates, CMA-ES and direct
+            local fitting use bound midpoints; DE initializes a population.
         compute_uncertainties : bool, optional
-            Compute parameter uncertainties automatically after fitting.
-            Default is False. Set to True to enable this calculation, or call
-            ``get_uncertainties()`` after fitting when needed.
-
-        Attributes
-        ----------
-        fitFunction : callable
-            Function used to evaluate the selected impedance, wake, or
-            wake-potential model.
-        fitFunctionType : str
-            Selected model domain: ``"impedance"``, ``"wake"``, or
-            ``"wake potential"``.
-        evolutionParameters : dict or None
-            Stores parameters of the evolutionary optimization algorithm.
-        minimizationParameters : numpy.ndarray or None
-            Stores the best-fit parameters obtained from the optimization.
-        minimizationBounds : list of tuple or None
-            Bounds used by the most recent local minimization. They are derived
-            from ``margin`` around ``evolutionParameters``, or equal to
-            ``parameterBounds`` for a minimization-only run. They are cleared
-            when stored parameters are manually changed.
-        time_data : numpy.ndarray
-            Stores the input x data: times for wake function and wake potential [s]
-        wake_data : numpy.ndarray
-            Stores the input Wake function [V/C/s]
-        wake_potential_data : numpy.ndarray
-            Stores the input Wake potential [V/C/s]
-        frequency_data : numpy.ndarray
-            Stores the input x data: frequencies for impedance [Hz]
-        impedance_data : numpy.ndarray
-            Stores the input impedance data [Ohm]
+            Estimate parameter uncertainties after fitting. Default is False;
+            they can also be requested later with get_uncertainties().
 
         Notes
         -----
-            - The ``fitFunction`` is assigned based on the ``plane`` type, the
-                    fit mode, and the number of resonators.
-            - The impedance and wake model is based on resonators and can be
-                    used for both single-resonator and multi-resonator systems.
-            - The optimization is performed using an evolutionary algorithm, with results
-                    stored in `minimizationParameters`.
-            - Inputs with more than 2000 samples print a yellow warning because fitting
-              time grows with the number of samples. Around 2000 samples are
-              often sufficient for impedance data spanning 20 GHz, provided
-              narrow resonances remain resolved.
+        Evolutionary results are stored in ``evolutionParameters``; local and
+        selected iterative results in ``minimizationParameters``. Getters prefer
+        local results and fall back to evolutionary results. Loading a parameter
+        table permits evaluation without fitting or generating bounds.
+
+        Use NumPy arrays for numerical input. Original inputs remain in
+        ``x_data`` and ``y_data``. Domain-specific arrays
+        such as ``impedance_data`` hold the data currently used for fitting, including
+        any baseline correction or downsampling. Resolve narrow resonances when
+        reducing the sample count.
 
         Examples
         --------
+        Construct a model, estimate bounds, fit, and evaluate on a frequency grid:
+
         >>> import numpy as np
         >>> import iddefix
-        >>> # Create a resonator impedance (freqs, Rs, Q, fr)
-        >>> freqs = np.linspace(0.5e9, 1.5e9, 401)
-        >>> Z = iddefix.Impedances.Resonator_longitudinal_imp(freqs, 100, 8, 1e9)
-        >>> model = iddefix.EvolutionaryAlgorithm(
-        ...    x_data=freqs,
-        ...    y_data=Z
-        ... )
-        >>> model.estimate_bounds(
-        ...     minimum_peak_height=50,
-        ...     show_table=True,
-        ...     show_inspect=True
-        ... )
-        >>> model.downsample_data(factor=2, show=True)
+        >>> frequency = np.linspace(0.5e9, 1.5e9, 401)
+        >>> Z = iddefix.Impedances.Resonator_longitudinal_imp(frequency, 100, 8, 1e9)
+        >>> model = iddefix.EvolutionaryAlgorithm(frequency, Z)
+        >>> bounds = model.estimate_bounds(show_table=False, show_inspect=False)
         >>> model.run_cmaes(maxiter=100, popsize=10)
+        >>> Z_fit = model.get_impedance(frequency)
         """
 
         self.x_data = x_data
@@ -317,6 +282,21 @@ class EvolutionaryAlgorithm:
     ) -> None:
         """Downsample paired data, always retaining the first and last samples.
 
+        Parameters
+        ----------
+        factor : int or None, optional
+            Keep every factor-th sample; mutually exclusive with samples.
+        show : bool, optional
+            Show an input-versus-retained-data preview. Default is False.
+        scale : str, optional
+            Plot scale: "linear", "log" (x), or "loglog" (both axes).
+        spacing : str or None, optional
+            Selection spacing: None, "linear", or "log". No interpolation is used.
+        samples : int or None, optional
+            Approximate retained sample count; mutually exclusive with factor.
+
+        Notes
+        -----
         Supply exactly one of ``factor`` (keep every Nth sample) or ``samples``
         (approximate retained count). ``samples`` defaults to linear spacing;
         ``spacing="log"`` selects near logarithmically spaced targets.
@@ -463,14 +443,35 @@ class EvolutionaryAlgorithm:
         slope: float | None = None,
         fit_interval: tuple[float, float] | None = None,
     ) -> float:
-        """Remove a linear baseline from the stored fitting data.
+        """Remove a linear wake baseline from the fitting data and return its slope.
 
-        Impedance slopes are fitted to the complex spectrum. Wake and
-        wake-potential slopes are fitted on the last 20% of nonnegative time
-        samples unless ``fit_interval`` selects another interval in seconds.
-        The original input remains in ``x_data`` and ``y_data``. Existing fitted
-        parameters and starting estimates are cleared because they were based
-        on the previous data.
+        Parameters
+        ----------
+        slope : float or None, optional
+            Baseline slope in wake units per second. None estimates it from the data.
+        fit_interval : tuple[float, float] or None, optional
+            Time interval (start, stop) [s] used to fit the wake/potential tail.
+
+        Returns
+        -------
+        float
+            Removed slope in wake units per second.
+
+        Notes
+        -----
+        With ``slope=None``, fit a ramp to the complex impedance or to the last 20%
+        of nonnegative-time wake/potential samples. ``fit_interval=(start, stop)``
+        selects a different tail interval in seconds for time-domain input only.
+        A supplied slope has wake units per second; the subtracted time-domain
+        ramp is slope*maximum(t, 0).
+
+        Impedance correction requires ``wake_length`` [m]. ``sigma`` [s] is used
+        only for spectra deconvolved from Gaussian wake potentials. Magnitude-only
+        impedance cannot be corrected this way.
+
+        Original inputs are retained. Fitted parameters, starting estimates, and
+        the linked SmartBounds estimator are cleared. Repeating the call returns
+        the previous slope; supplying a different slope raises ValueError.
         """
         if self.baseline_slope is not None:
             if slope is not None and slope != self.baseline_slope:
@@ -546,7 +547,7 @@ class EvolutionaryAlgorithm:
             ``"real"`` otherwise. An explicit value overrides this choice.
         prominence : float or None, optional
             Minimum peak prominence in the detection trace's units, passed
-            directly to ``scipy.signal.find_peaks``. Default is 0.01; pass
+            directly to ``scipy.signal.find_peaks``. Default is 1e-4; pass
             None to disable this filter.
         show_table : bool, optional
             Display the estimated bounds with ``to_table()``. Default is True.
@@ -565,7 +566,8 @@ class EvolutionaryAlgorithm:
             Upper frequency limit for transforming wake or wake-potential data.
             Defaults to 3 GHz for wakes and ``1 / (3 * sigma)`` for potentials.
         fft_samples : int, optional
-            FFT zero-padding resolution for wake-domain inputs. Default is 1001.
+            FFT zero-padding resolution for wake-domain inputs. Default is 10001.
+            This does not add resolution beyond the measured time window.
         rolloff : float, optional
             Deconvolution taper width for wake potentials. Default is zero.
         **kwargs
@@ -581,8 +583,9 @@ class EvolutionaryAlgorithm:
               the estimated Rs and Q; each defaults to ``[0.1, 10]``.
             - ``fres_bounds``: Lower and upper multiples of the estimated
               resonator half-width; defaults to ``[-1, 1]``.
-            - ``samples``: Number of equally spaced analysis samples; by
-              default, use the stored frequency samples.
+            - ``samples``: Number of equally spaced analysis samples, selected
+              by linear interpolation. None uses the transformed or stored grid.
+              This changes peak analysis only, not the fitting data.
             - ``q_side``: ``"auto"``, ``"left"``, ``"right"``, or a list with
               one choice per peak; defaults to ``"auto"``.
 
@@ -718,15 +721,23 @@ class EvolutionaryAlgorithm:
 
     @property
     def bounds(self) -> SmartBoundDetermination | None:
-        """Most recently applied SmartBounds estimator; alias of smart_bounds."""
+        """Most recently applied SmartBounds estimator; alias of ``smart_bounds``."""
         return self._smart_bounds
 
     def apply_bounds(self, bounds: SmartBoundDetermination) -> None:
         """Use a completed SmartBounds estimate to set fitting bounds.
 
-        The estimator must describe the same impedance plane. Applying new
-        bounds clears earlier fit results and enables ``add_peak`` on this
-        estimator.
+        Parameters
+        ----------
+        bounds : SmartBoundDetermination
+            Completed SmartBounds estimator for the same impedance plane.
+
+        Notes
+        -----
+        The estimator must describe the same impedance plane and contain at
+        least one completed peak. Applying it sets the count, bound pairs,
+        and starting estimates, and clears previous fits. It is then available
+        through ``bounds`` and ``smart_bounds`` for peak editing.
         """
         if not isinstance(bounds, SmartBoundDetermination):
             raise TypeError("bounds must be a SmartBoundDetermination instance")
@@ -759,6 +770,17 @@ class EvolutionaryAlgorithm:
     ) -> None:
         """Add a peak to the latest SmartBounds estimate and update fit bounds.
 
+        Parameters
+        ----------
+        frequency : float
+            Frequency [Hz] of a peak to add, mapped to the nearest analysis sample.
+        q_side : str or None, optional
+            Crossing side: "auto", "left", or "right"; None uses the stored choice.
+        Q : float or None, optional
+            Positive quality factor. None leaves an existing value unchanged.
+
+        Notes
+        -----
         Call ``estimate_bounds`` or ``apply_bounds`` first. A successful
         addition clears fitted parameters because the number of resonators
         has changed.
@@ -780,8 +802,15 @@ class EvolutionaryAlgorithm:
     def remove_peak(self, peak_number: int | Sequence[int]) -> None:
         """Remove 1-based peaks from the latest estimate and reapply its bounds.
 
-        This clears earlier fitted parameters. Use remove_resonator to preserve
-        the fitted values of the remaining modes.
+        Parameters
+        ----------
+        peak_number : int or sequence[int]
+            One peak number or a sequence of 1-based table numbers to remove.
+
+        Notes
+        -----
+        As with ``add_peak``, this clears earlier fitted parameters. To retain
+        fitted values for the remaining modes, use ``remove_resonator``.
         """
         bounds = self._smart_bounds
         if bounds is None:
@@ -797,9 +826,11 @@ class EvolutionaryAlgorithm:
         self.apply_bounds(bounds)
 
     def check_y_data(self) -> None:
-        """
-        Small function to avoid 0 frequency leading to zero division when
-        using resonators.
+        """Discard nonpositive x samples from the active fitting arrays.
+
+        Notes
+        -----
+        Legacy helper; not called automatically. Original x_data/y_data are retained.
         """
         x, y = self._fit_data
         mask = np.asarray(x) > 0.0
@@ -828,7 +859,7 @@ class EvolutionaryAlgorithm:
         solver: str = "scipy",
         **kwargs: Any,
     ) -> tuple[np.ndarray, str]:
-        """Prepare the objective and dispatch it to the selected DE backend."""
+        """Dispatch a bound-constrained objective to the selected DE backend."""
 
         objective_function = partial(
             objectiveFunction,
@@ -895,7 +926,7 @@ class EvolutionaryAlgorithm:
         ] * count
 
     def _require_fit_bounds(self) -> ParameterBounds:
-        """Require finite search bounds for a global optimizer."""
+        """Return validated finite bounds, deriving defaults when absent."""
         if self.N_resonators is None:
             raise ValueError("Set N_resonators before fitting")
         if self.parameterBounds is None:
@@ -922,8 +953,7 @@ class EvolutionaryAlgorithm:
         x0: ArrayLike | None = None,
         **kwargs: Any,
     ) -> None:
-        """
-        Runs the differential evolution (DE) algorithm to estimate optimal
+        """Runs the differential evolution (DE) algorithm to estimate optimal
         resonance parameters.
 
         This function applies a global optimization technique using a DE solver
@@ -952,7 +982,7 @@ class EvolutionaryAlgorithm:
             - `"pyfde"`: Uses `pyfde`, an alternative DE implementation.
             - `"pyfde_jade"`: Uses JADE, a self-adaptive DE variant.
             Default is `"scipy"`.
-        x0 : array-like, optional
+        x0 : array_like, optional
             Initial parameter vector for SciPy differential evolution. Defaults
             to ``parameterEstimates`` stored on the model. PyFDE backends do not
             currently support an explicit initial vector. If both are ``None``,
@@ -1028,9 +1058,8 @@ class EvolutionaryAlgorithm:
         x0: ArrayLike | None = None,
         tol: float = 1e-4,
         **kwargs: Any,
-    ) -> "Result":
-        """
-        Runs the CMA-ES (Covariance Matrix Adaptation Evolution Strategy) algorithm
+    ) -> Result:
+        """Runs the CMA-ES (Covariance Matrix Adaptation Evolution Strategy) algorithm
         from `pymoo` to optimize resonance parameters.
 
         This function applies the CMA-ES global optimization method to minimize the
@@ -1050,7 +1079,7 @@ class EvolutionaryAlgorithm:
             Initial standard deviation for the sampling distribution. Default is 0.6.
         verbose : bool, optional
             Show pymoo's progress output instead of IDDEFIX's progress bar.
-        x0 : array-like, optional
+        x0 : array_like, optional
             Initial parameter vector. Defaults to ``parameterEstimates`` stored
             on the model. If both are ``None``, CMA-ES uses the bounds midpoint.
         tol : float, optional
@@ -1073,7 +1102,7 @@ class EvolutionaryAlgorithm:
 
         Returns
         -------
-        res : pymoo.optimize.Result
+        res : pymoo.core.result.Result
             The optimization result object containing the solution and metadata.
 
         Notes
@@ -1142,14 +1171,6 @@ class EvolutionaryAlgorithm:
             SciPy minimization method; default ``"Nelder-Mead"``.
         verbose : bool, optional
             Print termination status and the parameter table; default True.
-        maxiter : int or None, optional
-            Per-fit iteration cap. None uses 1000 per resonator for
-            refinement or 5000 per resonator for full-bound fits. Nelder-Mead
-            and L-BFGS-B also use this value as their evaluation budget.
-        tol : float or None, optional
-            Solver convergence tolerance; its meaning depends on the method.
-            None retains the existing Nelder-Mead tolerances and uses SciPy
-            defaults for other methods.
         options : dict or None, optional
             Advanced method-specific settings, overriding derived budgets
             and tolerances (e.g. xatol, fatol, ftol, gtol).
@@ -1158,6 +1179,14 @@ class EvolutionaryAlgorithm:
             False preserves the existing search and runtime. When True,
             default ``xatol=1e-6`` is in normalized coordinates; supplied
             ``initial_simplex`` coordinates must also be normalized.
+        maxiter : int or None, optional
+            Per-fit iteration cap. None uses 1000 per resonator for
+            refinement or 5000 per resonator for full-bound fits. Nelder-Mead
+            and L-BFGS-B also use this value as their evaluation budget.
+        tol : float or None, optional
+            Solver convergence tolerance; its meaning depends on the method.
+            None uses Nelder-Mead xatol=1 (1e-6 with normalization) and fatol=1,
+            or SciPy defaults for other methods.
 
         Notes
         -----
@@ -1283,7 +1312,7 @@ class EvolutionaryAlgorithm:
         method: str = "Nelder-Mead",
         verbose: bool = False,
         options: dict[str, Any] | None = None,
-    ) -> dict[int, "EvolutionaryAlgorithm"]:
+    ) -> dict[int, EvolutionaryAlgorithm]:
         """Fit increasing numbers of resonators and keep the lowest-RMS model.
 
         Start with ``self.N_resonators`` (or 1 if unset). Fit all parameters,
@@ -1324,6 +1353,8 @@ class EvolutionaryAlgorithm:
             Best fitted model per resonator count, also stored in ``best_trials``.
             ``trial_history`` retains every attempt. Repeated calls preserve
             these histories. The lowest-RMS model is restored on ``self``.
+            A rerun refits the current count before checking its target. Keep
+            the data and objective unchanged: saved scores are not recomputed.
 
         Notes
         -----
@@ -1550,6 +1581,24 @@ class EvolutionaryAlgorithm:
     ) -> np.ndarray:
         """Recompute and store uncertainties for the current resonator parameters.
 
+        Parameters
+        ----------
+        use_minimization : bool, optional
+            Prefer minimization parameters when available. False selects evolution results.
+        x_data : array_like or None, optional
+            Input or evaluation grid: frequency [Hz] or time [s], matching the domain.
+        y_data : array_like or None, optional
+            Paired data in the model domain and normalization.
+        parameterBounds : array_like or None, optional
+            Derivative-bound pairs in (Rs, Q, fr) order. None uses physical bounds.
+
+        Returns
+        -------
+        ndarray
+            Parameter standard deviations in flattened (Rs, Q, fr) order.
+
+        Notes
+        -----
         By default, use minimization results when available, otherwise
         evolutionary results. Input data defaults to the data stored on the
         model. Derivatives use physical resonator bounds by default, so loaded
@@ -1597,6 +1646,15 @@ class EvolutionaryAlgorithm:
     ) -> None:
         """Display supplied bounds or the model's parameter bounds.
 
+        Parameters
+        ----------
+        parameterBounds : list of tuple or None, optional
+            Bound pairs in repeated (Rs, Q, fr) order. None uses the documented default.
+        to_markdown : bool, optional
+            Print Markdown instead of the terminal/notebook table. Default is False.
+
+        Notes
+        -----
         Missing bounds use the data-derived defaults. Set ``to_markdown=True``
         to print a Markdown table instead of the terminal or notebook table.
         """
@@ -1614,6 +1672,22 @@ class EvolutionaryAlgorithm:
     ) -> None:
         """Display resonator parameters and their uncertainties.
 
+        Parameters
+        ----------
+        params : array_like or None, optional
+            Flat (Rs, Q, fr) parameter vector. None selects the latest fitted stage.
+        to_markdown : bool, optional
+            Print Markdown instead of the terminal/notebook table. Default is False.
+        uncertainties : array_like or None, optional
+            Matching standard deviations. When params is omitted, None uses the
+            selected stage's stored standard deviations.
+        display_uncertainties : bool, optional
+            Include standard deviations when available. Default is True.
+        display_warnings : bool, optional
+            Print and highlight bound/uncertainty warnings. Default is False.
+
+        Notes
+        -----
         Set ``display_warnings=True`` to print uncertainty and bound warnings
         and highlight affected values. Fitting methods enable warnings for
         their automatic parameter display.
@@ -1730,6 +1804,15 @@ class EvolutionaryAlgorithm:
     ) -> None:
         """Load parameter values and uncertainties from a displayed table.
 
+        Parameters
+        ----------
+        table : str
+            ASCII or Markdown parameter table, with optional uncertainty columns.
+        use_minimization : bool, optional
+            Prefer minimization parameters when available. False selects evolution results.
+
+        Notes
+        -----
         Accepts the ASCII or Markdown output of
         ``display_resonator_parameters`` with or without uncertainties.
         Missing uncertainties default to zero. Header and separator lines are
@@ -1810,6 +1893,19 @@ class EvolutionaryAlgorithm:
     ) -> None:
         """Overwrite selected parameters of a resonator by its 1-based number.
 
+        Parameters
+        ----------
+        resonator_number : int
+            1-based table number of the resonator to modify.
+        Rs : float or None, optional
+            Shunt impedance [Ohm or Ohm/m]. None leaves it unchanged.
+        Q : float or None, optional
+            Positive quality factor. None leaves an existing value unchanged.
+        fr : float or None, optional
+            Resonant frequency [Hz]. None leaves it unchanged.
+
+        Notes
+        -----
         ``None`` leaves a parameter unchanged. Both available fit stages are
         updated; fitted uncertainties are cleared because they describe the
         parameters before this manual edit. Call ``get_uncertainties`` to
@@ -1867,9 +1963,18 @@ class EvolutionaryAlgorithm:
     def remove_resonator(self, resonator_number: int | Sequence[int]) -> None:
         """Remove one or several resonators by their 1-based table numbers.
 
-        Values, uncertainties, and bounds are removed from both fitted stages.
-        Lists use the numbering before removal; duplicate numbers count once.
-        At least one resonator must remain. Linked SmartBounds metadata is updated.
+        Parameters
+        ----------
+        resonator_number : int or sequence[int]
+            One resonator number or a sequence of 1-based table numbers.
+
+        Notes
+        -----
+        The corresponding values, uncertainties, and fit bounds are removed
+        from both evolution and minimization results when present. At least
+        one resonator must remain. Lists use the numbering before removal;
+        duplicate numbers are removed only once. Linked SmartBounds peak
+        metadata, bounds, and estimates are synchronized when present.
         """
         numbers = np.unique(np.atleast_1d(resonator_number))
         if numbers.size == 0:
@@ -1922,12 +2027,30 @@ class EvolutionaryAlgorithm:
         uncertainty: float | Sequence[float] = 0,
         parameter_bounds: ParameterBounds | None = None,
     ) -> None:
-        """Append a resonator to stored parameters, uncertainties, and bounds.
+        """Append a resonator to the stored parameters and uncertainties.
 
-        ``uncertainty`` is a scalar or (Rs, Q, fres) triple. Without supplied
-        ``parameter_bounds``, bounds are open apart from Q > 0 and fres >= 0;
-        supply finite bounds before fitting again. Adding a mode detaches the
-        SmartBounds estimator because its peak list no longer describes the model.
+        Parameters
+        ----------
+        Rs : float
+            Shunt impedance: Ohm longitudinally or Ohm/m transversely.
+        Q : float
+            Positive quality factor for the added mode.
+        fres : float
+            Positive resonant frequency [Hz].
+        uncertainty : float or sequence[float], optional
+            One standard deviation for all three parameters, or an (Rs, Q, fr) triple.
+        parameter_bounds : list of tuple or None, optional
+            Three bound pairs for the added (Rs, Q, fr) mode.
+
+        Notes
+        -----
+        ``uncertainty`` may be one value for all three parameters or a
+        sequence of three values in ``(Rs, Q, fres)`` order. The new mode is
+        appended to both result stages when both are present. Without explicit
+        ``parameter_bounds``, its fit bounds are open apart from Q > 0 and
+        fres >= 0; supply finite bounds before running another fit. Adding a
+        mode detaches any SmartBounds estimator because its peak list no longer
+        describes the model.
         """
         if self.evolutionParameters is None and self.minimizationParameters is None:
             raise ValueError("Load or fit resonator parameters before adding a mode")
@@ -2000,7 +2123,7 @@ class EvolutionaryAlgorithm:
         params: ArrayLike | None,
         uncertainties: ArrayLike | None,
     ) -> np.ndarray | None:
-        """Compute boolean mask for parameters above relative uncertainty threshold."""
+        """Mark parameters whose relative uncertainty exceeds the warning threshold."""
 
         if params is None or uncertainties is None:
             return None
@@ -2050,12 +2173,7 @@ class EvolutionaryAlgorithm:
         params: ArrayLike | None,
         uncertainties: ArrayLike | None,
     ) -> None:
-        """Print a warning if any parameter has a large relative uncertainty.
-
-        The relative uncertainty is defined as ``abs(sigma / value)``. If this
-        exceeds ``self.uncertainty_warning`` for any
-        parameter, a concise warning is printed.
-        """
+        """Store the uncertainty mask and print a summary when values are flagged."""
 
         mask = self._compute_flagged_params_mask(params, uncertainties)
         self.flagged_params = mask
@@ -2082,6 +2200,31 @@ class EvolutionaryAlgorithm:
         time_data: ArrayLike | None = None,
         use_minimization: bool = True,
     ) -> np.ndarray:
+        """Evaluate the fitted wake function on a time grid in seconds.
+
+        Parameters
+        ----------
+        time_data : array_like or None, optional
+            Time grid [s]. None uses the model's stored time grid.
+        use_minimization : bool, optional
+            Prefer minimization parameters when available. False selects evolution results.
+
+        Returns
+        -------
+        ndarray
+            Fitted wake [V/C longitudinally, V/C/m transversely] on the time grid.
+
+        Notes
+        -----
+        Uses ``time_data`` stored on the model if no grid is supplied. An impedance
+        fit requires an explicit time grid on the first call. Results have units
+        V/C longitudinally or V/C/m transversely and vanish before time zero.
+
+        By default, use minimization parameters when available, otherwise evolution
+        parameters. Set ``use_minimization=False`` to select the evolutionary fit.
+        Returns an array on the requested grid. If absent, the model's ``time_data``
+        and ``wake_data`` are populated on the first evaluation.
+        """
         # Check for time data
         if time_data is None:
             if self.time_data is None:
@@ -2118,6 +2261,34 @@ class EvolutionaryAlgorithm:
         sigma: float | None = None,
         use_minimization: bool = True,
     ) -> np.ndarray:
+        """Evaluate the fitted Gaussian wake potential on a time grid [s].
+
+        Parameters
+        ----------
+        time_data : array_like or None, optional
+            Time grid [s]. None uses the model's stored time grid.
+        sigma : float or None, optional
+            RMS Gaussian bunch duration [s].
+        use_minimization : bool, optional
+            Prefer minimization parameters when available. False selects evolution results.
+
+        Returns
+        -------
+        ndarray
+            Fitted Gaussian wake potential [V/C or V/C/m] on the time grid.
+
+        Notes
+        -----
+        ``sigma`` is the RMS bunch duration in seconds, not metres. If omitted,
+        use the model's sigma or 1e-10 s when unset. Times are measured from the
+        bunch center; unlike the point-charge wake, a potential can extend to
+        negative times. The requested grid defaults to the model's ``time_data``.
+
+        Use minimization parameters when available, otherwise evolution parameters.
+        Set ``use_minimization=False`` to select the evolutionary fit. Returns an
+        array in V/C longitudinally or V/C/m transversely. This getter does not
+        replace ``wake_potential_data`` used for fitting.
+        """
         # Check for time data
         if time_data is None:
             if self.time_data is None:
@@ -2167,6 +2338,28 @@ class EvolutionaryAlgorithm:
         frequency_data: ArrayLike | None = None,
         use_minimization: bool = True,
     ) -> np.ndarray:
+        """Evaluate the configured fit function using a frequency grid.
+
+        Parameters
+        ----------
+        frequency_data : array_like or None, optional
+            Evaluation frequencies [Hz]. None uses the stored frequency grid.
+        use_minimization : bool, optional
+            Prefer minimization parameters when available. False selects evolution results.
+
+        Returns
+        -------
+        ndarray
+            Values of the configured impedance fit function on the requested grid.
+
+        Notes
+        -----
+        Legacy impedance-only helper; it does not transform wake-domain fits.
+        For ordinary impedance evaluation, use ``get_impedance``. This helper
+        retains the wake length bound into the model's impedance fit function.
+        The grid defaults to ``frequency_data``; results prefer minimization
+        parameters unless ``use_minimization=False``.
+        """
         # Check for frequency data
         if frequency_data is None:
             if self.frequency_data is None:
@@ -2192,6 +2385,36 @@ class EvolutionaryAlgorithm:
         use_minimization: bool = True,
         wake_length: float | None = None,
     ) -> np.ndarray:
+        """Evaluate fitted complex impedance on a frequency grid [Hz].
+
+        Parameters
+        ----------
+        frequency_data : array_like or None, optional
+            Evaluation frequencies [Hz]. None uses the stored frequency grid.
+        use_minimization : bool, optional
+            Prefer minimization parameters when available. False selects evolution results.
+        wake_length : float or None, optional
+            Wake truncation length [m]. None uses fully decayed impedance.
+
+        Returns
+        -------
+        ndarray
+            Complex impedance [Ohm or Ohm/m] on the frequency grid.
+
+        Notes
+        -----
+        ``frequency_data`` defaults to the model's stored frequency grid. Supply
+        one explicitly after a time-domain fit. Returns Ohm longitudinally or
+        Ohm/m transversely.
+
+        Use minimization parameters when available, otherwise evolution parameters.
+        Set ``use_minimization=False`` to select the evolutionary fit.
+
+        ``wake_length`` [m] selects finite-duration impedance. The default None
+        always returns fully decayed impedance, even if the model has a configured
+        wake length. Pass ``wake_length=model.wake_length`` to reproduce that
+        finite-length convention.
+        """
         # Check for frequency data
         if frequency_data is None:
             if self.frequency_data is None:
@@ -2234,6 +2457,20 @@ class EvolutionaryAlgorithm:
     ) -> np.ndarray:
         """Return one fitted model contribution per resonator.
 
+        Parameters
+        ----------
+        x_data : array_like or None, optional
+            Input or evaluation grid: frequency [Hz] or time [s], matching the domain.
+        use_minimization : bool, optional
+            Prefer minimization parameters when available. False selects evolution results.
+
+        Returns
+        -------
+        ndarray
+            Component values with shape (N_resonators, number_of_samples).
+
+        Notes
+        -----
         Each contribution is evaluated independently with the configured
         impedance, wake, or wake-potential ``fitFunction``.
         """
@@ -2272,6 +2509,40 @@ class EvolutionaryAlgorithm:
     ):
         """Plot input data, individual resonators, and the total model.
 
+        Parameters
+        ----------
+        x_data : array_like or None, optional
+            Input or evaluation grid: frequency [Hz] or time [s], matching the domain.
+        y_data : array_like or None, optional
+            Paired data in the model domain and normalization.
+        use_minimization : bool, optional
+            Prefer minimization parameters when available. False selects evolution results.
+        cmap : str, optional
+            Matplotlib colormap for the individual resonators.
+        figsize : tuple[float, float] or None, optional
+            Figure size (width, height) in inches.
+        dpi : float or None, optional
+            Figure resolution in dots per inch; None uses the Matplotlib default.
+        input_data_kwargs : dict[str, object] or None, optional
+            Line-style overrides for the input data.
+        component_kwargs : dict[str, object] or None, optional
+            Line-style overrides for individual resonators.
+        total_model_kwargs : dict[str, object] or None, optional
+            Line-style overrides for the summed model.
+        scale : str, optional
+            Plot scale: "linear", "log" (x), or "loglog" (both axes).
+        **subplot_kwargs : object
+            Additional keyword arguments passed to matplotlib.pyplot.subplots.
+
+        Returns
+        -------
+        figure : matplotlib.figure.Figure
+            Figure containing the data and model curves.
+        axes : ndarray of matplotlib.axes.Axes
+            One axis for each plotted component of the data.
+
+        Notes
+        -----
         ``input_data_kwargs``, ``component_kwargs``, and
         ``total_model_kwargs`` override the default line styles. Remaining
         keyword arguments are forwarded to ``matplotlib.pyplot.subplots``.
@@ -2280,7 +2551,11 @@ class EvolutionaryAlgorithm:
         ``"abs"`` objective is shown as a single magnitude panel.
         ``scale="log"`` makes x logarithmic; ``"loglog"`` makes both axes
         logarithmic. Default is ``"linear"``. Explicit ``subplot_kw`` axis
-        settings take precedence. Log axes omit nonpositive values.
+        settings take precedence. Log axes omit nonpositive values without
+        changing the stored samples. Returns (figure, axes) and calls plt.show().
+        For complex input, real and imaginary panels are shown even with the
+        magnitude objective. To show magnitudes with that objective, pass
+        ``y_data=np.abs(model.impedance_data)`` on the stored frequency grid.
         """
         import matplotlib.pyplot as plt
 
@@ -2466,7 +2741,32 @@ class EvolutionaryAlgorithm:
     ) -> tuple[np.ndarray, np.ndarray]:
         """Return pointwise sensitivity bounds on the real impedance.
 
-        ``vary`` selects Rs, Q, or both. The selected parameters vary by up to
+        Parameters
+        ----------
+        frequency_data : array_like or None, optional
+            Evaluation frequencies [Hz]. None uses the stored frequency grid.
+        use_minimization : bool, optional
+            Prefer minimization parameters when available. False selects evolution results.
+        wake_length : float or None, optional
+            Wake truncation length [m]. None uses fully decayed impedance.
+        n_sigma : float, optional
+            Number of fitted standard deviations used for parameter variation.
+        q_samples : int, optional
+            Number of Q samples per mode for finite-length sensitivity estimates.
+        vary : str, optional
+            Parameters to vary: "r"/"rs", "q", or "both" (case-insensitive).
+        max_factor : float, optional
+            Multiplicative cap on parameter variation; must be at least 1.
+
+        Returns
+        -------
+        lower_bound, upper_bound : ndarray
+            Pointwise sensitivity bounds on the real impedance, in Ohm or Ohm/m.
+
+        Notes
+        -----
+        ``vary`` accepts "r"/"rs", "q", or "both" (case-insensitive).
+        The selected parameters vary by up to
         ``n_sigma`` fitted standard deviations, limited to a multiplicative
         range between ``value / max_factor`` and ``value * max_factor``.
         Varied Q stays positive, and resonant frequencies stay fixed.
@@ -2479,12 +2779,6 @@ class EvolutionaryAlgorithm:
         the extrema are approximate. The nominal Q is always sampled.
 
         The nominal complex impedance remains available from ``get_impedance``.
-
-        Returns
-        -------
-        lower_bound, upper_bound : tuple of numpy.ndarray
-            Pointwise bounds on the real impedance, in the same units as
-            ``get_impedance``. These are not bounds on its imaginary part.
         """
         if n_sigma < 0:
             raise ValueError("n_sigma must be non-negative")
@@ -2572,6 +2866,36 @@ class EvolutionaryAlgorithm:
         fmax: float = 3e9,
         samples: int = 1001,
     ) -> tuple[np.ndarray, np.ndarray]:
+        """Transform a fitted wake with the legacy FFT convention.
+
+        Parameters
+        ----------
+        time_data : array_like or None, optional
+            Time grid [s]. None uses the model's stored time grid.
+        wake_data : array_like or None, optional
+            Legacy argument; currently ignored in favor of the fitted wake.
+        fmax : float, optional
+            Upper transform frequency [Hz].
+        samples : int, optional
+            Zero-padding resolution. Default is 1001.
+
+        Returns
+        -------
+        frequency, spectrum : ndarray
+            Nonnegative frequencies [Hz] and the legacy FFT spectrum.
+
+        Notes
+        -----
+        ``time_data`` [s] defaults to the stored grid; it must be uniformly spaced.
+        ``fmax`` [Hz] and ``samples`` control the cutoff and zero-padding resolution.
+        Returns (frequency, spectrum). The ``wake_data`` argument is currently
+        ignored: this method always evaluates the fitted wake on the stored grid.
+
+        This legacy path uses spatial FFT scaling and additional plane-dependent
+        sign factors. For analytic impedance in the model's physical units, use
+        ``get_impedance``. For an explicit transform, use ``compute_fft`` on
+        ``model.get_wake(time) / c`` and multiply by 1j for the transverse convention.
+        """
         # Check for time data
         if time_data is None:
             if self.time_data is None:
@@ -2605,6 +2929,35 @@ class EvolutionaryAlgorithm:
         time_data: ArrayLike | None = None,
         use_minimization: bool = True,
     ) -> tuple[np.ndarray, np.ndarray]:
+        """Evaluate the fitted wake on an extended time grid.
+
+        Parameters
+        ----------
+        new_end_time : float or None, optional
+            Required end time [s], excluded from the extended grid.
+        dt : float or None, optional
+            Extension time step [s]. None uses the smallest input time step.
+        time_data : array_like or None, optional
+            Time grid [s]. None uses the model's stored time grid.
+        use_minimization : bool, optional
+            Prefer minimization parameters when available. False selects evolution results.
+
+        Returns
+        -------
+        time, wake : ndarray
+            Extended time grid [s] and fitted wake [V/C or V/C/m].
+
+        Notes
+        -----
+        ``new_end_time`` [s] is required and is excluded from the returned grid.
+        ``time_data`` defaults to the stored grid. Keep its samples before the last
+        point, then extend from that point with spacing ``dt`` [s]; when omitted,
+        use the smallest input time step. Returns (extended_time, fitted_wake).
+
+        Uses minimization parameters when available; ``use_minimization=False``
+        selects the evolutionary fit. This evaluates the resonator model beyond
+        the original interval rather than extrapolating the measured data.
+        """
         # Check for time data
         if time_data is None:
             if self.time_data is None:
@@ -2636,49 +2989,30 @@ class EvolutionaryAlgorithm:
         x_name: str = "X [-]",
         y_name: str = "Y [-]",
     ) -> None:
-        """
-        Saves x and y data to a text file in a two-column format.
-
-        This function exports the provided `x_data` and `y_data` to a `.txt` file,
-        formatting the output with a header that includes custom column names.
+        """Export supplied x and y arrays as text columns with a two-line header.
 
         Parameters
         ----------
         f_name : str
-            Name of the output file (with or without the `.txt` extension).
-        x_data : numpy.ndarray, optional
-            Array containing x-axis data. If None, the file is not saved.
-        y_data : numpy.ndarray, optional
-            Array containing y-axis data. If None, the file is not saved.
+            Output filename; see Notes for the current suffix behavior.
+        x_data : array_like or None, optional
+            Input or evaluation grid: frequency [Hz] or time [s], matching the domain.
+        y_data : array_like or None, optional
+            Paired data in the model domain and normalization.
         x_name : str, optional
-            Label for the x-axis column in the output file. Default is `"X [-]"`.
+            Header label for the x column.
         y_name : str, optional
-            Label for the y-axis column in the output file. Default is `"Y [-]"`.
+            Header label for the y column.
 
         Notes
         -----
-        - The data is saved in a two-column format where `x_data` and `y_data`
-        are combined column-wise.
-        - If `x_data` or `y_data` is missing, the function prints a warning and
-        does not save a file.
+        Both arrays are required; missing data prints a message and writes nothing.
+        ``x_name`` and ``y_name`` label the columns. Values are written using
+        ``numpy.savetxt``; this method does not save the fitted parameter table.
 
-        Examples
-        --------
-        Save two NumPy arrays to `data.txt`:
-
-        >>> x = np.linspace(0, 10, 5)
-        >>> y = np.sin(x)
-        >>> save_txt("data", x, y, x_name="Time [s]", y_name="Amplitude [a.u.]")
-
-        The saved file will look like:
-
-            Time [s]               Amplitude
-            --------------------------------
-            0.00                   0.00
-            2.50                   0.59
-            5.00                   -0.99
-            7.50                   0.94
-            10.00                  -0.54
+        The current implementation appends an extra .txt suffix: f_name="fit"
+        and f_name="fit.txt" both write fit.txt.txt. Use numpy.savetxt directly
+        when the exact output filename matters.
         """
         if not f_name.endswith(".txt"):
             f_name += ".txt"
@@ -2700,67 +3034,37 @@ class EvolutionaryAlgorithm:
         usecols: Sequence[int] | None = None,
         as_dict: bool = False,
     ) -> dict[Any, np.ndarray] | tuple[np.ndarray, np.ndarray]:
-        """
-        Reads data from an ASCII text file and returns it as a dictionary or tuple.
-
-        This function reads a structured text file containing numerical data,
-        where the first line is expected to contain column headers. It attempts
-        to parse the headers and assign them as dictionary keys. If headers are
-        not properly formatted, integer indices are used instead.
+        """Read numerical columns without changing the model's fitting data.
 
         Parameters
         ----------
         txt : str
-            Path to the text file to read.
+            Path to the numerical text file.
         skiprows : int, optional
-            Number of initial rows to skip before reading the data. Default is 2.
-        delimiter : str, optional
-            Character used to separate values in the file. If None, whitespace is used.
-        usecols : list of int, optional
-            Indices of columns to read from the file. If None, all columns are read.
+            Number of leading rows to skip. Default is 2.
+        delimiter : str or None, optional
+            Field separator. None uses whitespace.
+        usecols : sequence[int] or None, optional
+            Zero-based column indices to load. None loads all columns.
         as_dict : bool, optional
-            If True, returns a dictionary where keys are the column headers
-            (if available) or integers (if headers are missing).
-            If False, returns `x_data` and `y_data`as separate arrays. Default is False.
+            Return a dictionary of selected columns instead of the first two arrays.
 
         Returns
         -------
-        dict or tuple
-            - If `as_dict=True`, returns a dictionary `{header: column_data}`.
-            - If `as_dict=False`, returns `(x_data, y_data)`, where:
-            - `x_data` is the first column of data.
-            - `y_data` is the second column of data.
+        tuple of ndarray or dict
+            First two selected columns, or all selected columns when as_dict=True.
 
         Notes
         -----
-        - If an error occurs while reading the file, the function attempts to reload
-        the data assuming complex numbers (`dtype=complex`).
-        - If column headers are missing or unreadable, integer indices `[0, 1, ...]`
-        are assigned as dictionary keys.
-        - The first line of the file is expected to contain column headers.
+        ``skiprows`` defaults to 2; ``delimiter=None`` splits on whitespace.
+        ``usecols`` selects columns using zero-based indices. The reader first
+        tries floats, then complex numbers if parsing fails.
 
-        Examples
-        --------
-        Read a file and return as a dictionary:
-
-        >>> data = read_txt("data.txt", as_dict=True)
-        >>> print(data.keys())
-        # Example output: {'Time[s]': array([...]), 'Amplitude': array([...])}
-
-        Read a file and return x and y data separately:
-
-        >>> x, y = read_txt("data.txt")
-        >>> print(x.shape, y.shape)
-
-        Example of an expected file format:
-
-        ```
-        # Time[s]     Amplitude
-        ------------------------
-        0.00         0.00
-        2.50         0.59
-        5.00        -0.99
-        ```
+        With ``as_dict=False``, return the first two selected columns as (x, y).
+        With ``as_dict=True``, return all selected columns in a dictionary, keyed
+        by bracket-delimited labels parsed from the first line or by column index
+        if parsing fails. Provide a table with at least two data rows; tuple output
+        also requires at least two selected columns.
         """
 
         try:

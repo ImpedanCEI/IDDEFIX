@@ -19,6 +19,7 @@ from .utils import pars_to_dict
 
 
 def _sum_objective_terms(terms: np.ndarray, predicted_y: np.ndarray) -> float:
+    """Sum terms, rejecting nonfinite predictions, NaN, and positive-infinite loss."""
     # np.nansum can make an all-NaN model look like a perfect (zero-error) fit.
     if (
         not np.all(np.isfinite(predicted_y))
@@ -30,27 +31,42 @@ def _sum_objective_terms(terms: np.ndarray, predicted_y: np.ndarray) -> float:
 
 
 class ObjectiveFunctions:
+    """Scalar objectives for resonator fitting, called as class functions.
+
+    ``parameters`` is a flat vector of (Rs, Q, fr) triples. Each objective groups
+    it into a dictionary before calling ``fitFunction(x, grouped_parameters)``.
+    ``x`` and ``y`` are NumPy arrays in the fitting domain. Invalid model values
+    produce infinite loss. Log objectives sum logarithms of sample errors;
+    they are not the logarithm of the total SSE or a fit in log-amplitude space.
+    """
+
     def sumOfSquaredError(
         parameters: ArrayLike,
         fitFunction: FitCallable,
         x: ArrayLike,
         y: ArrayLike,
     ) -> float:
-        """Calculates the sum of squared errors (SSE) for a given fit function.
+        """Return sum(abs(y - prediction)**2), including real and imaginary errors.
 
-        This function computes the SSE between the predicted values from a fit
-        function and the actual data points. It works with both real and imaginary
-        components of the data.
+        Parameters
+        ----------
+        parameters : array_like
+            Flat parameter vector in repeated (Rs, Q, fr) order.
+        fitFunction : FitCallable
+            Model callable accepting (x, grouped_parameter_dictionary).
+        x : array_like
+            Input sample locations in the model domain.
+        y : array_like
+            Reference NumPy data array on x, in the model's units.
 
-        Args:
-            parameters: Array of parameters used by the fit_function.
-            fitFunction: Function that takes parameters and x values as input and
-                returns predicted y values (including real and imaginary parts).
-            x: Array of x values for the data.
-            y: Array of y values for the data (including real and imaginary parts).
+        Returns
+        -------
+        float
+            Scalar loss; see Notes for the residual components and logarithm convention.
 
-        Returns:
-            The sum of squared errors (SSE).
+        Notes
+        -----
+        See ObjectiveFunctions for the shared parameters and model-call convention.
         """
 
         grouped_parameters = pars_to_dict(parameters)
@@ -67,21 +83,27 @@ class ObjectiveFunctions:
         x: ArrayLike,
         y: ArrayLike,
     ) -> float:
-        """Calculates the real sum of squared errors (SSE) for a given fit function.
+        """Return sum((y.real - prediction.real)**2), ignoring imaginary residuals.
 
-        This function computes the SSE between the predicted values from a fit
-        function and the actual data points. It works only with the real component
-        of the data.
+        Parameters
+        ----------
+        parameters : array_like
+            Flat parameter vector in repeated (Rs, Q, fr) order.
+        fitFunction : FitCallable
+            Model callable accepting (x, grouped_parameter_dictionary).
+        x : array_like
+            Input sample locations in the model domain.
+        y : array_like
+            Reference NumPy data array on x, in the model's units.
 
-        Args:
-            parameters: Array of parameters used by the fit_function.
-            fitFunction: Function that takes parameters and x values as input and
-                returns predicted y values (including only the real part).
-            x: Array of x values for the data.
-            y: Array of y values for the data (including only the real part).
+        Returns
+        -------
+        float
+            Scalar loss; see Notes for the residual components and logarithm convention.
 
-        Returns:
-            The real sum of squared errors (SSE).
+        Notes
+        -----
+        See ObjectiveFunctions for the shared parameters and model-call convention.
         """
 
         grouped_parameters = pars_to_dict(parameters)
@@ -97,20 +119,27 @@ class ObjectiveFunctions:
         x: ArrayLike,
         y: ArrayLike,
     ) -> float:
-        """Calculates the magnitude-based sum of squared errors (SSE).
+        """Return sum((abs(y) - abs(prediction))**2), ignoring phase.
 
-        This function computes the SSE between the magnitudes of the predicted
-        values from a fit function and the magnitudes of the actual data points.
+        Parameters
+        ----------
+        parameters : array_like
+            Flat parameter vector in repeated (Rs, Q, fr) order.
+        fitFunction : FitCallable
+            Model callable accepting (x, grouped_parameter_dictionary).
+        x : array_like
+            Input sample locations in the model domain.
+        y : array_like
+            Reference NumPy data array on x, in the model's units.
 
-        Args:
-            parameters: Array of parameters used by the fitFunction.
-            fitFunction: Function that takes parameters and x values as input and
-                returns predicted y values.
-            x: Array of x values for the data.
-            y: Array of y values for the data.
+        Returns
+        -------
+        float
+            Scalar loss; see Notes for the residual components and logarithm convention.
 
-        Returns:
-            The magnitude-based sum of squared errors (SSE).
+        Notes
+        -----
+        See ObjectiveFunctions for the shared parameters and model-call convention.
         """
 
         grouped_parameters = pars_to_dict(parameters)
@@ -126,21 +155,28 @@ class ObjectiveFunctions:
         x: ArrayLike,
         y: ArrayLike,
     ) -> float:
-        """Calculates the sum of log squared errors for a fit function.
+        """Return sum(log(abs(y - prediction)**2)).
 
-        This function computes the log squared errors between the predicted
-        values from a fit function and the actual data points. It works with
-        both real and imaginary components of the data.
+        Parameters
+        ----------
+        parameters : array_like
+            Flat parameter vector in repeated (Rs, Q, fr) order.
+        fitFunction : FitCallable
+            Model callable accepting (x, grouped_parameter_dictionary).
+        x : array_like
+            Input sample locations in the model domain.
+        y : array_like
+            Reference NumPy data array on x, in the model's units.
 
-        Args:
-            parameters: Array of parameters used by the fit_function.
-            fitFunction: Function that takes parameters and x values as input and
-                returns predicted y values (including real and imaginary parts).
-            x: Array of x values for the data.
-            y: Array of y values for the data (including real and imaginary parts).
+        Returns
+        -------
+        float
+            Scalar loss; see Notes for the residual components and logarithm convention.
 
-        Returns:
-            The sum of log squared errors.
+        Notes
+        -----
+        Uses both components. Exact zero residuals contribute -inf; no floor is
+        added. See ObjectiveFunctions for the shared model-call convention.
         """
         grouped_parameters = pars_to_dict(parameters)
         predicted_y = fitFunction(x, grouped_parameters)
@@ -156,21 +192,28 @@ class ObjectiveFunctions:
         x: ArrayLike,
         y: ArrayLike,
     ) -> float:
-        """Calculates the real sum of log squared errors for a given fit function.
+        """Return sum(log((y.real - prediction.real)**2)).
 
-        This function computes the real log squared errors between the predicted values
-        from a fit function and the actual data points.
-        It works only with the real component of the data.
+        Parameters
+        ----------
+        parameters : array_like
+            Flat parameter vector in repeated (Rs, Q, fr) order.
+        fitFunction : FitCallable
+            Model callable accepting (x, grouped_parameter_dictionary).
+        x : array_like
+            Input sample locations in the model domain.
+        y : array_like
+            Reference NumPy data array on x, in the model's units.
 
-        Args:
-            parameters: Array of parameters used by the fit_function.
-            fitFunction: Function that takes parameters and x values as input and
-                returns predicted y values (including only the real part).
-            x: Array of x values for the data.
-            y: Array of y values for the data (including only the real part).
+        Returns
+        -------
+        float
+            Scalar loss; see Notes for the residual components and logarithm convention.
 
-        Returns:
-            The real sum of log squared errors.
+        Notes
+        -----
+        Imaginary residuals are ignored. Exact matches contribute -inf; no floor
+        is added. See ObjectiveFunctions for the shared model-call convention.
         """
 
         grouped_parameters = pars_to_dict(parameters)
@@ -187,23 +230,31 @@ class ObjectiveFunctions:
         y: ArrayLike,
         eps: float = 1e-12,
     ) -> float:
-        """Calculates the magnitude-based sum of log squared errors.
+        """Return sum(log((abs(y) - abs(prediction))**2 + eps)).
 
-        This function computes the log of squared errors between the magnitudes
-        of the predicted values from a fit function and the magnitudes of the
-        actual data points. A small epsilon is added inside the log to avoid
-        issues with ``log(0)``.
+        Parameters
+        ----------
+        parameters : array_like
+            Flat parameter vector in repeated (Rs, Q, fr) order.
+        fitFunction : FitCallable
+            Model callable accepting (x, grouped_parameter_dictionary).
+        x : array_like
+            Input sample locations in the model domain.
+        y : array_like
+            Reference NumPy data array on x, in the model's units.
+        eps : float, optional
+            Positive squared-error floor before taking the logarithm. Default is 1e-12.
 
-        Args:
-            parameters: Array of parameters used by the fitFunction.
-            fitFunction: Function that takes parameters and x values as input and
-                returns predicted y values.
-            x: Array of x values for the data.
-            y: Array of y values for the data.
-            eps: Small positive constant to prevent log(0).
+        Returns
+        -------
+        float
+            Scalar loss; see Notes for the residual components and logarithm convention.
 
-        Returns:
-            The magnitude-based sum of log squared errors.
+        Notes
+        -----
+        Ignores phase. ``eps`` defaults to 1e-12 and floors the squared magnitude
+        error before taking its natural logarithm. See ObjectiveFunctions for the
+        shared parameters and model-call convention.
         """
 
         grouped_parameters = pars_to_dict(parameters)

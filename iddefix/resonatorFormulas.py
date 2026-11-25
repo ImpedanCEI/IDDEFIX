@@ -23,7 +23,7 @@ ParsType = ParameterDict | ArrayLike
 def _overdamped_wake_terms(
     times: np.ndarray, omega_r: float, Q: float
 ) -> tuple[np.ndarray, np.ndarray, float]:
-    """Return the damped cosh and sinh/D terms without large intermediates."""
+    """Evaluate stable overdamped exponential combinations for nonnegative times."""
     B = omega_r / (2 * Q)
     D = omega_r * np.sqrt(1 / (4 * Q**2) - 1)
     fast_rate = B + D
@@ -36,49 +36,45 @@ def _overdamped_wake_terms(
 
 
 class Wakes:
+    """Analytical longitudinal and transverse resonator wakes and potentials.
+
+    Call methods on the class, for example Wakes.Resonator_longitudinal_wake(...).
+    Time grids are in seconds. Longitudinal Rs is in Ohm and transverse Rs in
+    Ohm/m; wake and potential outputs are V/C and V/C/m, respectively.
+    Multi-resonator methods accept a flat (Rs, Q, fr) vector or a dictionary
+    whose values are those triples. Frequencies fr are in Hz and Q is dimensionless.
+    """
+
     # Longitudinal and transverse wake functions
+
     def Resonator_longitudinal_wake(
         times: ArrayLike,
         Rs: float,
         Q: float,
         resonant_frequency: float,
     ) -> np.ndarray:
-        """Calculates the longitudinal wake function of a resonator.
+        """Evaluate the longitudinal wake of one resonator.
 
-        This function calculates the longitudinal wake function of a resonator
-        with shunt impedance `Rs`, quality factor `Q`, and resonant frequency
-        `resonant_frequency` at different times `times`.
+        Parameters
+        ----------
+        times : array_like
+            Time samples [s], with positive times behind the source.
+        Rs : float
+            Shunt impedance [Ohm].
+        Q : float
+            Positive quality factor, including the critical value 0.5.
+        resonant_frequency : float
+            Positive resonant frequency [Hz].
 
-        Args:
-            times (np.ndarray): Array of time values in seconds.
-            Rs (float): Shunt impedance of the resonator in Ohm.
-            Q (float): Quality factor of the resonator.
-            resonant_frequency (float): Resonant frequency of the resonator in Hz.
+        Returns
+        -------
+        ndarray
+            Wake samples [V/C] on the input grid. Negative-time samples are zero.
 
-        Returns:
-            np.ndarray: Array of longitudinal wake function values [V/C] at the
-            corresponding times.
-
-        Notes:
-            This formula uses the generalized wake function formula and can be
-            used for any real positive value of `Q`.
-            https://cds.cern.ch/record/192684/files/198812060.pdf
-
-            Units for this formula are:
-                Rs: Ohm
-                Q: dimensionless
-                resonant_frequency: Hz
-
-        Examples:
-            >>> times = np.linspace(0, 1e-9, 1000)
-            >>> Rs = 1e6
-            >>> Q = 0.6
-            >>> resonant_frequency = 1e9
-            >>> wake_function = Resonator_longitudinal_wake(times, Rs, Q, resonant_frequency)
-            >>> plt.plot(times, wake_function)
-            >>> plt.xlabel("Time [s]")
-            >>> plt.ylabel("Longitudinal Wake Function [V/C]")
-            >>> plt.show()
+        Notes
+        -----
+        Uses the generalized resonator wake, including overdamped and critical
+        limits; see https://cds.cern.ch/record/192684/files/198812060.pdf.
         """
 
         times = np.asarray(times)
@@ -120,41 +116,28 @@ class Wakes:
         Q: float,
         resonant_frequency: float,
     ) -> np.ndarray:
-        """Calculates the longitudinal wake function of a resonator.
+        """Evaluate the transverse wake of one resonator.
 
-        This function calculates the transverse wake function of a resonator
-        with shunt impedance `Rs`, quality factor `Q`, and resonant frequency
-        `resonant_frequency` at different times `times`.
+        Parameters
+        ----------
+        times : array_like
+            Time samples [s], with positive times behind the source.
+        Rs : float
+            Shunt impedance [Ohm/m].
+        Q : float
+            Positive quality factor, including the critical value 0.5.
+        resonant_frequency : float
+            Positive resonant frequency [Hz].
 
-        Args:
-            times (np.ndarray): Array of time values in seconds.
-            Rs (float): Shunt impedance of the resonator in Ohm/m.
-            Q (float): Quality factor of the resonator.
-            resonant_frequency (float): Resonant frequency of the resonator in Hz.
+        Returns
+        -------
+        ndarray
+            Wake samples [V/C/m] on the input grid. Negative-time samples are zero.
 
-        Returns:
-            np.ndarray: Array of longitudinal wake function values [V/C/m] at the corresponding times.
-
-        Notes:
-            This formula uses the generalized wake function formula and
-            can be used for any real positive value of `Q`.
-            https://cds.cern.ch/record/192684/files/198812060.pdf
-
-            Units for this formula are:
-                Rs: Ohm/m
-                Q: dimensionless
-                resonant_frequency: Hz
-
-        Examples:
-            >>> times = np.linspace(0, 1e-9, 1000)
-            >>> Rs = 1e6
-            >>> Q = 0.6
-            >>> resonant_frequency = 1e9
-            >>> wake_function = Resonator_transverse_wake(times, Rs, Q, resonant_frequency)
-            >>> plt.plot(times, wake_function)
-            >>> plt.xlabel("Time [s]")
-            >>> plt.ylabel("Transverse Wake Function [V/C]")
-            >>> plt.show()
+        Notes
+        -----
+        Uses the generalized resonator wake, including overdamped and critical
+        limits; see https://cds.cern.ch/record/192684/files/198812060.pdf.
         """
 
         times = np.asarray(times)
@@ -177,46 +160,26 @@ class Wakes:
         return Wt
 
     def n_Resonator_longitudinal_wake(times: ArrayLike, pars: ParsType) -> np.ndarray:
-        """Calculates the combined longitudinal wake function of multiple resonators.
+        """Sum longitudinal wake functions for the supplied resonators.
 
-        This function calculates the total longitudinal wake function induced by a system
-        consisting of multiple resonators at different times `times`. Each resonator
-        is defined by its parameters provided in a dictionary `dict_params`.
+        Parameters
+        ----------
+        times : array_like
+            Time grid [s] about the source or bunch center.
+        pars : array_like or dict
+            Flat (Rs, Q, fr) vector or dictionary of parameter triples.
 
-        Args:
-            times (np.ndarray): Array of time values in seconds.
-            dict_params (dict or ndarray): Dictionary containing resonator parameters.
-            If dict, Keys are unique identifiers for each resonator, and values are
-            lists containing the parameters in the following order:
-                    - Rs (float): Shunt impedance of the resonator in Ohm.
-                    - Q (float): Quality factor of the resonator.
-                    - resonant_frequency (float): Resonant frequency of the resonator in Hz.
+        Returns
+        -------
+        ndarray
+            Sum of the resonator contributions, in the units stated in Notes.
 
-        Returns:
-            np.ndarray: Array of combined transverse wake function values [V/C] at
-                the corresponding times.
-
-        Examples:
-            >>> times = np.linspace(0, 1e-9, 1000)
-            >>> pars = {
-            ...     1: [1e6, 1, 1e9],
-            ...     2: [2e6, 1, 5e8],
-            ... }
-            >>> # Or, use directly the result from the DE solver
-            >>> pars = DE_model.evolutionParameters
-            >>> wake_function = n_Resonator_longitudinal_wake(times, pars)
-            >>> plt.plot(times, wake_function)
-            >>> plt.xlabel("Time [s]")
-            >>> plt.ylabel("Longitudinal Wake Function [V/C]")
-            >>> plt.show()
-
-        Notes:
-            - This function assumes all resonators have the same type of longitudinal
-                wake function formula implemented in `Resonator_longitudinal_wake`.
-            - The combined wake function is calculated by summing the individual
-                wake function contributions from each resonator at each time step.
-            - Resonator parameters should be positive values (except for the shunt impedance).
-            Behavior for invalid values is not defined and may lead to errors.
+        Notes
+        -----
+        ``times`` is a NumPy time grid [s]. ``pars`` is a flat (Rs, Q, fr) vector
+        or a dictionary of triples, with Rs in Ohm, positive Q, and fr in Hz.
+        Returns samples in V/C. Each mode uses Resonator_longitudinal_wake,
+        including its causal convention and support for any positive Q.
         """
         if type(pars) is dict:
             dict_params = pars
@@ -230,46 +193,26 @@ class Wakes:
         return Wl
 
     def n_Resonator_transverse_wake(times: ArrayLike, pars: ParsType) -> np.ndarray:
-        """Calculates the combined transverse wake function of multiple resonators.
+        """Sum transverse wake functions for the supplied resonators.
 
-        This function calculates the total transverse wake function induced by a system
-        consisting of multiple resonators at different times `times`. Each resonator
-        is defined by its parameters provided in a dictionary `dict_params`.
+        Parameters
+        ----------
+        times : array_like
+            Time grid [s] about the source or bunch center.
+        pars : array_like or dict
+            Flat (Rs, Q, fr) vector or dictionary of parameter triples.
 
-        Args:
-            times (np.ndarray): Array of time values in seconds.
-            dict_params (dict or ndarray): Dictionary containing resonator parameters. Keys are
-                unique identifiers for each resonator, and values are lists containing
-                the parameters in the following order:
-                    - Rs (float): Shunt impedance of the resonator in Ohm/m.
-                    - Q (float): Quality factor of the resonator.
-                    - resonant_frequency (float): Resonant frequency of the resonator in Hz.
+        Returns
+        -------
+        ndarray
+            Sum of the resonator contributions, in the units stated in Notes.
 
-        Returns:
-            np.ndarray: Array of combined transverse wake function values [V/C/m] at
-                the corresponding times.
-
-        Examples:
-            >>> times = np.linspace(0, 1e-9, 1000)
-            >>> pars = {
-            ...     1: [1e6, 1, 1e9],
-            ...     2: [2e6, 1, 5e8],
-            ... }
-            >>> # Or, use directly the result from the DE solver
-            >>> pars = DE_model.evolutionParameters
-            >>> wake_function = n_Resonator_transverse_wake(times, pars)
-            >>> plt.plot(times, wake_function)
-            >>> plt.xlabel("Time [s]")
-            >>> plt.ylabel("Transverse Wake Function [V/C/m]")
-            >>> plt.show()
-
-        Notes:
-            - This function assumes all resonators have the same type of transverse
-                wake function formula implemented in `Resonator_transverse_wake`.
-            - The combined wake function is calculated by summing the individual
-                wake function contributions from each resonator at each time step.
-            - Resonator parameters should be positive values (except for the shunt impedance).
-            Behavior for invalid values is not defined and may lead to errors.
+        Notes
+        -----
+        ``times`` is a NumPy time grid [s]. ``pars`` is a flat (Rs, Q, fr) vector
+        or a dictionary of triples, with Rs in Ohm/m, positive Q, and fr in Hz.
+        Returns samples in V/C/m. Each mode uses Resonator_transverse_wake,
+        including its causal convention and support for any positive Q.
         """
         if type(pars) is dict:
             dict_params = pars
@@ -291,25 +234,34 @@ class Wakes:
         sigma: float = 1e-10,
         use_mpmath: bool = False,
     ) -> np.ndarray:
-        """
-        Single resonator wake potential (longitudinal) for a Gaussian bunch of line density.
+        """Evaluate one longitudinal resonator's Gaussian wake potential.
 
-        Args:
-            Rs (float or list): Shunt impedance (Ohm).
-            resonant_frequency (float or list): Resonant frequency (Hz).
-            Q (float or list): Quality factor.
-            sigma (float): RMS bunch length (s)
-            times (array-like): Times (s) where wake is computed (times > 0 behind the source).
-            use_mpmath (bool, optional): Use mpmath for calculations. Defaults to False.
+        Parameters
+        ----------
+        times : ndarray
+            Times [s] measured from the bunch center; positive times are behind it.
+        Rs : float
+            Shunt impedance [Ohm].
+        Q : float
+            Quality factor for the analytic Gaussian expression. Use Q > 0.5;
+            its critical-damping limit is not implemented.
+        resonant_frequency : float
+            Positive resonant frequency [Hz].
+        sigma : float, optional
+            RMS Gaussian bunch duration [s]. Default is 1e-10.
+        use_mpmath : bool, optional
+            Use the optional mpmath backend. Default is False (NumPy/SciPy).
 
-        Returns:
-            np.ndarray: Wake potential at times `times`.
+        Returns
+        -------
+        ndarray
+            Wake potential [V/C] on the requested grid. It can extend before
+            time zero because the Gaussian bunch has a finite duration.
 
-        Notes:
-            The formula is from Chao's Handbook (p. 237, sec 3.2), partly re-derived by
-            N. Mounet. Equivalent formula in https://cds.cern.ch/record/192684/files/198812060.pdf
-            Q must be different from 0.5!
-            Rs, resonant_frequency, and Q must be scalar.
+        Notes
+        -----
+        The Gaussian closed form follows Chao's Handbook, section 3.2, and the
+        resonator formulas in https://cds.cern.ch/record/192684/files/198812060.pdf.
         """
         omegar = 2 * np.pi * resonant_frequency
         kr = omegar * (1 - 1 / (4 * Q**2)) ** 0.5
@@ -369,6 +321,30 @@ class Wakes:
         pars: ParsType,
         sigma: float = 1e-10,
     ) -> np.ndarray:
+        """Sum Gaussian wake potentials for longitudinal resonators.
+
+        Parameters
+        ----------
+        times : array_like
+            Time grid [s] about the source or bunch center.
+        pars : array_like or dict
+            Flat (Rs, Q, fr) vector or dictionary of parameter triples.
+        sigma : float, optional
+            Shared RMS Gaussian bunch duration [s]. Default is 1e-10.
+
+        Returns
+        -------
+        ndarray
+            Sum of the resonator contributions, in the units stated in Notes.
+
+        Notes
+        -----
+        ``times`` is a NumPy time grid [s] about the bunch center. ``pars`` is a
+        flat (Rs, Q, fr) vector or a dictionary of triples (Rs in Ohm, fr in Hz).
+        ``sigma`` is the shared RMS bunch duration [s], default 1e-10.
+        Returns samples in V/C. Each mode uses Resonator_longitudinal_wake_potential;
+        its quality-factor restrictions apply to every mode.
+        """
         if type(pars) is dict:
             dict_params = pars
         else:
@@ -388,25 +364,34 @@ class Wakes:
         sigma: float = 1e-10,
         use_mpmath: bool = False,
     ) -> np.ndarray:
-        """
-        Single resonator wake potential (transverse) for a Gaussian bunch of line density.
+        """Evaluate one transverse resonator's Gaussian wake potential.
 
-        Args:
-            Rs (float or list): Shunt impedance (Ohm).
-            resonant_frequency (float or list): Resonant frequency (Hz).
-            Q (float or list): Quality factor.
-            sigma (float): RMS bunch length (s)
-            times (array-like): Times (s) where wake is computed (times > 0 behind the source).
-            use_mpmath (bool, optional): Use mpmath for calculations. Defaults to False.
+        Parameters
+        ----------
+        times : ndarray
+            Times [s] measured from the bunch center; positive times are behind it.
+        Rs : float
+            Shunt impedance [Ohm/m].
+        Q : float
+            Quality factor for the analytic Gaussian expression. Use Q > 0.5;
+            its critical-damping limit is not implemented.
+        resonant_frequency : float
+            Positive resonant frequency [Hz].
+        sigma : float, optional
+            RMS Gaussian bunch duration [s]. Default is 1e-10.
+        use_mpmath : bool, optional
+            Use the optional mpmath backend. Default is False (NumPy/SciPy).
 
-        Returns:
-            np.ndarray: Wake potential at times `times`.
+        Returns
+        -------
+        ndarray
+            Wake potential [V/C/m] on the requested grid. It can extend before
+            time zero because the Gaussian bunch has a finite duration.
 
-        Notes:
-            The formula is from Chao's Handbook (p. 237, sec 3.2), partly re-derived by
-            N. Mounet. Equivalent formula in https://cds.cern.ch/record/192684/files/198812060.pdf
-            Q must be different from 0.5!
-            Rs, resonant_frequency, and Q must be scalar.
+        Notes
+        -----
+        The Gaussian closed form follows Chao's Handbook, section 3.2, and the
+        resonator formulas in https://cds.cern.ch/record/192684/files/198812060.pdf.
         """
 
         omegar = 2 * np.pi * resonant_frequency
@@ -464,6 +449,30 @@ class Wakes:
         pars: ParsType,
         sigma: float = 1e-10,
     ) -> np.ndarray:
+        """Sum Gaussian wake potentials for transverse resonators.
+
+        Parameters
+        ----------
+        times : array_like
+            Time grid [s] about the source or bunch center.
+        pars : array_like or dict
+            Flat (Rs, Q, fr) vector or dictionary of parameter triples.
+        sigma : float, optional
+            Shared RMS Gaussian bunch duration [s]. Default is 1e-10.
+
+        Returns
+        -------
+        ndarray
+            Sum of the resonator contributions, in the units stated in Notes.
+
+        Notes
+        -----
+        ``times`` is a NumPy time grid [s] about the bunch center. ``pars`` is a
+        flat (Rs, Q, fr) vector or a dictionary of triples (Rs in Ohm/m, fr in Hz).
+        ``sigma`` is the shared RMS bunch duration [s], default 1e-10.
+        Returns samples in V/C/m. Each mode uses Resonator_transverse_wake_potential;
+        its quality-factor restrictions apply to every mode.
+        """
         if type(pars) is dict:
             dict_params = pars
         else:
@@ -477,7 +486,18 @@ class Wakes:
 
 
 class Impedances:
+    """Analytical longitudinal and transverse resonator impedance functions.
+
+    Call methods on the class with NumPy frequency arrays in Hz. Longitudinal
+    Rs and impedance are in Ohm; transverse values are in Ohm/m. Q is positive
+    and dimensionless, and resonant_frequency is in Hz. Multi-resonator methods
+    accept a flat (Rs, Q, fr) vector or a dictionary of parameter triples.
+    A wake_length in metres selects the finite-duration Fourier transform;
+    None selects the fully decayed formula.
+    """
+
     # Longitudinal and transverse impedance functions
+
     def Resonator_longitudinal_imp(
         frequencies: ArrayLike,
         Rs: float,
@@ -485,51 +505,32 @@ class Impedances:
         resonant_frequency: float,
         wake_length: float | None = None,
     ) -> np.ndarray:
-        """Calculates the longitudinal impedance of a resonator.
+        """Evaluate the complex longitudinal impedance of one resonator.
 
-        This function calculates the longitudinal impedance of a resonator
-        with shunt impedance `Rs`, quality factor `Q`, and resonant frequency
-        `resonant_frequency` at different frequencies `frequencies`.
+        Parameters
+        ----------
+        frequencies : ndarray
+            Frequency samples [Hz].
+        Rs : float
+            Shunt impedance [Ohm].
+        Q : float
+            Positive quality factor; overdamped and critical values are supported.
+        resonant_frequency : float
+            Positive resonant frequency [Hz].
+        wake_length : float or None, optional
+            Wake truncation length [m]. None uses the fully decayed expression;
+            a finite length uses the truncated wake transform.
 
-        Args:
-            frequencies (np.ndarray): Array of frequencies values in Hz.
-            Rs (float): Shunt impedance of the resonator in Ohm.
-            Q (float): Quality factor of the resonator.
-            resonant_frequency (float): Resonant frequency of the resonator in Hz.
-            wake_length (float, optional): Additional parameter for the calculation
-            of the impedance of a partially decayed wake.
-                Defaults to None for the original (fully decayed wake) behavior.
+        Returns
+        -------
+        ndarray
+            Complex impedance [Ohm] on the requested frequency grid.
 
-        Returns:
-            np.ndarray: Array of longitudinal impedance values [Ohm] at the corresponding frequencies.
-
-        Notes:
-            The fully decayed formula uses the generalized impedance formula
-            (https://cds.cern.ch/record/192684/files/198812060.pdf) and can
-            be used for any real positive value of `Q`.
-
-            The partially decayed formula is the finite Fourier transform of
-            the longitudinal wake and supports any real positive value of `Q`.
-
-            The fully decayed formula sets the impedance value to zero at zero
-            frequency. A finite wake can have a nonzero value there.
-
-            Units for this formula are:
-                Rs: Ohm
-                Q: dimensionless
-                resonant_frequency: Hz
-                wake_length: m
-
-        Examples:
-            >>> frequencies = np.linspace(0, 2.5e9, 1000)
-            >>> Rs = 1e6
-            >>> Q = 0.6
-            >>> resonant_frequency = 1e9
-            >>> impedance = Resonator_longitudinal_imp(frequencies, Rs, Q, resonant_frequency)
-            >>> plt.plot(frequencies, impedance)
-            >>> plt.xlabel("Frequency [Hz]")
-            >>> plt.ylabel("Longitudinal Impedance [Ohm]")
-            >>> plt.show()
+        Notes
+        -----
+        The fully decayed value at DC is zero; finite wakes can have nonzero DC.
+        See https://cds.cern.ch/record/192684/files/198812060.pdf for the resonator
+        convention. Finite-length formulas also support any positive Q.
         """
         if wake_length is None:
             # Fully decayed wake
@@ -594,42 +595,32 @@ class Impedances:
         resonant_frequency: float,
         wake_length: float | None = None,
     ) -> np.ndarray:
-        """Calculates the transverse impedance of a resonator.
+        """Evaluate the complex transverse impedance of one resonator.
 
-        This function calculates the transverse impedance of a resonator with shunt
-        impedance `Rs`, quality factor `Q`, and resonant frequency `resonant_frequency`
-        at different frequencies `frequencies`. The `wake_length` argument allows
-        computing the impedance of a partially decayed wake over `wake_length`.
+        Parameters
+        ----------
+        frequencies : ndarray
+            Frequency samples [Hz].
+        Rs : float
+            Shunt impedance [Ohm/m].
+        Q : float
+            Positive quality factor; overdamped and critical values are supported.
+        resonant_frequency : float
+            Positive resonant frequency [Hz].
+        wake_length : float or None, optional
+            Wake truncation length [m]. None uses the fully decayed expression;
+            a finite length uses the truncated wake transform.
 
-        Args:
-            frequencies (np.ndarray): Array of frequencies values in Hz.
-            Rs (float): Shunt impedance of the resonator in Ohm/m.
-            Q (float): Quality factor of the resonator.
-            resonant_frequency (float): Resonant frequency of the resonator in Hz.
-            wake_length (float, optional): Additional parameter for the calculation
-            of the impedance of a partially decayed wake.
-                Defaults to None for the original (fully decayed wake) behavior.
+        Returns
+        -------
+        ndarray
+            Complex impedance [Ohm/m] on the requested frequency grid.
 
-        Returns:
-            np.ndarray: Array of transverse impedance values [Ohm/m] at the corresponding frequencies.
-
-        Notes:
-            The fully decayed formula uses the generalized impedance formula
-            (https://cds.cern.ch/record/192684/files/198812060.pdf) and can
-            be used for any real positive value of `Q`.
-
-            The partially decayed formula is the finite Fourier transform of
-            the transverse wake and supports any real positive value of `Q`.
-
-            At zero frequency, the fully decayed impedance has the analytical
-            value ``1j * Rs / Q``. The partially decayed value is the finite
-            transverse wake area multiplied by ``1j`` and is generally nonzero.
-
-            Units for this formula are:
-                Rs: Ohm/m
-                Q: dimensionless
-                resonant_frequency: Hz
-                wake_length: m
+        Notes
+        -----
+        The fully decayed value at DC is 1j*Rs/Q; finite wakes can also have nonzero DC.
+        See https://cds.cern.ch/record/192684/files/198812060.pdf for the resonator
+        convention. Finite-length formulas also support any positive Q.
         """
         if wake_length is None:
             # Fully decayed wake
@@ -683,49 +674,28 @@ class Impedances:
         pars: ParsType,
         wake_length: float | None = None,
     ) -> np.ndarray:
-        """Calculates the combined longitudinal impedance of multiple resonators.
+        """Sum complex longitudinal impedances for the supplied resonators.
 
-        This function calculates the total longitudinal impedance of a system consisting
-        of multiple resonators at different frequencies `frequencies`. Each resonator
-        is defined by its parameters provided in a dictionary `dict_params`.
+        Parameters
+        ----------
+        frequencies : array_like
+            Evaluation frequency grid [Hz].
+        pars : array_like or dict
+            Flat (Rs, Q, fr) vector or dictionary of parameter triples.
+        wake_length : float or None, optional
+            Wake truncation length [m]. None uses fully decayed impedance.
 
-        Args:
-            frequencies (np.ndarray): Array of frequencies values in Hz.
-            dict_params (dict or ndarray): Dictionary containing resonator parameters. Keys are
-                unique identifiers for each resonator, and values are lists containing
-                the parameters in the following order:
-                    - Rs (float): Shunt impedance of the resonator in Ohm.
-                    - Q (float): Quality factor of the resonator.
-                    - resonant_frequency (float): Resonant frequency of the resonator in Hz.
-            wake_length (float, optional): Additional parameter for the calculation
-            of the impedance of a partially decayed wake.
-            Defaults to None for the original (fully decayed wake) behavior.
+        Returns
+        -------
+        ndarray
+            Sum of the resonator contributions, in the units stated in Notes.
 
-        Returns:
-            np.ndarray: Array of combined longitudinal impedance values [Ohm] at
-                the corresponding frequencies.
-
-        Examples:
-            >>> frequencies = np.linspace(0, 2.5e9, 1000)
-            >>> pars = {
-            ...     1: [1e6, 1, 1e9],
-            ...     2: [2e6, 1, 5e8],
-            ... }
-            >>> # Or, use directly the result from the DE solver
-            >>> pars = DE_model.evolutionParameters
-            >>> impedance = n_Resonator_longitudinal_imp(frequencies, pars)
-            >>> plt.plot(frequencies, impedance)
-            >>> plt.xlabel("Frequency [Hz]")
-            >>> plt.ylabel("Longitudinal Impedance [Ohm]")
-            >>> plt.show()
-
-        Notes:
-            - This function assumes all resonators have the same type of longitudinal
-                impedance formula implemented in `Resonator_longitudinal_imp`.
-            - The combined impedance is calculated by summing the individual
-                impedance contributions from each resonator at each frequency.
-            - Resonator parameters should be positive values (except for the shunt impedance).
-            Behavior for invalid values is not defined and may lead to errors.
+        Notes
+        -----
+        ``frequencies`` is a NumPy grid [Hz]. ``pars`` is a flat (Rs, Q, fr) vector
+        or a dictionary of triples, with Rs in Ohm, positive Q, and fr in Hz.
+        ``wake_length`` [m] defaults to None (fully decayed); a supplied value
+        truncates every mode at that length. Returns complex samples in Ohm.
         """
         if type(pars) is dict:
             dict_params = pars
@@ -754,49 +724,28 @@ class Impedances:
         pars: ParsType,
         wake_length: float | None = None,
     ) -> np.ndarray:
-        """Calculates the combined transverse impedance of multiple resonators.
+        """Sum complex transverse impedances for the supplied resonators.
 
-        This function calculates the total transverse impedance of a system consisting
-        of multiple resonators at different frequencies `frequencies`. Each resonator
-        is defined by its parameters provided in a dictionary `dict_params`.
+        Parameters
+        ----------
+        frequencies : array_like
+            Evaluation frequency grid [Hz].
+        pars : array_like or dict
+            Flat (Rs, Q, fr) vector or dictionary of parameter triples.
+        wake_length : float or None, optional
+            Wake truncation length [m]. None uses fully decayed impedance.
 
-        Args:
-            frequencies (np.ndarray): Array of frequencies values in Hz.
-            dict_params (dict or ndaray): Dictionary containing resonator parameters. Keys are
-                unique identifiers for each resonator, and values are lists containing
-                the parameters in the following order:
-                    - Rs (float): Shunt impedance of the resonator in Ohm/m.
-                    - Q (float): Quality factor of the resonator.
-                    - resonant_frequency (float): Resonant frequency of the resonator in Hz.
-            wake_length (float, optional): Additional parameter for the calculation
-            of the impedance of a partially decayed wake.
-            Defaults to None for the original (fully decayed wake) behavior.
+        Returns
+        -------
+        ndarray
+            Sum of the resonator contributions, in the units stated in Notes.
 
-        Returns:
-            np.ndarray: Array of combined transverse impedance values [Ohm/m] at
-                the corresponding frequencies.
-
-        Examples:
-            >>> frequencies = np.linspace(0, 2.5e9, 1000)
-            >>> pars = {
-            ...     1: [1e6, 1, 1e9],
-            ...     2: [2e6, 1, 5e8],
-            ... }
-            >>> # Or, use directly the result from the DE solver
-            >>> pars = DE_model.evolutionParameters
-            >>> impedance = n_Resonator_transverse_imp(frequencies, pars)
-            >>> plt.plot(frequencies, impedance)
-            >>> plt.xlabel("Frequency [Hz]")
-            >>> plt.ylabel("Transverse Impedance [Ohm/m]")
-            >>> plt.show()
-
-        Notes:
-            - This function assumes all resonators have the same type of transverse
-                impedance formula implemented in `Resonator_transverse_imp`.
-            - The combined impedance is calculated by summing the individual
-                impedance contributions from each resonator at each frequency.
-            - Resonator parameters should be positive values (except for the shunt impedance).
-            Behavior for invalid values is not defined and may lead to errors.
+        Notes
+        -----
+        ``frequencies`` is a NumPy grid [Hz]. ``pars`` is a flat (Rs, Q, fr) vector
+        or a dictionary of triples, with Rs in Ohm/m, positive Q, and fr in Hz.
+        ``wake_length`` [m] defaults to None (fully decayed); a supplied value
+        truncates every mode at that length. Returns complex samples in Ohm/m.
         """
         if type(pars) is dict:
             dict_params = pars

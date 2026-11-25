@@ -61,14 +61,7 @@ class ProgressBarCallback:
 
 
 def stop_criterion(solver: Any) -> float:
-    """Stopping criterion used in SciPy's differential evolution.
-
-    Based on the criterion used in
-    ``scipy.optimize.differential_evolution``: it checks the ratio of the
-    spread of the population fitness compared to its average. If most
-    individuals converge to the same solution, an optimal solution is
-    considered found.
-    """
+    """Return population-cost standard deviation divided by the absolute mean."""
     population_cost = np.vstack(solver)[:, 1]
     population_mean, population_std = (
         np.mean(population_cost),
@@ -92,36 +85,49 @@ class Solvers:
     ) -> tuple[np.ndarray, str]:
         """Run SciPy's ``differential_evolution`` to minimize a function.
 
+        Parameters
+        ----------
+        parameterBounds : list of tuple
+            List of ``(min, max)`` bounds for each
+            parameter.
+        minimization_function : callable
+            Function to be minimized.
+        maxiter : int, optional
+            Maximum number of iterations to run the solver.
+        popsize : int, optional
+            Population multiplier per free parameter; actual size is popsize * len(parameterBounds).
+        mutation : tuple[float, float], optional
+            Tuple of two floats representing mutation
+            factors.
+        crossover_rate : float, optional
+            Crossover rate for the differential
+            evolution algorithm.
+        tol : float, optional
+            Tolerance for convergence.
+        x0 : array_like or None, optional
+            Initial parameter vector inserted into the population. If None,
+            SciPy uses only the configured population initializer.
+        **kwargs : object
+            Other SciPy differential_evolution options. The
+            wrapper defaults to ``strategy="rand1bin"``,
+            ``init="latinhypercube"``, ``updating="deferred"``,
+            ``workers=-1``, and ``polish=False``.
+
+        Returns
+        -------
+        solution : ndarray
+            Best parameter vector in the original parameter units.
+        message : str
+            Solver status or stopping summary.
+
+        Notes
+        -----
         Solver options are detailed in the SciPy documentation:
-        https://docs.scipy.org/doc/scipy/reference/generated/
-        scipy.optimize.differential_evolution.html. IDDEFIX sets
+        https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.differential_evolution.html. IDDEFIX sets
         ``workers=-1`` by default; supplied keyword options can override
         this and the other defaults below. Default parameters for
         the DE algorithm are taken from
         https://www.mdpi.com/2227-7390/9/4/427.
-
-        Args:
-            parameterBounds: List of ``(min, max)`` bounds for each
-                parameter.
-            minimization_function: Function to be minimized.
-            maxiter: Maximum number of iterations to run the solver.
-            popsize: Population size for the differential evolution
-                algorithm.
-            mutation: Tuple of two floats representing mutation
-                factors.
-            crossover_rate: Crossover rate for the differential
-                evolution algorithm.
-            tol: Tolerance for convergence.
-            x0: Initial parameter vector inserted into the population. If None,
-                SciPy uses only the configured population initializer.
-            **kwargs: Other SciPy differential_evolution options. The
-                wrapper defaults to ``strategy="rand1bin"``,
-                ``init="latinhypercube"``, ``updating="deferred"``,
-                ``workers=-1``, and ``polish=False``.
-
-        Returns:
-            Tuple ``(solution, message)`` with the best solution and a
-            status message.
         """
         pbar = ProgressBarCallback(maxiter, desc="Differential Evolution")
         options = dict(
@@ -159,25 +165,35 @@ class Solvers:
         tol: float = 0.01,
         **kwargs,
     ) -> tuple[np.ndarray, str]:
-        """
-        Runs the pyfde ClassicDE solver to minimize a given function.
+        """Runs the pyfde ClassicDE solver to minimize a given function.
 
-        Args:
-            parameterBounds: A list of tuples representing the bounds for each parameter.
-            minimization_function: The function to be minimized.
-            maxiter: The maximum number of iterations to run the solver for.
-            popsize: The population size for the differential evolution algorithm.
-            mutation: Mutation factor (a tuple is averaged).
-            crossover_rate: The crossover rate for the differential evolution algorithm.
-            tol: The tolerance for convergence.
-            **kwargs: PyFDE ClassicDE constructor options, such as ``seed``.
-                ``batch=True`` is unsupported by the scalar objective function.
-                See https://pyfde.readthedocs.io/en/latest/tutorial.html.
+        Parameters
+        ----------
+        parameterBounds : list of tuple
+            A list of tuples representing the bounds for each parameter.
+        minimization_function : callable
+            The function to be minimized.
+        maxiter : int, optional
+            The maximum number of iterations to run the solver for.
+        popsize : int, optional
+            Population multiplier per free parameter; actual size is popsize * len(parameterBounds).
+        mutation : float, optional
+            Mutation factor (a tuple is averaged).
+        crossover_rate : float, optional
+            The crossover rate for the differential evolution algorithm.
+        tol : float, optional
+            The tolerance for convergence.
+        **kwargs : object
+            PyFDE ClassicDE constructor options, such as ``seed``.
+            ``batch=True`` is unsupported by the scalar objective function.
+            See https://pyfde.readthedocs.io/en/latest/tutorial.html.
 
-        Returns:
-            A tuple containing:
-                - The solution found by the solver.
-                - A message indicating the solver's status.
+        Returns
+        -------
+        solution : ndarray
+            Best parameter vector in the original parameter units.
+        message : str
+            Solver status or stopping summary.
         """
         try:
             from pyfde import ClassicDE
@@ -218,23 +234,31 @@ class Solvers:
         tol: float = 0.01,
         **kwargs,
     ) -> tuple[np.ndarray, str]:
-        """
-        Runs the pyfde JADE solver to minimize a given function.
+        """Runs the pyfde JADE solver to minimize a given function.
 
-        Args:
-            parameterBounds: A list of tuples representing the bounds for each parameter.
-            minimization_function: The function to be minimized.
-            maxiter: The maximum number of iterations to run the solver for.
-            popsize: The population size for the differential evolution algorithm.
-            tol: The tolerance for convergence.
-            **kwargs: PyFDE JADE constructor options, such as ``seed``.
-                ``batch=True`` is unsupported by the scalar objective function.
-                See https://pyfde.readthedocs.io/en/latest/tutorial.html.
+        Parameters
+        ----------
+        parameterBounds : list of tuple
+            A list of tuples representing the bounds for each parameter.
+        minimization_function : callable
+            The function to be minimized.
+        maxiter : int, optional
+            The maximum number of iterations to run the solver for.
+        popsize : int, optional
+            Population multiplier per free parameter; actual size is popsize * len(parameterBounds).
+        tol : float, optional
+            The tolerance for convergence.
+        **kwargs : object
+            PyFDE JADE constructor options, such as ``seed``.
+            ``batch=True`` is unsupported by the scalar objective function.
+            See https://pyfde.readthedocs.io/en/latest/tutorial.html.
 
-        Returns:
-            A tuple containing:
-                - The solution found by the solver.
-                - A message indicating the solver's status.
+        Returns
+        -------
+        solution : ndarray
+            Best parameter vector in the original parameter units.
+        message : str
+            Solver status or stopping summary.
         """
 
         try:
@@ -278,30 +302,43 @@ class Solvers:
         tol: float = 1e-4,
         **kwargs,
     ) -> tuple[np.ndarray, str, Any]:
-        """
-        Runs the pymoo CMAES solver to minimize a given function.
+        """Runs the pymoo CMAES solver to minimize a given function.
 
-        Args:
-            parameterBounds: A list of tuples representing the bounds for each parameter.
-            minimization_function: The function to be minimized.
-            sigma: The initial standard deviation for the CMA-ES algorithm.
-            maxiter: The CMA-ES iteration limit per run. None removes this
-                limit and displays an iteration counter without a percentage.
-                With restarts, the reported generation count can exceed a
-                specified limit.
-            popsize: CMA-ES population size, passed as pymoo's ``pop_size``.
-            verbose: Show pymoo's progress output.
-            x0: Initial parameter vector. If None, use the midpoint of each
-                parameter bound.
-            tol: Solver tolerance mapped to CMA-ES ``tolx``. Defaults to 1e-4.
-            **kwargs: Other pymoo CMAES constructor options, such as ``tolx``, ``tolfun``,
-                ``maxfevals``, ``restarts``, and ``seed``.
-                See https://pymoo.org/_modules/pymoo/algorithms/soo/nonconvex/cmaes.html.
+        Parameters
+        ----------
+        parameterBounds : list of tuple
+            A list of tuples representing the bounds for each parameter.
+        minimization_function : callable
+            The function to be minimized.
+        sigma : float, optional
+            The initial standard deviation for the CMA-ES algorithm.
+        maxiter : int or None, optional
+            The CMA-ES iteration limit per run. None removes this
+            limit and displays an iteration counter without a percentage.
+            With restarts, the reported generation count can exceed a
+            specified limit.
+        popsize : int or None, optional
+            CMA-ES population size, passed as pymoo's ``pop_size``.
+        verbose : bool, optional
+            Show pymoo's progress output.
+        x0 : array_like or None, optional
+            Initial parameter vector. If None, use the midpoint of each
+            parameter bound.
+        tol : float, optional
+            Solver tolerance mapped to CMA-ES ``tolx``. Defaults to 1e-4.
+        **kwargs : object
+            Other pymoo CMAES constructor options, such as ``tolx``, ``tolfun``,
+            ``maxfevals``, ``restarts``, and ``seed``.
+            See https://pymoo.org/_modules/pymoo/algorithms/soo/nonconvex/cmaes.html.
 
-        Returns:
-            A tuple containing:
-                - The solution found by the solver.
-                - A message indicating the solver's status.
+        Returns
+        -------
+        solution : ndarray
+            Best parameter vector in the original parameter units.
+        message : str
+            Solver status or stopping summary.
+        result : pymoo.core.result.Result
+            Pymoo optimization result, including the algorithm state.
         """
         try:
             from pymoo.algorithms.soo.nonconvex.cmaes import CMAES

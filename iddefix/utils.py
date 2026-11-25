@@ -52,11 +52,14 @@ def compute_fft(
 
     Parameters
     ----------
-    data_time : array-like
+    data_time : array_like
         One-dimensional, uniformly spaced time samples in seconds. Must contain
         at least two samples.
-    data_wake : array-like
+    data_wake : array_like
         Wake values corresponding to ``data_time``. Must have the same length.
+        To transform model wakes in V/C (or V/C/m), pass wake/c, where c is
+        the speed of light. For transverse impedance, multiply the returned
+        spectrum by 1j; this helper does not select the impedance plane.
     fmax : float, optional
         Upper frequency limit in hertz. Returned frequencies satisfy
         ``0 <= f < fmax``. Defaults to 3 GHz.
@@ -189,7 +192,10 @@ def compute_deconvolution(
 
     The potential and Gaussian profile are transformed with an FFT, and their
     spectra are divided. Only nonnegative frequencies below the selected
-    cutoff are returned.
+    cutoff are returned. The sampled Gaussian is centered at time zero;
+    the input grid must cover it sufficiently on both sides. Its FFT must
+    remain nonzero in the chosen band; deconvolution amplifies noise where
+    the bunch spectrum is small.
 
     Parameters
     ----------
@@ -197,9 +203,10 @@ def compute_deconvolution(
         One-dimensional, uniformly spaced time samples in seconds. The axis
         should cover the potential on both sides of the bunch center.
     data_wake_potential : array_like
-        Wake-potential samples corresponding to ``data_time``, in the
-        normalization expected by IDDEFIX. Keep the potential and impedance
-        units consistent with the time and spatial scaling used by the model.
+        Samples on the time grid. For a model potential in V/C (or V/C/m),
+        pass potential/c, where c is the speed of light. Multiply the returned
+        spectrum by 1j for transverse impedance. This helper applies neither
+        charge-unit conversion nor driving-offset normalization.
     sigma : float
         RMS bunch length (standard deviation) of the Gaussian profile in
         seconds.

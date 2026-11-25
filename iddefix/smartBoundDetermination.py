@@ -6,6 +6,8 @@ Created on Sat Dec  5 16:34:10 2020
 @author: MaltheRaschke
 """
 
+from __future__ import annotations
+
 import asyncio
 from numbers import Real
 
@@ -49,170 +51,92 @@ class SmartBoundDetermination:
         baseline_slope: float | None = None,
         original_impedance_data: ArrayLike | None = None,
     ) -> None:
-        """
-        Automatically determines parameter bounds for resonance fitting
-        by detecting impedance peaks in frequency-domain data.
+        """Estimate resonator parameters and bounds from impedance peaks.
 
-        This class uses `scipy.signal.find_peaks` to identify resonances and
-        estimates the bounds for resistance (Rs), quality factor (Q), and
-        resonant frequency (fres) from a one-sided peak width.
+        Detect peaks in the real part or magnitude, then estimate (Rs, Q, fres)
+        from each peak and one crossing. These are starting estimates, especially
+        for overlapping resonances or spectra with a varying background.
 
         Parameters
         ----------
-        frequency_data : numpy.ndarray
-            Frequency data in Hz.
-        impedance_data : numpy.ndarray
-            Impedance magnitude, real impedance, or complex impedance in Ohms.
-            When ``use_Hann=True``, real-part detection uses a Hann trace.
-            Absolute detection also uses a Hann trace when complex impedance
-            is supplied; magnitude-only input cannot be Hann-windowed.
+        frequency_data : array_like
+            Increasing frequency samples [Hz].
+        impedance_data : array_like
+            Complex or scalar impedance: Ohm longitudinally, Ohm/m transversely.
         plane : {"longitudinal", "transverse"}, optional
-            Impedance plane used to convert each detected peak and crossing
-            into estimates of Rs, Q, and fres. Transverse estimation currently
-            supports real impedance only. Default is "longitudinal".
-        wake_length : float, optional
-            Length in meters of the wake used to calculate the input impedance.
-            Corrects the Rs estimate with the effective wake-envelope decay
-            factor. Q and fres retain their fully decayed estimates.
-        impedance_type : {"absolute", "real"}, optional
-            Type of impedance supplied. Absolute impedance uses the 3 dB
-            amplitude level (peak / sqrt(2)); real impedance uses the
-            half-maximum level (peak / 2). Default is "real".
-        prominence : float, optional
-            Minimum peak prominence in the units of the detection trace.
-            Passed directly to `scipy.signal.find_peaks`. Default is None.
-        minimum_peak_height : float or numpy.ndarray, optional
-            Minimum height for a peak to be considered a resonance. Default is
-            None, so no height filter is applied.
-        threshold : float, optional
-            Required vertical distance between a peak and its neighboring values
-            to be considered a peak. Passed to `scipy.signal.find_peaks`.
-            Default is None.
-        distance : float, optional
-            Required minimum horizontal distance (in indices) between peaks.
-            Passed to `scipy.signal.find_peaks`. When ``samples`` is set, this
-            counts samples on the interpolated grid. Default is None.
-        Rs_bounds : list, optional
-            Scaling factors [min, max] for Rs bounds. Default is [0.1, 10].
-        Q_bounds : list, optional
-            Scaling factors [min, max] for Q bounds. Default is [0.1, 10].
-        fres_bounds : list, optional
-            Dimensionless lower and upper factors multiplying the estimated
-            resonator half-width ``fres / (2 * Q)``. These are not offsets in
-            Hz. Default is [-1, 1].
-        samples : int, optional
-            Number of equally spaced frequency samples used for peak finding and
-            Q estimation. If None, use the input samples. Interpolation is linear
-            and does not add information beyond the input data.
-        q_side : {"auto", "left", "right"} or list of these, optional
-            Side of each peak used for its half-power width and Q estimate.
-            "auto" uses the nearest crossing. A list chooses a side separately
-            for each detected peak, in increasing frequency order. If the
-            selected side has no crossing, the Q estimate defaults to 1;
-            the configured scaling factors can still produce a bound below 0.5.
+            Default is "longitudinal". Transverse real-part estimates include a
+            correction from peak location to resonant frequency. Magnitude estimates
+            use peak location directly and can be approximate for transverse data.
+        wake_length : float or None, optional
+            Wake truncation length [m]. Enables a finite-decay correction to Rs;
+            Q and fres retain fully decayed estimates. Default is None.
+        impedance_type : {"real", "absolute"}, optional
+            Detection and estimation trace. Default is "real". Crossing levels are
+            peak/2 for real impedance and peak/sqrt(2) for magnitude.
+        prominence : float or None, optional
+            Minimum peak prominence in trace units, not a fraction. None disables
+            this filter. Passed directly to scipy.signal.find_peaks.
+        minimum_peak_height : float, ndarray, or None, optional
+            Minimum peak height in trace units. None disables the filter.
+        threshold : float or None, optional
+            Minimum vertical distance to neighboring samples; passed to find_peaks.
+        distance : float or None, optional
+            Minimum peak separation in analysis-grid samples, not Hz.
+        Rs_bounds, Q_bounds : list of float, optional
+            Lower/upper multipliers of each estimate. Both default to [0.1, 10].
+        fres_bounds : list of float, optional
+            Offsets in multiples of the estimated half-width fres/(2*Q).
+            Default is [-1, 1]; these are not frequency offsets in Hz.
+        samples : int or None, optional
+            Linearly interpolate onto this many equally spaced frequencies for
+            analysis. None uses input samples. Interpolation adds no measured detail.
+        q_side : {"auto", "left", "right"} or list, optional
+            Crossing side used for each Q estimate. Default "auto" picks the nearest
+            crossing. Lists follow increasing peak frequency. A missing crossing
+            falls back to Q=1 before applying the bound multipliers.
         interactive : bool, optional
-            Select resonances by clicking on the impedance plot. With an
-            ipympl notebook backend, zoom or pan first, then enable Pick and
-            click each peak. Use Undo to remove the last pick and Done
-            to finish. With a desktop backend, press Enter to
-            finish. Inline backends cannot receive clicks, so they warn and
-            use automatic peak detection instead. Clicks are mapped to the
-            nearest analysis sample. Peak-finding settings are ignored during
-            interactive selection. Default is False.
+            Pick analysis samples by clicking instead of automatic detection.
+            In an ipympl notebook, use Pick, Undo, and Done; on a desktop, finish
+            with Enter. Inline backends warn and use automatic detection. Default False.
         remove_baseline : bool or float, optional
-            If True, fit the real slope of a wake baseline ``slope * time``
-            by least squares against the complex impedance. A numeric value
-            supplies the slope in wake units per second. Subtract the finite
-            wake transform before peak detection and parameter estimation.
-            Requires ``wake_length``. Default is False.
+            True fits a finite linear wake ramp to the complex spectrum; a number
+            supplies its slope in wake units per second. Requires wake_length.
+            Magnitude-only input is unsupported for correction. Default False.
         use_Hann : bool, optional
-            Find peaks using a descending half-Hann impedance trace. Requires
-            ``wake_length``. Default is False.
-        sigma : float, optional
-            Gaussian bunch length in seconds. When removing a baseline from
-            deconvolved wake-potential impedance, divide the ramp transform
-            by the bunch spectrum. Omit for directly transformed wake data.
-        baseline_slope : float, optional
-            Slope already removed from supplied impedance data. Used to label
-            the inspection plot without applying another correction.
+            Detect peaks in a descending half-Hann trace. Requires wake_length.
+            Magnitude detection needs complex impedance for this windowing; real-part
+            detection accepts real data. Estimates use the unwindowed trace. Default False.
+        sigma : float or None, optional
+            RMS bunch duration [s] for baseline correction of Gaussian-deconvolved
+            wake potentials. Omit for direct impedance or FFTs of wake functions.
+        baseline_slope : float or None, optional
+            Slope already removed by the caller, used for inspection labels only.
+        original_impedance_data : array_like or None, optional
+            Uncorrected impedance on the input grid, for comparison in inspect().
+
         Attributes
         ----------
-        peaks : numpy.ndarray or None
-            Indices of detected peaks on the analysis frequency grid.
-        analysis_frequency_data, analysis_impedance_data : numpy.ndarray
-            Frequency grid and scalar impedance used for parameter estimation.
-            When ``remove_baseline`` is enabled, this is the corrected trace.
-        baseline_slope : float or None
-            Fitted or supplied wake baseline slope, or None without correction.
-        hann_trace : numpy.ndarray or None
-            Hann trace used to find peaks on the analysis grid, with NaN at
-            frequencies where a shifted input is unavailable.
-        peaks_height : dict or None
-            Peak properties containing the detected heights under
-            ``"peak_heights"``.
-        minus_3dB_points : numpy.ndarray or None
-            Crossing levels for each detected peak. For real impedance these
-            are the half-maximum levels (the name is kept for compatibility).
-        upper_lower_bounds : numpy.ndarray or None
-            One-sided width to the selected crossing for each peak.
-        crossing_frequencies : numpy.ndarray or None
-            Interpolated frequency of the selected crossing for each peak.
-        q_sides_used : list[str]
-            Crossing side used for each peak's Q estimate.
-        N_resonators : int or None
-            Number of detected resonators.
-        parameterBounds : list of tuples
-            Computed parameter bounds in the format:
-            [(Rs_min, Rs_max), (Q_min, Q_max), (fres_min, fres_max), ...].
-            None until an interactive selection is finished.
+        parameterBounds : list of tuple or None
+            Flattened (Rs, Q, fres) bound pairs, one triple per resonator.
         parameterEstimates : list of float or None
-            Initial resonator estimates in the same flattened order as the
-            bounds: [Rs_1, Q_1, fres_1, Rs_2, Q_2, fres_2, ...]. None until an
-            interactive selection is finished.
-        wake_length : float or None
-            Finite wake length in meters, or None for fully decayed estimates.
-        use_Hann : bool
-            Whether Hann peak detection is enabled.
-        sigma : float or None
-            Gaussian bunch length in seconds, if supplied.
-
-        Methods
-        -------
-        find(frequency_data=None, impedance_data=None, plane=None,
-            wake_length=None, impedance_type=None, prominence=None,
-            minimum_peak_height=None, threshold=None, distance=None,
-            samples=None, q_side=None, interactive=None, remove_baseline=None,
-            use_Hann=None, sigma=None)
-            Detects impedance peaks and determines fitting parameter bounds
-            automatically or from interactive selections.
-
-        inspect(show_bounds=False, show_components=False)
-            Plots the input impedance, Hann detection trace when used, and
-            detected resonance peaks with their crossings, bounds, and
-            estimated resonator components.
-
-        add_peak(frequency, q_side=None, Q=None)
-            Adds a peak at the nearest analysis frequency and recomputes all
-            estimates and bounds. A supplied Q estimate skips the crossing
-            calculation for that peak.
-
-        calculate_baseline_slope(frequency_data, impedance_data, wake_length,
-                                 plane="longitudinal", sigma=None)
-            Fits the real slope of a finite linear wake baseline to the
-            supplied impedance spectrum.
-
-        to_table(to_markdown=False)
-            Displays resonance parameters in an ASCII or Markdown-formatted table.
+            Flattened starting values in the same order as the bounds.
+        N_resonators : int
+            Number of peaks; can be zero if automatic detection finds none.
+        peaks : ndarray or None
+            Peak indices on analysis_frequency_data.
+        analysis_frequency_data, analysis_impedance_data : ndarray
+            Analysis grid and scalar, baseline-corrected impedance trace.
+        hann_trace : ndarray or None
+            Windowed detection trace, with NaN where shifted data is unavailable.
+        q_sides_used, crossing_frequencies, upper_lower_bounds : array_like
+            Selected sides, crossing frequencies, and one-sided widths per peak.
 
         Notes
         -----
-        - The crossing level depends on ``impedance_type``.
-        - Peak detection is based on `scipy.signal.find_peaks`.
-        - Computed parameter bounds are stored in `self.parameterBounds`.
-        - The `inspect()` method visualizes peak detection results.
-        - The `to_table()` method prints a structured table of parameter ranges.
-        - Detection runs during construction. The public `find()` method remains
-          available for legacy workflows that explicitly recompute the bounds.
+        Construction runs peak detection. Interactive results remain incomplete until
+        selection finishes. ``add_peak`` and ``remove_peak`` edit completed estimates;
+        numbers refer to 1-based table rows. After editing an estimator directly,
+        call ``model.apply_bounds(bounds)`` to update its fitting model.
         """
 
         # Input data and estimation settings
@@ -284,7 +208,14 @@ class SmartBoundDetermination:
         use_Hann: bool | None = None,
         sigma: float | None = None,
     ) -> ParameterBounds | None:
-        """Recompute bounds; retained for compatibility with legacy workflows."""
+        """Repeat peak detection and return updated bound pairs.
+
+        Arguments have the same meaning as in the constructor. None retains the
+        stored setting, so it cannot clear an existing optional filter. Results
+        replace parameterBounds, parameterEstimates, and the peak metadata.
+        Interactive selection returns None until it is finished. Reapply this
+        estimator with model.apply_bounds(self) to update a linked fitting model.
+        """
         return self._find(
             frequency_data=frequency_data,
             impedance_data=impedance_data,
@@ -321,7 +252,7 @@ class SmartBoundDetermination:
         use_Hann: bool | None = None,
         sigma: float | None = None,
     ) -> ParameterBounds | None:
-        """Detect peaks and update the stored parameter estimates and bounds."""
+        """Update the analysis trace, peak selection, and bound estimates."""
 
         # Resolve call-specific overrides against the stored configuration
         frequency_data = (
@@ -528,6 +459,26 @@ class SmartBoundDetermination:
     ) -> float:
         """Fit a real finite-wake ramp slope to an impedance spectrum.
 
+        Parameters
+        ----------
+        frequency_data : array_like
+            Evaluation frequencies [Hz]. None uses the stored frequency grid.
+        impedance_data : array_like
+            Real or complex impedance samples on frequency_data.
+        wake_length : float
+            Wake truncation length [m]. None uses fully decayed impedance.
+        plane : str, optional
+            "longitudinal" or "transverse" impedance convention.
+        sigma : float or None, optional
+            RMS Gaussian bunch duration [s].
+
+        Returns
+        -------
+        float
+            Fitted slope in wake units per second.
+
+        Notes
+        -----
         Complex input uses both impedance components; real input uses the
         real part of the analytic unit-slope kernel. ``sigma`` applies a
         Gaussian bunch deconvolution in seconds. The result is in wake units
@@ -789,11 +740,7 @@ class SmartBoundDetermination:
         crossing_frequency: float,
         supplied_q: float | None,
     ) -> tuple[float, float, float]:
-        """Convert a transverse real-impedance peak to Rs, Q, and fres.
-
-        The dimensionless peak location is recovered either from the selected
-        crossing or directly from a supplied Q estimate.
-        """
+        """Convert a transverse real-part peak and crossing or supplied Q to Rs, Q, fr."""
         # Invert the transverse peak condition to locate the peak from Q.
         if supplied_q is not None:
             q_squared = supplied_q**2
@@ -860,6 +807,17 @@ class SmartBoundDetermination:
     ):
         """Add a peak at the nearest analysis frequency and recompute bounds.
 
+        Parameters
+        ----------
+        frequency : float
+            Frequency [Hz] of a peak to add, mapped to the nearest analysis sample.
+        q_side : str or None, optional
+            Crossing side: "auto", "left", or "right"; None uses the stored choice.
+        Q : float or None, optional
+            Optional supplied Q estimate; skips crossing-based Q estimation for this peak.
+
+        Notes
+        -----
         Existing peaks retain their selected crossing sides. The new peak uses
         the configured ``q_side`` when it is a single value, otherwise ``auto``;
         pass ``q_side`` to override that choice. If ``Q`` is supplied, it is
@@ -910,10 +868,17 @@ class SmartBoundDetermination:
         )
 
     def remove_peak(self, peak_number: int | list[int]) -> None:
-        """Remove 1-based peak numbers and recompute remaining estimates.
+        """Remove 1-based peak numbers and recompute the remaining estimates.
 
-        Lists use the numbering before removal. At least one peak must remain.
-        Call model.apply_bounds(bounds) after editing an estimator directly.
+        Parameters
+        ----------
+        peak_number : int or list[int]
+            One peak number or a sequence of 1-based table numbers to remove.
+
+        Notes
+        -----
+        Lists refer to the numbering before removal. At least one peak must
+        remain. Use ``model.apply_bounds(bounds)`` to apply edits to a model.
         """
         numbers = np.unique(np.atleast_1d(peak_number))
         if numbers.size == 0:
@@ -944,7 +909,7 @@ class SmartBoundDetermination:
         impedance_type: str,
         plane: str,
     ) -> None:
-        """Pick peaks with controls suited to the active Matplotlib backend."""
+        """Collect peak picks using notebook widgets or desktop Matplotlib events."""
         # Set up the selection plot for the active Matplotlib backend
         frequency_data = self.analysis_frequency_data
         impedance_data = self.analysis_impedance_data
@@ -1095,9 +1060,24 @@ class SmartBoundDetermination:
         self,
         frequency_data: ArrayLike | None = None,
     ) -> np.ndarray:
-        """Return one estimated impedance array per detected resonance.
+        """Return estimated complex impedance with shape (resonators, frequencies).
 
-        Uses the finite-wake formula when ``wake_length`` is set.
+        Parameters
+        ----------
+        frequency_data : array_like or None, optional
+            Evaluation frequencies [Hz]. None uses the stored frequency grid.
+
+        Returns
+        -------
+        ndarray
+            Complex impedance with shape (N_resonators, number_of_frequencies).
+
+        Notes
+        -----
+        ``frequency_data`` is in Hz and defaults to the analysis grid. Results are
+        Ohm longitudinally or Ohm/m transversely. Uses the finite-wake formula when
+        ``wake_length`` is set. These are peak-derived estimates, not fitted values.
+        Complete interactive selection before evaluating components.
         """
         if self.parameterEstimates is None:
             raise RuntimeError("Finish peak selection before evaluating the model")
@@ -1133,7 +1113,25 @@ class SmartBoundDetermination:
         show_components: bool = False,
         figsize: tuple[float, float] = (10, 6),
     ) -> None:
-        """Plot input and Hann traces, peaks, bounds, and resonator components."""
+        """Show the analysis trace, detected peaks, and optional model overlays.
+
+        Parameters
+        ----------
+        show_bounds : bool, optional
+            Overlay the estimated parameter-bound regions. Default is False.
+        show_components : bool, optional
+            Overlay individual estimated modes and their sum. Default is False.
+        figsize : tuple[float, float], optional
+            Figure size (width, height) in inches.
+
+        Notes
+        -----
+        ``show_bounds=True`` adds parameter-bound regions; ``show_components=True``
+        adds the estimated resonators and their sum. Baseline and Hann traces are
+        included when available. ``figsize`` is in inches. Legends appear at the
+        upper left; ten or more resonators use a shared component colorbar.
+        Calls matplotlib.pyplot.show() and returns None.
+        """
         # Input trace and optional component data
         fig = plt.figure(figsize=figsize)
 
@@ -1398,13 +1396,14 @@ class SmartBoundDetermination:
         parameterBounds: ParameterBounds | None = None,
         to_markdown: bool = False,
     ) -> None:
-        """
-        Display resonator bounds in a terminal or notebook table.
+        """Display bound triples in a terminal, notebook, or Markdown table.
 
-        Args:
-            parameterBounds: Bound pairs in Rs, Q, fres order. Defaults to the
-                bounds stored on this object.
-            to_markdown: If True, print the table in Markdown format.
+        Parameters
+        ----------
+        parameterBounds : list of tuple or None, optional
+            Bound pairs in repeated (Rs, Q, fres) order. None uses stored bounds.
+        to_markdown : bool, optional
+            Print Markdown instead of the terminal/notebook table. Default is False.
         """
         params = self.parameterBounds if parameterBounds is None else parameterBounds
 

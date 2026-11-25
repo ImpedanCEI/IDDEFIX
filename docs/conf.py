@@ -59,6 +59,9 @@ extensions = [
 ]
 
 autodoc_preserve_defaults = True  # preserves default args as in source code
+autoclass_content = "both"  # Include public constructor parameter documentation.
+napoleon_numpy_docstring = True
+napoleon_google_docstring = False
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ["_templates"]
@@ -69,6 +72,7 @@ myst_enable_extensions = [
     "dollarmath",
     "html_image",
 ]
+myst_heading_anchors = 3  # Resolve links to sections in the Markdown guides.
 myst_url_schemes = ("http", "https", "mailto")
 # myst_enable_extensions = ["deflist", "dollarmath"]
 nb_execution_mode = "off"
