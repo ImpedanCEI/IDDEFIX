@@ -716,6 +716,11 @@ class EvolutionaryAlgorithm:
         """Most recently applied SmartBounds estimator, if available."""
         return self._smart_bounds
 
+    @property
+    def bounds(self) -> SmartBoundDetermination | None:
+        """Most recently applied SmartBounds estimator; alias of smart_bounds."""
+        return self._smart_bounds
+
     def apply_bounds(self, bounds: SmartBoundDetermination) -> None:
         """Use a completed SmartBounds estimate to set fitting bounds.
 
@@ -743,6 +748,7 @@ class EvolutionaryAlgorithm:
         self.minimizationParameters = None
         self.minimizationParametersUncertainties = None
         self.minimizationBounds = None
+        self.minimization_result = None
         self.flagged_params = None
 
     def add_peak(
@@ -769,6 +775,25 @@ class EvolutionaryAlgorithm:
             raise RuntimeError("Call estimate_bounds again after editing the model")
 
         bounds.add_peak(frequency, q_side=q_side, Q=Q)
+        self.apply_bounds(bounds)
+
+    def remove_peak(self, peak_number: int | Sequence[int]) -> None:
+        """Remove 1-based peaks from the latest estimate and reapply its bounds.
+
+        This clears earlier fitted parameters. Use remove_resonator to preserve
+        the fitted values of the remaining modes.
+        """
+        bounds = self._smart_bounds
+        if bounds is None:
+            raise RuntimeError(
+                "Call estimate_bounds or apply_bounds before removing a peak"
+            )
+        if (
+            self.parameterBounds is not bounds.parameterBounds
+            or self.parameterEstimates is not bounds.parameterEstimates
+        ):
+            raise RuntimeError("Call estimate_bounds again after editing the model")
+        bounds.remove_peak(peak_number)
         self.apply_bounds(bounds)
 
     def check_y_data(self) -> None:
@@ -1839,19 +1864,28 @@ class EvolutionaryAlgorithm:
         self.minimizationBounds = None
         self._update_parameter_flags()
 
-    def remove_resonator(self, resonator_number: int) -> None:
-        """Remove a resonator by its 1-based number in the parameter table.
+    def remove_resonator(self, resonator_number: int | Sequence[int]) -> None:
+        """Remove one or several resonators by their 1-based table numbers.
 
-        The corresponding values, uncertainties, and fit bounds are removed
-        from both evolution and minimization results when present. At least
-        one resonator must remain in the model.
+        Values, uncertainties, and bounds are removed from both fitted stages.
+        Lists use the numbering before removal; duplicate numbers count once.
+        At least one resonator must remain. Linked SmartBounds metadata is updated.
         """
-        if not 1 <= resonator_number <= self.N_resonators:
+        numbers = np.unique(np.atleast_1d(resonator_number))
+        if numbers.size == 0:
+            return
+        if (
+            not np.issubdtype(numbers.dtype, np.integer)
+            or np.any(numbers < 1)
+            or np.any(numbers > self.N_resonators)
+        ):
             raise ValueError("resonator_number is outside the model")
-        if self.N_resonators == 1:
+        if len(numbers) == self.N_resonators:
             raise ValueError("The model must retain at least one resonator")
 
-        indices = np.arange(3 * (resonator_number - 1), 3 * resonator_number)
+        if self.bounds is not None:
+            self.bounds.remove_peak(numbers)
+        indices = (3 * (numbers[:, None] - 1) + np.arange(3)).ravel()
         for name in (
             "evolutionParameters",
             "evolutionParametersUncertainties",
@@ -1864,15 +1898,20 @@ class EvolutionaryAlgorithm:
         if self.parameterEstimates is not None:
             self.parameterEstimates = np.delete(self.parameterEstimates, indices)
         self.minimizationBounds = None
+        self.minimization_result = None
 
-        first_bound = 3 * (resonator_number - 1)
         if self.parameterBounds is not None:
+            removed = set(indices)
             self.parameterBounds = [
                 bound
                 for index, bound in enumerate(self.parameterBounds)
-                if not first_bound <= index < first_bound + 3
+                if index not in removed
             ]
-        self.N_resonators -= 1
+        self.N_resonators -= len(numbers)
+        if self.bounds is not None:
+            self.bounds.parameterBounds = self.parameterBounds
+            self.bounds.parameterEstimates = self.parameterEstimates
+            self.bounds.N_resonators = self.N_resonators
         self._update_parameter_flags()
 
     def add_resonator(
@@ -1883,13 +1922,12 @@ class EvolutionaryAlgorithm:
         uncertainty: float | Sequence[float] = 0,
         parameter_bounds: ParameterBounds | None = None,
     ) -> None:
-        """Append a resonator to the stored parameters and uncertainties.
+        """Append a resonator to stored parameters, uncertainties, and bounds.
 
-        ``uncertainty`` may be one value for all three parameters or a
-        sequence of three values in ``(Rs, Q, fres)`` order. The new mode is
-        appended to both result stages when both are present. Without explicit
-        ``parameter_bounds``, its fit bounds are open apart from Q > 0 and
-        fres >= 0; supply finite bounds before running another fit.
+        ``uncertainty`` is a scalar or (Rs, Q, fres) triple. Without supplied
+        ``parameter_bounds``, bounds are open apart from Q > 0 and fres >= 0;
+        supply finite bounds before fitting again. Adding a mode detaches the
+        SmartBounds estimator because its peak list no longer describes the model.
         """
         if self.evolutionParameters is None and self.minimizationParameters is None:
             raise ValueError("Load or fit resonator parameters before adding a mode")
@@ -1934,6 +1972,8 @@ class EvolutionaryAlgorithm:
                 (self.parameterEstimates, new_parameters)
             )
         self.minimizationBounds = None
+        self.minimization_result = None
+        self._smart_bounds = None
 
         if self.parameterBounds is not None:
             self.parameterBounds = [*self.parameterBounds, *new_bounds]

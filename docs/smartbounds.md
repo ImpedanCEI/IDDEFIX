@@ -31,6 +31,50 @@ CMA-ES is the recommended global optimizer here; `run_differential_evolution()` 
 
 Uncertainty estimates are off by default. Set `compute_uncertainties=True` at construction or call `model.get_uncertainties()` after fitting; see [Parameter uncertainty estimates](theory.md#parameter-uncertainty-estimates).
 
+## Editing peaks and fitted resonators
+
+Peak and resonator numbers are 1-based, matching the displayed tables. A list
+uses the numbering before removal; duplicate numbers are removed once, and
+at least one peak or resonator must remain.
+
+Before fitting, edit detected peaks through the model:
+
+```python
+model.add_peak(2e9, Q=10)
+model.remove_peak(2)
+```
+
+These methods update bounds and starting estimates and clear previous fits.
+The estimator is available as `model.bounds` or `model.smart_bounds`. To edit
+it directly, reapply it afterward:
+
+```python
+bounds = model.bounds
+bounds.remove_peak([1, 3])
+model.apply_bounds(bounds)
+```
+
+After fitting, remove resonators while preserving the remaining fitted values,
+uncertainties, and bounds:
+
+```python
+model.remove_resonator([1, 3])
+```
+
+Linked peak metadata is updated too. To append a mode manually, supply its
+parameters and finite bounds for subsequent fitting:
+
+```python
+model.add_resonator(
+    Rs=100, Q=5, fres=2e9,
+    parameter_bounds=[(0, 1000), (0.1, 100), (1.5e9, 2.5e9)],
+)
+```
+
+Adding a mode manually detaches the SmartBounds estimator because its detected
+peak list no longer describes the model. Existing fitted parameters remain
+available for evaluation and refinement.
+
 ## Parameter estimation
 
 SmartBounds estimates the shunt impedance $R_s$, quality factor $Q$, and resonant frequency $f_r$ from peaks in an impedance trace. The peak-and-crossing formulas below apply to one isolated, fully decayed resonator. For overlapping resonators or a varying background, use them as starting estimates with sufficiently wide bounds. A known finite wake length also permits an $R_s$ correction.

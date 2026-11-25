@@ -909,6 +909,35 @@ class SmartBoundDetermination:
             self.plane,
         )
 
+    def remove_peak(self, peak_number: int | list[int]) -> None:
+        """Remove 1-based peak numbers and recompute remaining estimates.
+
+        Lists use the numbering before removal. At least one peak must remain.
+        Call model.apply_bounds(bounds) after editing an estimator directly.
+        """
+        numbers = np.unique(np.atleast_1d(peak_number))
+        if numbers.size == 0:
+            return
+        if (
+            not np.issubdtype(numbers.dtype, np.integer)
+            or np.any(numbers < 1)
+            or np.any(numbers > self.N_resonators)
+        ):
+            raise ValueError("peak_number is outside the estimate")
+        if len(numbers) == self.N_resonators:
+            raise ValueError("The estimate must retain at least one peak")
+        indices = numbers - 1
+        removed = set(self.peaks[indices])
+        self._peak_q_estimates = {
+            peak: q for peak, q in self._peak_q_estimates.items() if peak not in removed
+        }
+        self._bounds_from_peaks(
+            np.delete(self.peaks, indices),
+            np.delete(self.q_sides_used, indices).tolist(),
+            self.impedance_type,
+            self.plane,
+        )
+
     def _start_interactive_selection(
         self,
         q_side: str | list[str],

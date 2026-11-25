@@ -515,3 +515,37 @@ def test_bounds_table_in_notebook(monkeypatch):
     assert (
         f"{frequency_bounds[0]:.2e} to {frequency_bounds[1]:.2e}" in displayed[0].data
     )
+
+
+@pytest.mark.parametrize("numbers", [2, [1, 3, 1]])
+def test_remove_peak(numbers):
+    """Removal uses original table numbers and retains explicit Q estimates."""
+    frequency = np.linspace(0.1e9, 4e9, 4001)
+    impedance = iddefix.Impedances.n_Resonator_longitudinal_imp(
+        frequency,
+        [100, 20, 1e9, 80, 20, 2e9, 60, 20, 3e9],
+    ).real
+    bounds = iddefix.SmartBoundDetermination(
+        frequency, impedance, minimum_peak_height=200
+    )
+    for fr, q in [(1e9, 10), (2e9, 15), (3e9, 25)]:
+        bounds.add_peak(fr, Q=q)
+    before = np.asarray(bounds.parameterEstimates).reshape(-1, 3).copy()
+    keep = np.delete(np.arange(3), np.unique(np.atleast_1d(numbers)) - 1)
+    bounds.remove_peak(numbers)
+    assert bounds.N_resonators == len(keep)
+    np.testing.assert_allclose(
+        np.asarray(bounds.parameterEstimates).reshape(-1, 3), before[keep]
+    )
+    assert len(bounds.peaks) == len(bounds.q_sides_used) == len(keep)
+
+
+@pytest.mark.parametrize("numbers", [0, 2, True, 1.5, [1]])
+def test_remove_peak_invalid(numbers):
+    """Invalid removal leaves the completed estimate intact."""
+    bounds = _single_mode_bounds()
+    before = bounds.parameterEstimates.copy()
+    with pytest.raises(ValueError):
+        bounds.remove_peak(numbers)
+    np.testing.assert_array_equal(bounds.parameterEstimates, before)
+    assert bounds.N_resonators == 1

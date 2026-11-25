@@ -500,3 +500,85 @@ def test_component_plot_axis_override(monkeypatch):
         assert axis.get_xscale() == "log"
         assert axis.get_yscale() == "linear"
     plt.close(fig)
+
+
+@pytest.fixture
+def estimated_model():
+    frequency = np.linspace(0.1e9, 4e9, 4001)
+    impedance = iddefix.Impedances.n_Resonator_longitudinal_imp(
+        frequency,
+        [100, 20, 1e9, 80, 20, 2e9, 60, 20, 3e9],
+    )
+    model = iddefix.EvolutionaryAlgorithm(frequency, impedance)
+    model.estimate_bounds(show_table=False, show_inspect=False)
+    assert model.N_resonators == 3
+    return model
+
+
+@pytest.mark.parametrize("numbers", [2, [1, 3, 1]])
+def test_remove_linked_resonators(estimated_model, numbers):
+    """Fitted values and uncertainties remain aligned with edited peak metadata."""
+    model = estimated_model
+    parameters = np.asarray(model.parameterEstimates).copy()
+    uncertainty = np.arange(1.0, 10.0)
+    for name in ["evolutionParameters", "minimizationParameters"]:
+        setattr(model, name, parameters.copy())
+        setattr(model, name + "Uncertainties", uncertainty.copy())
+    model.minimization_result = OptimizeResult(x=parameters.copy())
+    kept = np.delete(np.arange(3), np.unique(np.atleast_1d(numbers)) - 1)
+    indices = (3 * kept[:, None] + np.arange(3)).ravel()
+    model.remove_resonator(numbers)
+    assert model.bounds is model.smart_bounds
+    assert model.bounds.N_resonators == model.N_resonators == len(kept)
+    assert model.bounds.parameterBounds is model.parameterBounds
+    assert model.bounds.parameterEstimates is model.parameterEstimates
+    assert model.minimization_result is None
+    for name in ["evolutionParameters", "minimizationParameters"]:
+        np.testing.assert_array_equal(getattr(model, name), parameters[indices])
+        np.testing.assert_array_equal(
+            getattr(model, name + "Uncertainties"), uncertainty[indices]
+        )
+    np.testing.assert_allclose(
+        model.get_impedance(), model.get_resonator_components().sum(axis=0)
+    )
+
+
+def test_edit_model_peaks(estimated_model):
+    """Peak editing clears fits and supports adding a removed peak again."""
+    model = estimated_model
+    model.minimizationParameters = model.parameterEstimates.copy()
+    model.remove_peak(2)
+    assert model.N_resonators == 2
+    assert model.minimizationParameters is None
+    model.add_peak(2e9, Q=20)
+    assert model.N_resonators == model.bounds.N_resonators == 3
+    model.bounds.remove_peak([1, 3])
+    model.apply_bounds(model.bounds)
+    assert model.N_resonators == 1
+    assert model.parameterEstimates[2] == pytest.approx(2e9, rel=0.001)
+
+
+def test_add_resonator_detaches_peaks(estimated_model):
+    """Manual modes leave earlier peak estimates unchanged and remain removable."""
+    model = estimated_model
+    previous_bounds = model.bounds
+    model.minimizationParameters = model.parameterEstimates.copy()
+    model.add_resonator(
+        50, 10, 3.5e9, parameter_bounds=[(0, 100), (1, 100), (3e9, 4e9)]
+    )
+    assert model.bounds is None
+    assert previous_bounds.N_resonators == 3
+    model.remove_resonator([1, 4])
+    assert model.N_resonators == 2
+    assert len(model.parameterBounds) == len(model.parameterEstimates) == 6
+
+
+@pytest.mark.parametrize("numbers", [0, 4, True, 1.5, [1, 2, 3]])
+def test_remove_resonator_invalid(estimated_model, numbers):
+    """Invalid removals preserve model parameters and linked peak metadata."""
+    model = estimated_model
+    before = model.parameterEstimates.copy()
+    with pytest.raises(ValueError):
+        model.remove_resonator(numbers)
+    np.testing.assert_array_equal(model.parameterEstimates, before)
+    assert model.N_resonators == model.bounds.N_resonators == 3
