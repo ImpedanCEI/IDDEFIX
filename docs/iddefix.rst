@@ -1,53 +1,69 @@
-iddefix package
-===============
+Public API
+==========
 
-Submodules
-----------
+The main entry points are available from ``iddefix``. Array inputs use SI
+units: frequencies in Hz and times in seconds. See each method for impedance,
+wake, and transverse-normalization conventions.
 
-iddefix.framework module
-------------------------
+Fitting model
+-------------
 
-.. automodule:: iddefix.framework
+.. autoclass:: iddefix.framework.EvolutionaryAlgorithm
    :members:
-   :undoc-members:
-   :show-inheritance:
 
-iddefix.objectiveFunctions module
----------------------------------
+Peak detection and bounds
+-------------------------
 
-.. automodule:: iddefix.objectiveFunctions
+.. autoclass:: iddefix.smartBoundDetermination.SmartBoundDetermination
    :members:
-   :undoc-members:
-   :show-inheritance:
 
-iddefix.resonatorFormulas module
---------------------------------
+Resonator formulas
+------------------
 
-.. automodule:: iddefix.resonatorFormulas
+.. autoclass:: iddefix.resonatorFormulas.Impedances
    :members:
-   :undoc-members:
-   :show-inheritance:
 
-iddefix.smartBoundDetermination module
---------------------------------------
-
-.. automodule:: iddefix.smartBoundDetermination
+.. autoclass:: iddefix.resonatorFormulas.Wakes
    :members:
-   :undoc-members:
-   :show-inheritance:
 
-iddefix.solvers module
-----------------------
+Objective functions
+-------------------
 
-.. automodule:: iddefix.solvers
+.. autoclass:: iddefix.objectiveFunctions.ObjectiveFunctions
    :members:
-   :undoc-members:
-   :show-inheritance:
 
-Module contents
+Transforms and bunch profiles
+-----------------------------
+
+These functions are also exported directly from ``iddefix``.
+
+.. autofunction:: iddefix.utils.compute_fft
+
+.. autofunction:: iddefix.utils.compute_convolution
+
+.. autofunction:: iddefix.utils.compute_deconvolution
+
+.. autofunction:: iddefix.utils.compute_ineffint
+
+.. autofunction:: iddefix.utils.compute_neffint
+
+.. autofunction:: iddefix.utils.gaussian_bunch
+
+.. autofunction:: iddefix.utils.gaussian_bunch_spectrum
+
+Solver backends
 ---------------
 
-.. automodule:: iddefix
+Ordinary fitting uses the methods on ``EvolutionaryAlgorithm``. These
+wrappers provide direct access to the numerical backends.
+
+.. autoclass:: iddefix.solvers.Solvers
    :members:
-   :undoc-members:
-   :show-inheritance:
+
+Parameter uncertainties
+-----------------------
+
+For a fitted model, prefer ``model.get_uncertainties()``. The lower-level
+function accepts parameters, a fit function, and data explicitly.
+
+.. autofunction:: iddefix.uncertainties.get_uncertainties

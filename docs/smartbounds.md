@@ -1,416 +1,299 @@
-# Estimating resonator bounds and fitting
+# Fitting with EvolutionaryAlgorithm
 
-The recommended workflow uses `EvolutionaryAlgorithm` (EA) to estimate bounds, fit resonators with CMA-ES, and inspect the result. SmartBounds supplies the peak estimates and remains available as a direct API.
+Use `EvolutionaryAlgorithm` (EA) to keep the data, bounds, solver results,
+and plots together. The usual workflow is:
+
+1. Create the model from impedance, wake, or wake-potential data
+2. Remove a baseline if needed, then call `model.estimate_bounds()`
+3. Fit with `model.run_cmaes()` or `model.run_differential_evolution()`
+4. Inspect the result with `model.plot()` or `model.plot_resonator_components()`
+
+EA uses SmartBounds internally for peak detection. You do not need to
+construct a `SmartBoundDetermination` object for this workflow.
 
 ## Recommended workflow
 
-`x_data` and `y_data` retain the original input. Baseline correction and downsampling update the domain data (`impedance_data`, `wake_data`, or `wake_potential_data`) used for fitting and plotting.
-
-Create the model from impedance, wake, or wake-potential data. If a linear baseline is present, call `model.remove_baseline()` before estimating bounds. For impedance data, baseline removal requires `wake_length` in meters; for a deconvolved wake-potential spectrum, also supply the Gaussian bunch length `sigma` in seconds.
+This runnable example fits a synthetic longitudinal impedance. Replace the
+first two arrays with your measured or simulated data when using the model:
 
 ```python
-model = iddefix.EvolutionaryAlgorithm(
-    frequency,
-    impedance,
-    plane="longitudinal",
-    wake_length=L,
+import numpy as np
+import matplotlib.pyplot as plt
+import iddefix
+
+# Generate the impedance or load it
+frequency = np.linspace(0.1e9, 3e9, 1001)  # Hz
+impedance = iddefix.Impedances.Resonator_longitudinal_imp(
+    frequency, Rs=100, Q=8, fr=1e9,
 )
 
-# If needed: model.remove_baseline()
-bounds = model.estimate_bounds()
-model.run_cmaes()
-# Optional local refinement: model.run_minimization_algorithm()
-model.plot_resonator_components()
+# Prepare the model
+model = iddefix.EvolutionaryAlgorithm(
+    frequency, impedance, plane="longitudinal",
+)
+# For measured finite-wake data, set wake_length before optional baseline removal
+# model.remove_baseline()
+bounds = model.estimate_bounds(prominence=0.01, show_table=False, show_inspect=False)
+bounds.inspect()
+bounds.to_table()
+
+# Fit the model, then refine it locally
+model.downsample_data(samples=100, spacing="linear")
+model.run_cmaes(maxiter=200, popsize=20)
+model.run_minimization_algorithm()
+
+# Inspect the fit in both domains
+fig, axes = model.plot_resonator_components(function="impedance", type="abs")
+time = np.linspace(-0.1e-9, 20e-9, 1001)  # Seconds from the bunch center
+fig, axes = model.plot(time, function="wake potential", sigma=10e-12)
+
 ```
 
-`estimate_bounds()` finds the resonator count, fitting bounds, and starting estimates, then shows an inspection plot followed by a table. It enables Hann peak detection when `wake_length` is supplied. If a peak is missed, call `model.add_peak(frequency, Q=known_q)` before fitting; the latest estimator is available as `model.smart_bounds`.
-
-For wake and wake-potential inputs, EA transforms the data to impedance for peak detection and fits the original time-domain data. Use `fmax` and `fft_samples` to control the temporary frequency grid.
-
-CMA-ES is the recommended global optimizer here; `run_differential_evolution()` remains available as an alternative. Local refinement with `run_minimization_algorithm()` is optional. `plot_resonator_components()` shows the fitted total and individual resonators.
-
-Uncertainty estimates are off by default. Set `compute_uncertainties=True` at construction or call `model.get_uncertainties()` after fitting; see [Parameter uncertainty estimates](theory.md#parameter-uncertainty-estimates).
-
-## Parameter estimation
-
-SmartBounds estimates the shunt impedance $R_s$, quality factor $Q$, and resonant frequency $f_r$ from peaks in an impedance trace. The peak-and-crossing formulas below apply to one isolated, fully decayed resonator. For overlapping resonators or a varying background, use them as starting estimates with sufficiently wide bounds. A known finite wake length also permits an $R_s$ correction.
-
-### Longitudinal impedance
-
-The fully decayed longitudinal impedance is
-
-$$
-Z_\parallel(f)=
-\frac{R_s}{
-1+iQ\left(
-\dfrac{f}{f_r}-\dfrac{f_r}{f}
-\right)}.
-$$
-
-SmartBounds can use either $\Re(Z_\parallel)$ or $|Z_\parallel|$.
-
-#### Using $\Re(Z_\parallel)$
-
-Let the selected peak be $(f_{\mathrm{peak}},A_{\mathrm{peak}})$, where
-
-$$
-A_{\mathrm{peak}}=
-\Re\left(Z_\parallel(f_{\mathrm{peak}})\right).
-$$
-
-Let $f_{\mathrm{crossing}}$ be the frequency where $\Re(Z_\parallel)$
-reaches half of the peak amplitude:
-
-$$
-\Re\left(Z_\parallel(f_{\mathrm{crossing}})\right)
-=\frac{A_{\mathrm{peak}}}{2}.
-$$
-
-The resonator estimates are
-
-$$
-R_s=A_{\mathrm{peak}},
-$$
-
-$$
-f_r=f_{\mathrm{peak}},
-$$
-
-$$
-Q=
-\frac{f_{\mathrm{crossing}}f_{\mathrm{peak}}}
-{|f_{\mathrm{crossing}}^2-f_{\mathrm{peak}}^2|}.
-$$
-
-#### Using $|Z_\parallel|$
-
-Let the selected peak be $(f_{\mathrm{peak}},A_{\mathrm{peak}})$, where
-
-$$
-A_{\mathrm{peak}}=|Z_\parallel(f_{\mathrm{peak}})|.
-$$
-
-Let $f_{\mathrm{crossing}}$ be the frequency where $|Z_\parallel|$ reaches
-the half-power level:
-
-$$
-|Z_\parallel(f_{\mathrm{crossing}})|
-=\frac{A_{\mathrm{peak}}}{\sqrt{2}}.
-$$
-
-The resonator estimates are
-
-$$
-|R_s|=A_{\mathrm{peak}},
-$$
-
-$$
-f_r=f_{\mathrm{peak}},
-$$
-
-$$
-Q=
-\frac{f_{\mathrm{crossing}}f_{\mathrm{peak}}}
-{|f_{\mathrm{crossing}}^2-f_{\mathrm{peak}}^2|}.
-$$
-
-The sign of $R_s$ cannot be determined from $|Z_\parallel|$ alone.
-
-### Transverse impedance
-
-The fully decayed transverse impedance is
-
-$$
-Z_\perp(f)=
-\frac{f_r}{f}
-\frac{R_s}{
-1+iQ\left(
-\dfrac{f}{f_r}-\dfrac{f_r}{f}
-\right)}.
-$$
-
-The factor $f_r/f$ shifts the maximum of $\Re(Z_\perp)$ away from $f_r$ and
-changes its amplitude. Therefore, the longitudinal relations
-$f_r=f_{\mathrm{peak}}$ and $R_s=A_{\mathrm{peak}}$ do not apply.
-
-#### Using $\Re(Z_\perp)$
-
-Let the selected peak be $(f_{\mathrm{peak}},A_{\mathrm{peak}})$, where
-
-$$
-A_{\mathrm{peak}}=
-\Re\left(Z_\perp(f_{\mathrm{peak}})\right).
-$$
-
-Let $f_{\mathrm{crossing}}$ be the frequency where $\Re(Z_\perp)$ reaches
-half of the peak amplitude:
-
-$$
-\Re\left(Z_\perp(f_{\mathrm{crossing}})\right)
-=\frac{A_{\mathrm{peak}}}{2}.
-$$
-
-The dimensionless peak-location factor is defined as
-
-$$
-\eta_{\mathrm{peak}}=
-\left(\frac{f_{\mathrm{peak}}}{f_r}\right)^2.
-$$
-
-It describes where the observed peak lies relative to the resonant frequency;
-it is not the frequency shift itself. Its square root is the frequency ratio
-
-$$
-\sqrt{\eta_{\mathrm{peak}}}=
-\frac{f_{\mathrm{peak}}}{f_r},
-$$
-
-so the fractional downward shift of the transverse peak is
-
-$$
-\frac{f_r-f_{\mathrm{peak}}}{f_r}
-=1-\sqrt{\eta_{\mathrm{peak}}}.
-$$
-
-Thus, $\eta_{\mathrm{peak}}=1$ means that the peak is not shifted, while a
-smaller value means that it lies further below $f_r$. For the transverse real
-part, $0<\eta_{\mathrm{peak}}<1$, and it approaches $1$ in the high-$Q$ limit.
-
-Because $f_r$ is initially unknown, SmartBounds determines
-$\eta_{\mathrm{peak}}$ from the measured peak and crossing frequencies:
-
-$$
-\eta_{\mathrm{peak}}=
-\sqrt{
-\frac{
-4\dfrac{f_{\mathrm{crossing}}}{f_{\mathrm{peak}}}
--\left(\dfrac{f_{\mathrm{crossing}}}{f_{\mathrm{peak}}}\right)^2-1
-}{
-\left(\dfrac{f_{\mathrm{crossing}}}{f_{\mathrm{peak}}}\right)^4
--3\left(\dfrac{f_{\mathrm{crossing}}}{f_{\mathrm{peak}}}\right)^2
-+4\dfrac{f_{\mathrm{crossing}}}{f_{\mathrm{peak}}}
-}
-}.
-$$
-
-The transverse resonator estimates are then
-
-$$
-R_s=
-A_{\mathrm{peak}}
-\frac{
-2\sqrt{\eta_{\mathrm{peak}}}(1+\eta_{\mathrm{peak}})
-}{
-1+3\eta_{\mathrm{peak}}
-},
-$$
-
-$$
-Q=
-\sqrt{
-\frac{
-\eta_{\mathrm{peak}}
-}{
-(1-\eta_{\mathrm{peak}})(1+3\eta_{\mathrm{peak}})
-}
-},
-$$
-
-$$
-f_r=
-\frac{f_{\mathrm{peak}}}{\sqrt{\eta_{\mathrm{peak}}}}.
-$$
-
-If a $Q$ estimate is supplied when adding a peak, SmartBounds skips the
-crossing calculation. For transverse real impedance, it instead obtains the
-peak-location factor directly from that $Q$:
-
-$$
-\eta_{\mathrm{peak}}=
-\frac{2Q^2-1+\sqrt{16Q^4-4Q^2+1}}{6Q^2}.
-$$
-
-It then uses the same $R_s$ and $f_r$ relations above. A peak with neither a
-crossing nor a supplied $Q$ uses the fallback $Q=1$ without a transverse
-peak-shift correction.
-
-#### Why $|Z_\perp|$ is not recommended
-
-The absolute transverse impedance does not provide a reliable general-purpose
-peak estimate. For
-
-$$
-Q\leq\frac{1}{\sqrt{2}},
-$$
-
-$|Z_\perp|$ is largest at zero frequency and decreases with frequency. It has
-no nonzero peak from which $R_s$, $Q$, and $f_r$ can all be determined.
-
-Use $\Re(Z_\perp)$ for transverse SmartBounds estimation; bounds from $|Z_\perp|$ may be inconclusive.
-
-## Finite-wake correction
-
-When the input impedance comes from a wake truncated after length $L$,
-SmartBounds first estimates $R_s$, $Q$, and $f_r$ with the fully decayed rules
-above. It then corrects $R_s$ using the fraction of the wake envelope
-accumulated over $T=L/c$, where $c$ is the speed of light and
-$\omega_r=2\pi f_r$.
-The effective decay rate is
-
-$$
-B_{\mathrm{eff}}=
-\begin{cases}
-\dfrac{\omega_r}{2Q}, & Q\geq 0.5,\\[8pt]
-\dfrac{\omega_r}{2Q}-\omega_r\sqrt{\dfrac{1}{4Q^2}-1},
-& 0<Q<0.5.
-\end{cases}
-$$
-
-For $Q<0.5$, $B_{\mathrm{eff}}$ is the slower of the two overdamped decay
-rates. With $R_{s,\infty}$ denoting the initial fully decayed estimate, the
-finite-wake estimate is
-
-$$
-R_{s,T}=\frac{R_{s,\infty}}{1-\exp(-B_{\mathrm{eff}}T)}.
-$$
-
-This envelope-based factor is an approximation to the peak-height correction:
-oscillatory boundary terms can also affect the finite-wake impedance peak.
-The correction applies to longitudinal $\Re(Z)$ or $|Z|$ and transverse
-$\Re(Z)$; it is not applied to transverse $|Z|$. The estimates of $Q$ and
-$f_r$ are not corrected for the finite wake, even though a short wake may
-change the peak position and width.
-
-### Hann peak detection
-
-For a wake of length $L$, a one-sided Hann taper suppresses truncation ripples in peak detection. Pass `use_Hann=True` to SmartBounds; `model.estimate_bounds()` enables it by default when `wake_length` is supplied. For $0\leq t\leq T$, the descending half Hann $w(t)=\frac{1}{2}[1+\cos(\pi t/T)]$ starts at 1 with zero slope and ends at 0, preserving the prompt wake while damping the end of the record. It weights the midpoint by 0.5. With $T=L/c$ and $f_H=c/(2L)$, the windowed impedance is
-
-$$
-Z_H(f)=\frac{1}{2}Z(f)+\frac{1}{4}Z(f-f_H)+\frac{1}{4}Z(f+f_H).
-$$
-
-The three terms follow directly from the Fourier shift property. Relative to the previous full Hann, the shift is halved (from $c/L$ to $c/(2L)$) and the side weights change from $-1/4$ to $+1/4$. The shifted complex impedance is interpolated before taking its real part or magnitude. For real-part input, interpolating the real part gives the same detection trace.
-
-Negative frequencies follow the symmetry of a real wake: $Z_\parallel(-f)=Z_\parallel(f)^*$ and $Z_\perp(-f)=-Z_\perp(f)^*$. This extends the Hann trace to DC when the supplied grid starts at zero.
-
-For data starting above DC, Hann detection uses the continuous interval $f_{\min}+f_H\leq f\leq f_{\max}-f_H$. For data starting at DC, symmetry extends this interval down to zero.
-
-With Hann enabled, `impedance_type="real"` finds peaks in $\Re(Z_H)$; `"absolute"` uses $|Z_H|$ when the complex impedance is available. Magnitude-only input lacks the phase needed for Hann windowing, so peak detection uses the original magnitude. Peak heights and widths always come from the unwindowed trace.
-
-A smoother detection trace can merge neighboring resonances, so inspect the detected peaks before fitting. This change does not imply a smaller fitting error or change the prominence and parameter-bound defaults.
-
-### Linear wake baseline
-
-A linear wake baseline $w_{\mathrm{base}}(t)=at$ over $0\leq t\leq T$ contributes a low-frequency background. Its longitudinal impedance per unit slope is
-
-$$
-K_\parallel(f)=\int_0^T t\,e^{-2\pi i f t}\,dt
-=\begin{cases}
-\dfrac{\left[e^{-i\omega T}(1+i\omega T)-1\right]}{\omega^2},
-& f\ne 0,\\[8pt]
-\dfrac{T^2}{2}, & f=0,
-\end{cases}
-\qquad \omega=2\pi f.
-$$
-
-The slope uses the same wake units per second in both domains: EA transforms $w/c$, cancelling the $c$ in the FFT's spatial-step normalization.
-
-For transverse impedance, $K_\perp(f)=iK_\parallel(f)$. If the ramp is in a Gaussian wake potential that was deconvolved, pass the RMS bunch length `sigma` in seconds; the kernel becomes $K_\sigma(f)=K(f)/\exp[-(2\pi f\sigma)^2/2]$. Omit `sigma` when the ramp belongs to the underlying wake before bunch convolution.
-
-Baseline correction subtracts $aK(f)$ from $Z(f)$, where $K$ is the kernel selected by `sigma`. With `remove_baseline=True`, the real slope $a$ is fitted by least squares; for complex impedance,
-
-$$
-\hat a=\frac{\Re\left[\sum_f K(f)^* Z(f)\right]}{\sum_f |K(f)|^2}.
-$$
-
-Use `model.remove_baseline()` as shown above, or pass a known slope with `model.remove_baseline(slope=a)`. Impedance correction requires `wake_length`; magnitude-only data lack the phase needed for a reliable correction. The removed slope is available as `model.baseline_slope`.
-
-For wake or wake-potential data, the slope is fitted on the last 20% of nonnegative time samples and $at$ is subtracted for $t\geq0$. Use `model.remove_baseline(fit_interval=(start, stop))` to choose another interval. To combine correction and bound estimation, pass `remove_baseline=True` to `estimate_bounds()`:
+`estimate_bounds()` sets the resonator count, bound pairs, and starting
+estimates on the model. By default, it also displays the estimated components
+and a table; the example disables these displays. The estimator is available
+as `model.bounds` (`model.smart_bounds` is an alias).
+
+Local refinement with `model.run_minimization_algorithm()` is optional.
+Both global solvers store their results in `evolutionParameters`; local
+refinement stores its result in `minimizationParameters`. Evaluation and
+plotting prefer local parameters when available. Pass `use_minimization=False`
+to inspect the evolutionary fit instead.
+
+`x_data` and `y_data` retain the original inputs. Baseline correction and
+downsampling update the domain arrays used for fitting, such as
+`impedance_data` or `wake_potential_data`.
+
+## Input domains and units
+
+The constructor's `fitFunction` selects what data you are fitting:
+
+| `fitFunction` | x values | Longitudinal y values | Transverse y values |
+| --- | --- | --- | --- |
+| `"impedance"` | Frequency [Hz] | Ohm | Ohm/m |
+| `"wake"` | Time [s] | V/C | V/C/m |
+| `"wake potential"` | Time [s] | V/C | V/C/m |
+
+Use a space in `"wake potential"`. Transverse wakes must already have their
+required displacement normalization. Convert exports in V/pC to V/C before
+fitting. For a dipolar wake, divide by the driving offset in metres if the
+export has not already applied this normalization.
+
+For a Gaussian wake potential, also pass `sigma`, the RMS bunch duration in
+seconds. If the bunch length is given in metres, use `sigma = sigma_z / c`.
+The time axis is measured from the bunch center and must cover its Gaussian
+profile sufficiently on both sides. FFT/deconvolution requires uniform time
+sampling.
 
 ```python
 model = iddefix.EvolutionaryAlgorithm(
     time,
     wake_potential,
+    plane="transverse",
     fitFunction="wake potential",
-    sigma=sigma,       # seconds
-    wake_length=L,     # meters
+    sigma=sigma,
+    wake_length=L,  # Recorded wake length in metres, if finite
 )
-model.estimate_bounds(remove_baseline=True)
+bounds = model.estimate_bounds()
+model.run_cmaes()
 ```
 
-This method assumes a finite linear ramp that can be distinguished from the physical impedance. EA corrects its fitting data; direct SmartBounds correction affects only peak analysis.
+For time-domain inputs, `estimate_bounds()` transforms the data internally
+for peak detection. Fitting still uses the original domain; there is no need
+to calculate an FFT or deconvolution separately to construct bounds.
 
-## Constructing fitting bounds
+## Peak detection and sampling
 
-After estimating $R_s$, $Q$, and $f_r$, SmartBounds constructs the parameter
-bounds in the order
+`prominence` is an absolute threshold in the detection trace's units, not a
+percentage. Pass `prominence=None` to disable that filter. The default trace
+is the real impedance, except for the built-in absolute objective, which uses
+magnitude. An explicit `impedance_type` overrides this choice.
 
-$$
-[(R_{s,\min},R_{s,\max}),
- (Q_{\min},Q_{\max}),
- (f_{r,\min},f_{r,\max})].
-$$
+`fmax` and `fft_samples` control the temporary frequency grid for time-domain
+inputs. For direct impedance, `samples=None` retains the existing grid; an
+explicit count linearly interpolates the peak-analysis trace. These options
+do not change the fitting data or recover features absent from the input.
 
-The `Rs_bounds` and `Q_bounds` settings provide multiplicative factors,
-both defaulting to `[0.1, 10]`. The frequency bounds
-instead use a characteristic half-width calculated from the central estimates:
+Use `model.downsample_data(factor=2, show=True)` to reduce the actual fitting
+samples, or select an approximate count with `samples=1000`. This selects
+original samples without interpolation. Check that narrow resonances remain
+resolved and that time grids remain uniform before using FFT/deconvolution.
 
-$$
-\Delta f_{\mathrm{estimate}}
-= \frac{f_{r,\mathrm{estimate}}}{2Q_{\mathrm{estimate}}}.
-$$
+If no peaks are detected, inspect the data units, time origin, frequency band,
+and prominence. A monotonic trace or an endpoint maximum may not identify a
+resonance. If you already know the model order, you can supply a resonator
+count and use the default bounds or your own bounds instead.
 
-For a fully decayed longitudinal resonator, $f_r/Q$ is the full width at half
-maximum, so $\Delta f_{\mathrm{estimate}}$ is half of that full width. For a
-transverse resonator, SmartBounds first corrects the peak shift to estimate
-$f_r$ and $Q$; $\Delta f_{\mathrm{estimate}}$ is then used as a characteristic
-frequency scale rather than as an exact transverse half-width.
+## Choosing bounds
 
-The two entries in `fres_bounds` are dimensionless factors that multiply this
-scale independently:
+Peak-based estimates are the recommended starting point. Their settings can
+be passed directly to `model.estimate_bounds()`, including `Rs_bounds`,
+`Q_bounds`, `fres_bounds`, and `q_side`. See the
+[estimation formulas](theory.md#peak-based-parameter-estimation) for how peaks
+and widths become bound pairs. The [API reference](iddefix.rst) lists defaults.
 
-$$
-f_{r,\min} = \max\left(\varepsilon, f_{r,\mathrm{estimate}} +
-\mathrm{fres\_bounds}_{\min}\Delta f_{\mathrm{estimate}}\right),
-$$
+If peaks are unsuitable but the resonator count is known, supply
+`N_resonators` when constructing EA. Missing bounds are generated from the
+input spectrum when fitting begins. These broad defaults do not provide
+peak-derived starting estimates.
 
-$$
-f_{r,\max} = f_{r,\mathrm{estimate}} +
-\mathrm{fres\_bounds}_{\max}\Delta f_{\mathrm{estimate}}.
-$$
+For explicit bounds, supply three pairs per resonator in `(Rs, Q, fr)` order.
+The count is inferred from the number of triples:
 
-Thus, the bounds are centered on the estimated resonant frequency, which is
-not necessarily the detected peak frequency for a transverse resonator. The
-default `fres_bounds=[-1, 1]` spans one characteristic half-width on either
-side. For example, `fres_bounds=[-2, 3]` spans two characteristic half-widths
-below and three above.
+```python
+model = iddefix.EvolutionaryAlgorithm(
+    frequency,
+    impedance,
+    parameterBounds=[(0, 200), (0.1, 100), (0.5e9, 1.5e9)],
+    parameterEstimates=[100, 8, 1e9],
+)
+model.display_parameter_bounds()
+```
 
-For $f_{r,\mathrm{estimate}}=1\,\mathrm{GHz}$, the default bounds are
-$[0.75,1.25]\,\mathrm{GHz}$ when $Q_{\mathrm{estimate}}=2$, but only
-$[0.95,1.05]\,\mathrm{GHz}$ when $Q_{\mathrm{estimate}}=10$. Broad, low-$Q$
-resonators therefore receive wider frequency intervals automatically. The
-lower bound is kept positive with machine epsilon $\varepsilon$, but the
-interval is not clipped to the frequency range of the input data.
+## Baseline correction
+
+For a linear time-domain baseline, call `model.remove_baseline()` before
+`estimate_bounds()`. The slope is fitted to the last 20% of nonnegative time
+samples; `fit_interval=(start, stop)` selects another interval in seconds.
+Alternatively, use `model.estimate_bounds(remove_baseline=True)` to perform
+both steps. A known slope can be passed to `remove_baseline(slope=a)`.
+
+Impedance baseline correction requires `wake_length` in metres. Supply
+`sigma` only when that impedance was Gaussian-deconvolved from a wake
+potential; omit it for direct impedance or an FFT of a wake function.
+Magnitude-only data lack the phase needed for this correction.
+
+Correction clears existing fits and estimates. The removed slope is stored
+as `model.baseline_slope`. See the
+[linear-baseline model](theory.md#linear-wake-baseline) for its assumptions
+and transform.
+
+## Finite-wake correction
+
+Pass `wake_length=L` [m] to EA when the input impedance comes from a truncated
+wake. Bounds estimation applies an approximate finite-decay correction to
+$R_s$ and enables Hann peak detection by default. Use
+`model.estimate_bounds(use_Hann=False)` to disable that detection window.
+The fitting data remain unwindowed.
+
+See the [finite-wake correction](theory.md#finite-wake-correction) and
+[Hann detection formula](theory.md#hann-peak-detection) for the underlying
+approximations. A finite wake can still bias the estimated frequency and Q;
+inspect the result before treating peak-derived values as a fit.
+
+## Parameter estimation
+
+The [theory guide](theory.md#peak-based-parameter-estimation) contains the
+longitudinal and transverse peak formulas, crossing rules, and bound scaling.
+It is a reference for how `estimate_bounds()` works; ordinary fitting starts
+with the EA calls above.
+
+## Editing peaks and fitted resonators
+
+Numbers are 1-based, matching the displayed tables. Lists refer to the
+numbering before removal; duplicates count once and at least one mode must
+remain.
+
+Before fitting, edit peaks through EA:
+
+```python
+model.add_peak(2e9, Q=10)
+model.remove_peak(2)
+```
+
+These methods update the bounds and estimates and clear previous fits.
+After fitting, `model.remove_resonator([1, 3])` instead preserves the fitted
+values, uncertainties, and bounds of the remaining resonators. To append a
+mode manually, provide its parameters and finite bounds for later fitting:
+
+```python
+model.add_resonator(
+    Rs=100, Q=5, fres=2e9,
+    parameter_bounds=[(0, 1000), (0.1, 100), (1.5e9, 2.5e9)],
+)
+```
+
+A manually added mode detaches the peak estimator because its peak list no
+longer describes the model. Existing fitted parameters remain available.
+
+## Plotting fitted functions
+
+Use `plot()` for the reference data and total model, or
+`plot_resonator_components()` to include individual resonators. Both accept
+`function="impedance"`, `"wake"`, or `"wake potential"`, independently of the
+original fitting domain. Omit `function` to use that domain.
+
+```python
+fig, axes = model.plot()  # Use the fitting grid and reference data
+fig, axes = model.plot_resonator_components(type="abs")
+```
+
+`type` selects `"real"`, `"imag"`, `"abs"`, or `"both"`. Impedance defaults to
+magnitude for an absolute objective, including complex reference data;
+otherwise it shows real and imaginary panels. Wake plots default to real
+values. Changing the displayed part does not change the objective or fit.
+
+Passing `x_data` evaluates the fitted model directly on that grid. It does
+not resample or modify the reference data. Data are overlaid automatically
+only when the function and grid match the fitting data. Pass `y_data`
+explicitly to compare other data on the requested grid.
+
+```python
+frequency_plot = np.linspace(0.1e9, 3e9, 2001)
+fig, axes = model.plot(frequency_plot, function="impedance", type="abs")
+time_plot = np.linspace(-1e-9, 30e-9, 2001)
+fig, axes = model.plot(time_plot, function="wake")
+fig, axes = model.plot(time_plot, function="wake potential", sigma=1e-10)
+```
+
+Frequency is in Hz; time and Gaussian RMS duration `sigma` are in seconds.
+Omitting `x_data` requires a stored grid in the selected domain. Impedance
+uses the model's `wake_length` by default; an explicit value overrides it
+for that plot. Gaussian potentials use the stored `sigma`, or 1e-10 s if
+unset. Plotting leaves both stored settings unchanged.
+
+Both methods return `(figure, axes)`, with a one-dimensional array of axes.
+Use `show=False` to customize the figure before displaying it in a notebook:
+
+```python
+fig, axes = model.plot(type="abs", scale="loglog", show=False)
+axes[0].set_title("Fitted impedance")
+fig.tight_layout()
+plt.show()
+```
+
+The existing `figsize`, `dpi`, `cmap`, line-style dictionaries, and additional
+Matplotlib subplot arguments remain available. Individual magnitudes do not
+necessarily sum to the magnitude of the total complex impedance.
+
+## Uncertainties
+
+Uncertainty estimates are off by default. Enable them with
+`compute_uncertainties=True`, or request them after fitting with
+`model.get_uncertainties()`. See
+[parameter uncertainty estimates](theory.md#parameter-uncertainty-estimates)
+for the assumptions; these are local least-squares estimates, not a model
+selection criterion.
 
 ## Direct SmartBounds API
 
-Use `SmartBoundDetermination` when you need direct control over peak selection or maintain code that constructs bounds separately from EA. The EA workflow above is the usual entry point.
+Use the standalone estimator for interactive peak selection or separate
+peak-analysis tools. Automatic bound estimation for an EA fit should normally
+use `model.estimate_bounds()`.
+
+In a notebook with the ipympl backend, create the interactive estimator, pick
+peaks, finish with **Done**, and apply it to EA:
 
 ```python
+%matplotlib ipympl
 bounds = iddefix.SmartBoundDetermination(
-    frequency,
-    impedance,
-    plane="transverse",
-    impedance_type="real",
-    wake_length=L,
-    use_Hann=True,
-    fres_bounds=[-2, 2],
+    frequency, impedance, plane=model.plane, interactive=True,
 )
-bounds.inspect(show_components=True)
+await bounds.wait_for_selection()
+model.apply_bounds(bounds)
 ```
 
-Direct SmartBounds uses $\Re(Z)$ by default; choose `impedance_type="absolute"` for $|Z|$. Hann detection is opt-in here. The `Rs_bounds` and `Q_bounds` settings scale the parameter estimates, while `fres_bounds` sets the number of estimated half-widths around $f_r$.
-
-If detection misses a peak, call `bounds.add_peak(peak_frequency)`. Pass `Q=Q_estimate` when the quality factor is known, or `q_side="left"` or `"right"` to select a crossing. Use `bounds.inspect(show_bounds=True)` to review the frequency intervals and `bounds.get_impedance_components()` to access individual resonance curves.
-
-To fit these bounds with an existing EA model, call `model.apply_bounds(bounds)`; the impedance plane must match. For compatibility with older code, `bounds.N_resonators`, `bounds.parameterBounds`, and `bounds.parameterEstimates` remain available for manual model construction.
+Applying bounds updates the model count and starting estimates and clears
+previous fits. If you edit a standalone estimator with `add_peak()` or
+`remove_peak()`, apply it again afterward. For its complete settings, see
+`SmartBoundDetermination` in the [API reference](iddefix.rst).

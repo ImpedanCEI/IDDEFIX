@@ -18,20 +18,9 @@ By representing wakefield data through a compact $\sum_i (R_{s,i}, Q_i, f_{r,i})
 
 ## About
 
-🚀 `IDDEFIX` features:
-
-* Resonators formulas
-    * Longitudinal and transverse impedance (Fully/ partially decayed)
-    * Longitudinal and transverse wake
-    * Longitudinal and transverse wake potentials
-
-* Differential Evolution algorithm for fitting resonsators to impedance
-    * **SciPy**'s [Differential Evolution](https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.differential_evolution.html)
-    * pyfde ClassicDE
-    * pyfde JADE
-    * **pyMOO**'s [CMA-ES](https://pymoo.org/algorithms/soo/cmaes.html) "Covariance Matrix Adaptation Evolution Strategy"
-
-* Smart Bound Determination for precise and easy boundary setting
+IDDEFIX provides analytical resonator formulas, peak-based starting estimates,
+CMA-ES and differential-evolution fitting, optional local refinement, model
+plots, and parameter uncertainties.
 
 ## How to install
 
@@ -48,13 +37,19 @@ pip install git+https://github.com/ImpedanCEI/IDDEFIX
 
 ## How to use / Examples
 
-IDDEFIX is documented using `Sphinx` and `ReadTheDocs`. Documentation is available at: http://iddefix.readthedocs.io/
+Start with the [EA fitting workflow](https://iddefix.readthedocs.io/en/latest/smartbounds.html):
+construct an `EvolutionaryAlgorithm`, call `model.estimate_bounds()`, fit with
+CMA-ES or differential evolution, and inspect `model.plot()`. Direct
+SmartBounds construction is available for advanced peak-analysis workflows.
 
-Check :file_folder: `examples/` for different DE resonator fitting cases
+The [documentation](https://iddefix.readthedocs.io/) also includes the theory
+and generated public API reference.
+
+Check :file_folder: `examples/` for fitting and extrapolation examples
 * Analytical resonator initialization and fitting
 * Resonator fitting on longitudinal accelerator cavity simulation and extrapolation
 * Resonator fitting on longitudinal beam wire scanner simulation with coupled modes
-* Resonator fitting on transverse SPS transistion data and extrapolation
+* Resonator fitting on transverse SPS transition data and extrapolation
 * Resonator fitting on transverse broadband (Q<0.5) Kicker data
 
 <img src="https://mattermost.web.cern.ch/files/4si7ipbezfyjdmd1zzr567hswh/public?h=2dcugjRruq3p9yEYea-9f1mXPfUbuujKRNh8dTA77a4"/>

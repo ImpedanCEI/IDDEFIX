@@ -17,21 +17,7 @@ def StackedResiduals(
     fitFunction: FitCallable,
     y: ArrayLike,
 ) -> np.ndarray:
-    """Return real residuals, stacking imaginary residuals for complex data.
-
-    This function takes the parameters obtained from the Differential Evolution or
-    minimization algorithm and evaluate the stacked residuals at that solution.
-
-    Args:
-        parameters: Array of parameters used by the fit_function.
-        x: Array of x values for the data.
-        fitFunction: Function that takes parameters and x values as input and
-            returns predicted y values (including real and imaginary parts).
-        y: Array of y values for the data (including real and imaginary parts).
-
-    Returns:
-        residuals: The stacked residuals for a given solution.
-    """
+    """Return real residuals, appending imaginary residuals for complex-valued data."""
 
     y = np.asarray(y)
     grouped_parameters = iddefix.utils.pars_to_dict(parameters)
@@ -51,26 +37,10 @@ def build_jacobian(
     y: ArrayLike,
     parameterBounds: ArrayLike | None = None,
 ) -> np.ndarray:
-    """Build the Jacobian of the system.
+    """Differentiate stacked residuals with three-point finite differences.
 
-    This function takes the parameters obtained from the Differential Evolution or
-    minimization algorithm and evaluate the Jacobian around the solution. The Jacobian
-    is computed using the 3-point method, which is the most accurate method.
-
-    The Jacobian can also be build using the function scipy.optimize.approx_fprime
-    However, it only allows using the 2-point method, which is less accurate.
-
-    Args:
-        parameters: Array of parameters used by the fit_function.
-        fitFunction: Function that takes parameters and x values as input and
-            returns predicted y values (including real and imaginary parts).
-        x: Array of x values for the data.
-        y: Array of y values for the data (including real and imaginary parts).
-        parameterBounds: Optional (lower, upper) bounds for each parameter.
-            Derivatives at a bound are taken from the allowed side.
-
-    Returns:
-        jac: The system Jacobian matrix.
+    Optional bound pairs restrict probes; derivatives at bounds use the
+    allowed side. Returns a real matrix with one column per fitted parameter.
     """
 
     bounds = (-np.inf, np.inf)
@@ -98,40 +68,38 @@ def get_uncertainties(
     y: ArrayLike,
     parameterBounds: ArrayLike | None = None,
 ) -> np.ndarray:
-    r"""Compute the parameter uncertainties of the results of the Differential
-    Evolution or minimization algorithm.
+    """Estimate one-standard-deviation errors from the residual Jacobian.
 
-    This function takes the parameters obtained from the Differential Evolution or
-    minimization algorithm and evaluate the Jacobian using `build_jacobian()`.
-    Then, the covariance matrix is approximated as `(J^\top J)^{-1}`, the inverse
-    of the Hessian. This approximation is valid in the vicinity of the optimal
-    solution and may yield unphysical values close to bounds. The covariance
-    matrix is obtained by computing the Moore-Penrose inverse, discarding zero
-    singular values.
+    Parameters
+    ----------
+    parameters : array_like
+        Flat vector in repeated (Rs, Q, fr) order.
+    fitFunction : callable
+        Model called as fitFunction(x, grouped_parameter_dictionary).
+    x : array_like
+        Input grid in the model domain: frequency [Hz] or time [s].
+    y : array_like
+        Data on x in the same units as model predictions. Real input uses real
+        residuals; complex input stacks real and imaginary residuals.
+    parameterBounds : array_like or None, optional
+        Bound pair per parameter for derivative probes. None uses unbounded probes.
 
-    The covariance is scaled by the residual sum of squares divided by the
-    residual degrees of freedom (`M - N`), where `M` is the number of real
-    residuals (including imaginary components only for complex input) and
-    `N` is the number of parameters. The returned uncertainties are the
-    square roots of the covariance diagonal.
-    It is equivalent to leaving the default option absolute_sigma=False in
-    scipy.optimize.curve_fit().
+    Returns
+    -------
+    ndarray
+        Standard deviations in the same order and units as parameters.
 
-    Args:
-        parameters: Array of parameters used by the fit_function.
-        fitFunction: Function that takes parameters and x values as input and
-            returns predicted y values (including real and imaginary parts).
-        x: Array of x values for the data.
-        y: Array of y values for the data (including real and imaginary parts).
-        parameterBounds: Optional (lower, upper) bounds for each parameter.
-            These keep numerical derivative probes inside the fit domain.
+    Raises
+    ------
+    ValueError
+        If the number of real residuals does not exceed the parameter count.
 
-    Returns:
-        uncertainties: 1 \sigma standard deviation for each of the input parameters.
-
-    Raises:
-        ValueError: If the number of real residuals does not exceed the number
-            of fitted parameters.
+    Notes
+    -----
+    The local covariance uses an SVD pseudoinverse of J.T@J, scaled by
+    SSE/(M-N), where M is the number of real residuals and N the parameter count.
+    These local least-squares estimates do not guarantee identifiable parameters
+    or valid confidence intervals near bounds.
     """
 
     residuals = StackedResiduals(parameters, x, fitFunction, y)

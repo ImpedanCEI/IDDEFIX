@@ -411,6 +411,338 @@ and the [Wakis physics guide](https://wakis.readthedocs.io/physicsguide.html#fro
 for the native definitions.
 ```
 
+## Peak-based parameter estimation
+
+SmartBounds estimates the shunt impedance $R_s$, quality factor $Q$, and resonant frequency $f_r$ from peaks in an impedance trace. The peak-and-crossing formulas below apply to one isolated, fully decayed resonator. For overlapping resonators or a varying background, use them as starting estimates with sufficiently wide bounds. A known finite wake length also permits an $R_s$ correction.
+
+### Longitudinal impedance
+
+The longitudinal estimates use the [resonator impedance formula](#impedance-resonator-formula).
+
+SmartBounds can use either $\Re(Z_\parallel)$ or $|Z_\parallel|$.
+
+#### Using $\Re(Z_\parallel)$
+
+Let the selected peak be $(f_{\mathrm{peak}},A_{\mathrm{peak}})$, where
+
+$$
+A_{\mathrm{peak}}=
+\Re\left(Z_\parallel(f_{\mathrm{peak}})\right).
+$$
+
+Let $f_{\mathrm{crossing}}$ be the frequency where $\Re(Z_\parallel)$
+reaches half of the peak amplitude:
+
+$$
+\Re\left(Z_\parallel(f_{\mathrm{crossing}})\right)
+=\frac{A_{\mathrm{peak}}}{2}.
+$$
+
+The resonator estimates are
+
+$$
+R_s=A_{\mathrm{peak}},
+$$
+
+$$
+f_r=f_{\mathrm{peak}},
+$$
+
+$$
+Q=
+\frac{f_{\mathrm{crossing}}f_{\mathrm{peak}}}
+{|f_{\mathrm{crossing}}^2-f_{\mathrm{peak}}^2|}.
+$$
+
+#### Using $|Z_\parallel|$
+
+Let the selected peak be $(f_{\mathrm{peak}},A_{\mathrm{peak}})$, where
+
+$$
+A_{\mathrm{peak}}=|Z_\parallel(f_{\mathrm{peak}})|.
+$$
+
+Let $f_{\mathrm{crossing}}$ be the frequency where $|Z_\parallel|$ reaches
+the half-power level:
+
+$$
+|Z_\parallel(f_{\mathrm{crossing}})|
+=\frac{A_{\mathrm{peak}}}{\sqrt{2}}.
+$$
+
+The resonator estimates are
+
+$$
+|R_s|=A_{\mathrm{peak}},
+$$
+
+$$
+f_r=f_{\mathrm{peak}},
+$$
+
+$$
+Q=
+\frac{f_{\mathrm{crossing}}f_{\mathrm{peak}}}
+{|f_{\mathrm{crossing}}^2-f_{\mathrm{peak}}^2|}.
+$$
+
+The sign of $R_s$ cannot be determined from $|Z_\parallel|$ alone.
+
+### Transverse impedance
+
+The transverse estimates use the [resonator impedance formula](#transverse-resonator-formalism).
+
+The factor $f_r/f$ shifts the maximum of $\Re(Z_\perp)$ away from $f_r$ and
+changes its amplitude. Therefore, the longitudinal relations
+$f_r=f_{\mathrm{peak}}$ and $R_s=A_{\mathrm{peak}}$ do not apply.
+
+#### Using $\Re(Z_\perp)$
+
+Let the selected peak be $(f_{\mathrm{peak}},A_{\mathrm{peak}})$, where
+
+$$
+A_{\mathrm{peak}}=
+\Re\left(Z_\perp(f_{\mathrm{peak}})\right).
+$$
+
+Let $f_{\mathrm{crossing}}$ be the frequency where $\Re(Z_\perp)$ reaches
+half of the peak amplitude:
+
+$$
+\Re\left(Z_\perp(f_{\mathrm{crossing}})\right)
+=\frac{A_{\mathrm{peak}}}{2}.
+$$
+
+The dimensionless peak-location factor is defined as
+
+$$
+\eta_{\mathrm{peak}}=
+\left(\frac{f_{\mathrm{peak}}}{f_r}\right)^2.
+$$
+
+It describes where the observed peak lies relative to the resonant frequency;
+it is not the frequency shift itself. Its square root is the frequency ratio
+
+$$
+\sqrt{\eta_{\mathrm{peak}}}=
+\frac{f_{\mathrm{peak}}}{f_r},
+$$
+
+so the fractional downward shift of the transverse peak is
+
+$$
+\frac{f_r-f_{\mathrm{peak}}}{f_r}
+=1-\sqrt{\eta_{\mathrm{peak}}}.
+$$
+
+Thus, $\eta_{\mathrm{peak}}=1$ means that the peak is not shifted, while a
+smaller value means that it lies further below $f_r$. For the transverse real
+part, $0<\eta_{\mathrm{peak}}<1$, and it approaches $1$ in the high-$Q$ limit.
+
+Because $f_r$ is initially unknown, SmartBounds determines
+$\eta_{\mathrm{peak}}$ from the measured peak and crossing frequencies:
+
+$$
+\eta_{\mathrm{peak}}=
+\sqrt{
+\frac{
+4\dfrac{f_{\mathrm{crossing}}}{f_{\mathrm{peak}}}
+-\left(\dfrac{f_{\mathrm{crossing}}}{f_{\mathrm{peak}}}\right)^2-1
+}{
+\left(\dfrac{f_{\mathrm{crossing}}}{f_{\mathrm{peak}}}\right)^4
+-3\left(\dfrac{f_{\mathrm{crossing}}}{f_{\mathrm{peak}}}\right)^2
++4\dfrac{f_{\mathrm{crossing}}}{f_{\mathrm{peak}}}
+}
+}.
+$$
+
+The transverse resonator estimates are then
+
+$$
+R_s=
+A_{\mathrm{peak}}
+\frac{
+2\sqrt{\eta_{\mathrm{peak}}}(1+\eta_{\mathrm{peak}})
+}{
+1+3\eta_{\mathrm{peak}}
+},
+$$
+
+$$
+Q=
+\sqrt{
+\frac{
+\eta_{\mathrm{peak}}
+}{
+(1-\eta_{\mathrm{peak}})(1+3\eta_{\mathrm{peak}})
+}
+},
+$$
+
+$$
+f_r=
+\frac{f_{\mathrm{peak}}}{\sqrt{\eta_{\mathrm{peak}}}}.
+$$
+
+If a $Q$ estimate is supplied when adding a peak, SmartBounds skips the
+crossing calculation. For transverse real impedance, it instead obtains the
+peak-location factor directly from that $Q$:
+
+$$
+\eta_{\mathrm{peak}}=
+\frac{2Q^2-1+\sqrt{16Q^4-4Q^2+1}}{6Q^2}.
+$$
+
+It then uses the same $R_s$ and $f_r$ relations above. A peak with neither a
+crossing nor a supplied $Q$ uses the fallback $Q=1$ without a transverse
+peak-shift correction.
+
+#### Why $|Z_\perp|$ is not recommended
+
+The absolute transverse impedance does not provide a reliable general-purpose
+peak estimate. For
+
+$$
+Q\leq\frac{1}{\sqrt{2}},
+$$
+
+$|Z_\perp|$ is largest at zero frequency and decreases with frequency. It has
+no nonzero peak from which $R_s$, $Q$, and $f_r$ can all be determined.
+
+Use $\Re(Z_\perp)$ for transverse SmartBounds estimation; bounds from $|Z_\perp|$ may be inconclusive.
+
+### Finite-wake correction
+
+When the input impedance comes from a wake truncated after length $L$,
+SmartBounds first estimates $R_s$, $Q$, and $f_r$ with the fully decayed rules
+above. It then corrects $R_s$ using the fraction of the wake envelope
+accumulated over $T=L/c$, where $c$ is the speed of light and
+$\omega_r=2\pi f_r$.
+The effective decay rate is
+
+$$
+B_{\mathrm{eff}}=
+\begin{cases}
+\dfrac{\omega_r}{2Q}, & Q\geq 0.5,\\[8pt]
+\dfrac{\omega_r}{2Q}-\omega_r\sqrt{\dfrac{1}{4Q^2}-1},
+& 0<Q<0.5.
+\end{cases}
+$$
+
+For $Q<0.5$, $B_{\mathrm{eff}}$ is the slower of the two overdamped decay
+rates. With $R_{s,\infty}$ denoting the initial fully decayed estimate, the
+finite-wake estimate is
+
+$$
+R_{s,T}=\frac{R_{s,\infty}}{1-\exp(-B_{\mathrm{eff}}T)}.
+$$
+
+This envelope-based factor is an approximation to the peak-height correction:
+oscillatory boundary terms can also affect the finite-wake impedance peak.
+The correction applies to longitudinal $\Re(Z)$ or $|Z|$ and transverse
+$\Re(Z)$; it is not applied to transverse $|Z|$. The estimates of $Q$ and
+$f_r$ are not corrected for the finite wake, even though a short wake may
+change the peak position and width.
+
+### Hann peak detection
+
+For a wake of length $L$, a one-sided Hann taper suppresses truncation ripples in peak detection. `model.estimate_bounds()` enables it by default when `wake_length` is supplied. For $0\leq t\leq T$, the descending half Hann $w(t)=\frac{1}{2}[1+\cos(\pi t/T)]$ starts at 1 with zero slope and ends at 0, preserving the prompt wake while damping the end of the record. It weights the midpoint by 0.5. With $T=L/c$ and $f_H=c/(2L)$, the windowed impedance is
+
+$$
+Z_H(f)=\frac{1}{2}Z(f)+\frac{1}{4}Z(f-f_H)+\frac{1}{4}Z(f+f_H).
+$$
+
+The three terms follow directly from the Fourier shift property. Relative to the previous full Hann, the shift is halved (from $c/L$ to $c/(2L)$) and the side weights change from $-1/4$ to $+1/4$. The shifted complex impedance is interpolated before taking its real part or magnitude. For real-part input, interpolating the real part gives the same detection trace.
+
+Negative frequencies follow the symmetry of a real wake: $Z_\parallel(-f)=Z_\parallel(f)^*$ and $Z_\perp(-f)=-Z_\perp(f)^*$. This extends the Hann trace to DC when the supplied grid starts at zero.
+
+For data starting above DC, Hann detection uses the continuous interval $f_{\min}+f_H\leq f\leq f_{\max}-f_H$. For data starting at DC, symmetry extends this interval down to zero.
+
+With Hann enabled, `impedance_type="real"` finds peaks in $\Re(Z_H)$; `"absolute"` uses $|Z_H|$ when the complex impedance is available. Magnitude-only input lacks the phase needed for Hann windowing, so peak detection uses the original magnitude. Peak heights and widths always come from the unwindowed trace.
+
+A smoother detection trace can merge neighboring resonances, so inspect the detected peaks before fitting. This change does not imply a smaller fitting error or change the prominence and parameter-bound defaults.
+
+### Linear wake baseline
+
+A linear wake baseline $w_{\mathrm{base}}(t)=at$ over $0\leq t\leq T$ contributes a low-frequency background. Its longitudinal impedance per unit slope is
+
+$$
+K_\parallel(f)=\int_0^T t\,e^{-2\pi i f t}\,dt
+=\begin{cases}
+\dfrac{\left[e^{-i\omega T}(1+i\omega T)-1\right]}{\omega^2},
+& f\ne 0,\\[8pt]
+\dfrac{T^2}{2}, & f=0,
+\end{cases}
+\qquad \omega=2\pi f.
+$$
+
+The slope uses the same wake units per second in both domains: EA transforms $w/c$, cancelling the $c$ in the FFT's spatial-step normalization.
+
+For transverse impedance, $K_\perp(f)=iK_\parallel(f)$. If the ramp is in a Gaussian wake potential that was deconvolved, pass the RMS bunch length `sigma` in seconds; the kernel becomes $K_\sigma(f)=K(f)/\exp[-(2\pi f\sigma)^2/2]$. Omit `sigma` when the ramp belongs to the underlying wake before bunch convolution.
+
+Baseline correction subtracts $aK(f)$ from $Z(f)$, where $K$ is the kernel selected by `sigma`. With `remove_baseline=True`, the real slope $a$ is fitted by least squares; for complex impedance,
+
+$$
+\hat a=\frac{\Re\left[\sum_f K(f)^* Z(f)\right]}{\sum_f |K(f)|^2}.
+$$
+
+For baseline removal in EA, see the [workflow guide](smartbounds.md#baseline-correction).
+EA corrects its fitting data; a standalone SmartBounds correction changes only
+its peak-analysis trace. The linear-ramp model must be distinguishable from
+the physical impedance.
+
+### Constructing fitting bounds
+
+After estimating $R_s$, $Q$, and $f_r$, SmartBounds constructs the parameter
+bounds in the order
+
+$$
+[(R_{s,\min},R_{s,\max}),
+ (Q_{\min},Q_{\max}),
+ (f_{r,\min},f_{r,\max})].
+$$
+
+The `Rs_bounds` and `Q_bounds` settings provide multiplicative factors,
+both defaulting to `[0.1, 10]`. The frequency bounds
+instead use a characteristic half-width calculated from the central estimates:
+
+$$
+\Delta f_{\mathrm{estimate}}
+= \frac{f_{r,\mathrm{estimate}}}{2Q_{\mathrm{estimate}}}.
+$$
+
+For a fully decayed longitudinal resonator, $f_r/Q$ is the full width at half
+maximum, so $\Delta f_{\mathrm{estimate}}$ is half of that full width. For a
+transverse resonator, SmartBounds first corrects the peak shift to estimate
+$f_r$ and $Q$; $\Delta f_{\mathrm{estimate}}$ is then used as a characteristic
+frequency scale rather than as an exact transverse half-width.
+
+The two entries in `fres_bounds` are dimensionless factors that multiply this
+scale independently:
+
+$$
+f_{r,\min} = \max\left(\varepsilon, f_{r,\mathrm{estimate}} +
+\mathrm{fres\_bounds}_{\min}\Delta f_{\mathrm{estimate}}\right),
+$$
+
+$$
+f_{r,\max} = f_{r,\mathrm{estimate}} +
+\mathrm{fres\_bounds}_{\max}\Delta f_{\mathrm{estimate}}.
+$$
+
+Thus, the bounds are centered on the estimated resonant frequency, which is
+not necessarily the detected peak frequency for a transverse resonator. The
+default `fres_bounds=[-1, 1]` spans one characteristic half-width on either
+side. For example, `fres_bounds=[-2, 3]` spans two characteristic half-widths
+below and three above.
+
+For $f_{r,\mathrm{estimate}}=1\,\mathrm{GHz}$, the default bounds are
+$[0.75,1.25]\,\mathrm{GHz}$ when $Q_{\mathrm{estimate}}=2$, but only
+$[0.95,1.05]\,\mathrm{GHz}$ when $Q_{\mathrm{estimate}}=10$. Broad, low-$Q$
+resonators therefore receive wider frequency intervals automatically. The
+lower bound is kept positive with machine epsilon $\varepsilon$, but the
+interval is not clipped to the frequency range of the input data.
+
 ## Fitting Resonators with Differential Evolution
 
 Differential Evolution (DE) is a metaheuristic optimization method in the field of evolutionary algorithms inspired by the principles of natural selection and evolution.
@@ -432,7 +764,7 @@ $$
 $$
 
 **Mutation**
-Mutation generates a **mutant vector** $\mathbf{v}_i$ for each individual $\mathbf{x}_i$ in the population. Many mutation strategies are available, this project will stick to the $DE/rand/1$ strategy. This strategy combines randomly selected individuals:
+Mutation generates a **mutant vector** $\mathbf{v}_i$ for each individual $\mathbf{x}_i$ in the population. IDDEFIX defaults to the $DE/rand/1$ strategy with binomial crossover (`strategy="rand1bin"` in SciPy). Pass `strategy` to `run_differential_evolution()` to select another SciPy strategy. This strategy combines randomly selected individuals:
 
 $$
         \mathbf{v}_i=\mathbf{x}_{r1}+F(\mathbf{x}_{r2}-\mathbf{x}_{r3}),
@@ -512,8 +844,9 @@ step-size update controls the overall search radius.
 
 IDDEFIX runs the [pymoo CMA-ES implementation](https://pymoo.org/algorithms/soo/cmaes.html)
 through `EvolutionaryAlgorithm.run_cmaes`. The fitted vector contains the
-triplet $(R_s,Q,f_r)$ for each resonator. The initial mean is the midpoint of
-each parameter bound. Pymoo normalizes bounded variables by default, so
+triplet $(R_s,Q,f_r)$ for each resonator. The initial mean uses an explicit
+`x0`, otherwise the model's `parameterEstimates`, and falls back to the midpoint
+of each parameter bound when neither is supplied. Pymoo normalizes bounded variables by default, so
 `sigma` normally describes the initial search width in the normalized search
 space rather than in ohms, hertz, or physical $Q$ units.
 
@@ -523,6 +856,8 @@ The main arguments are:
 - `popsize`: number $\lambda$ of candidates sampled per generation.
 - `maxiter`: optional per-run iteration limit; `None` (the default) removes this
   limit.
+- `tol`: parameter convergence tolerance, mapped to CMA-ES `tolx`; default
+  `1e-4`. An explicit `tolx` overrides it. This is not a target fitting error.
 - `verbose`: select pymoo output or the IDDEFIX progress bar.
 
 Additional keyword arguments are passed to pymoo's `CMAES` constructor. Useful

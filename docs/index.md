@@ -1,41 +1,47 @@
 ---
 sd_hide_title: true
 ---
-# 🔎 Overview
+# IDDEFIX
 
-## Welcome to `IDDEFIX` documentation
+**IDDEFIX** fits resonator models to longitudinal or transverse impedance,
+wake functions, and Gaussian wake potentials. It estimates shunt impedance
+$R_s$, quality factor $Q$, and resonant frequency $f_r$, then evaluates the
+fitted model on frequency or time grids of your choice.
 
-> **IDDEFIX**: **I**mpedance **D**etermination through **D**ifferential **E**volution **FI**tting and e**X**trapolation
+The package provides:
 
-`IDDEFIX` is a package for **fitting resonators by a Differential Evolution algorithm to Impedance data** developed by Sébastian Joly. It computes the shunt impedance, Q-factor and resonant frequecny of the resonators present in the impedance data for both partially and fully decayed wakes. Extrapolation to a desired wakelength is then possible to quickly reconstruct the fully decayed wake.
+- Analytical resonator formulas for fully and partially decayed wakes
+- Peak-based starting estimates and parameter bounds through SmartBounds
+- CMA-ES, differential evolution, and local minimization
+- Model plots, individual resonator contributions, and parameter uncertainties
 
+## Getting started
 
-🚀 `IDDEFIX` features:
+Start with the [EA fitting workflow](smartbounds.md#recommended-workflow).
+It contains a runnable example using `EvolutionaryAlgorithm`,
+`estimate_bounds()`, a solver, and `plot()`. Separate sections cover input
+units, baseline correction, manual bounds, and model editing.
 
-* Resonators formulas
-    * Longitudinal and transverse impedance (Fully/ partially decayed)
-    * Longitudinal and transverse wake
-    * Longitudinal and transverse wake potentials
-
-* Differential Evolution algorihm for fitting resonsators to impedance
-    * SciPy
-    * pyfde ClassicDE
-    * pyfde JADE
-
-
-The source code is available in the `IDDEFIX` [GitHub repository](https://github.com/ImpedanCEI/IDDEFIX).
-
-📚 For information on `IDDEFIX`'s differential evolution theory and code implementation, see:
+The [public API](iddefix.rst) describes arguments and defaults. The
+[theory guide](theory.md) collects the resonator and peak-estimation formulas.
+Direct `SmartBoundDetermination` use is an advanced option for interactive
+selection or standalone analysis.
 
 ```{toctree}
-:caption: IDDEFIX
+:caption: User guide
 :maxdepth: 2
-theory.md
 smartbounds.md
+theory.md
 iddefix.rst
 ```
 
-📁 For examples on how to use, check out [notebook examples](https://github.com/ImpedanCEI/IDDEFIX/tree/main/examples). They have been embedded in the documentation using `myst_nb`:
+## Examples
+
+The notebooks below show complete fitting and extrapolation workflows.
+Their saved results are included in the documentation; the documentation
+build does not rerun the simulations or fits. Some notebooks demonstrate
+manual bounds or separate SmartBounds construction. For the recommended
+automatic workflow, follow the EA guide above.
 
 ```{toctree}
 :caption: Examples
@@ -46,3 +52,6 @@ examples/003_beam_wire_scanner
 examples/004a_sps_transition_wake
 examples/004b_sps_transition_impedance
 ```
+
+Source code and additional examples are available in the
+[GitHub repository](https://github.com/ImpedanCEI/IDDEFIX).

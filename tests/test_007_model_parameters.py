@@ -11,6 +11,7 @@ from types import SimpleNamespace
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
+from scipy.optimize import OptimizeResult
 
 import iddefix
 
@@ -227,18 +228,20 @@ def test_notebook_table_uses_monospace_html(monkeypatch, capsys):
 
 
 # Fitting parameters
-def test_missing_bounds_reject_global_fitting():
-    """Global fitting requires bounds after parameters are loaded for evaluation."""
+def test_loaded_model_default_bounds():
+    """A model loaded for evaluation can later fit with data-derived bounds."""
     frequency = np.linspace(0.5e9, 1.5e9, 61)
-    model = iddefix.EvolutionaryAlgorithm(
-        x_data=frequency, y_data=np.zeros_like(frequency)
-    )
+    target = iddefix.Impedances.Resonator_longitudinal_imp(frequency, 100, 3, 1e9)
+    model = iddefix.EvolutionaryAlgorithm(frequency, target)
     model.load_resonator_parameters("1 | 100 | 3 | 1e9")
 
-    with pytest.raises(ValueError, match="parameterBounds"):
-        model.run_differential_evolution()
-    with pytest.raises(ValueError, match="parameterBounds"):
-        model.run_cmaes()
+    model.run_differential_evolution(maxiter=1, popsize=5, workers=1, seed=42)
+
+    np.testing.assert_allclose(
+        model.parameterBounds,
+        [(0, 100), (0.001, 1000), (frequency[0], 10 * frequency[-1])],
+    )
+    assert np.isfinite(model.get_impedance(use_minimization=False)).all()
 
 
 def test_minimization_uses_margin_bounds(monkeypatch):
@@ -247,7 +250,9 @@ def test_minimization_uses_margin_bounds(monkeypatch):
     model.load_resonator_parameters("1 | 100 | 3 | 1e9", use_minimization=False)
 
     def minimize_at_upper_bound(function, x0, bounds, **kwargs):
-        return SimpleNamespace(x=np.array([bounds[0][1], x0[1], x0[2]]))
+        return OptimizeResult(
+            x=np.array([bounds[0][1], x0[1], x0[2]]), message="Finished", nit=0, nfev=0
+        )
 
     monkeypatch.setattr("iddefix.framework.minimize", minimize_at_upper_bound)
     model.run_minimization_algorithm()
@@ -290,7 +295,7 @@ def test_edit_resonators():
     assert model.evolutionParametersUncertainties is None
     assert model.minimizationParametersUncertainties is None
 
-    model.add_resonator(300.0, 7.0, 1.2e9, uncertainty=[30.0, 0.7, 3e7])
+    model.add_resonator(Rs=300.0, Q=7.0, fr=1.2e9, uncertainty=[30.0, 0.7, 3e7])
     model.remove_resonator(1)
 
     expected = [200.0, 1.2, 1.4e9, 300.0, 7.0, 1.2e9]
@@ -374,13 +379,15 @@ def test_get_resonator_components(fit_function, plane):
 @pytest.mark.parametrize(
     ("fit_function", "plane", "ylabel"),
     [
+        ("impedance", "longitudinal", r"Real part $\Re(Z)$ [$\Omega$]"),
+        ("impedance", "transverse", r"Real part $\Re(Z)$ [$\Omega$/m]"),
         ("wake", "longitudinal", "Wake [V/C]"),
         ("wake potential", "longitudinal", "Wake potential [V/C]"),
         ("wake", "transverse", "Wake [V/C/m]"),
     ],
 )
 def test_plot_resonator_components(request, monkeypatch, fit_function, plane, ylabel):
-    """Component plots label wake amplitudes with the selected plane's units."""
+    """Component plots use the selected plane's impedance or wake units."""
     model = _model(n_resonators=1, fitFunction=fit_function, plane=plane, sigma=1e-10)
     model.load_resonator_parameters("1 | 100 | 3 | 1e9")
 
@@ -389,33 +396,40 @@ def test_plot_resonator_components(request, monkeypatch, fit_function, plane, yl
     fig, axes = model.plot_resonator_components()
 
     assert axes[0].get_ylabel() == ylabel
+    if fit_function == "impedance":
+        units = r"[$\Omega$]" if plane == "longitudinal" else r"[$\Omega$/m]"
+        assert axes[1].get_ylabel() == r"Imaginary part $\Im(Z)$ " + units
     plt.close(fig)
 
 
 @pytest.mark.parametrize("complex_input", [False, True])
-def test_plot_absolute_impedance_components(monkeypatch, complex_input):
+@pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
+def test_plot_absolute_impedance_components(monkeypatch, complex_input, plane):
     """Magnitude-only fits show component and total magnitudes on one panel."""
     frequency = np.linspace(0.5e9, 1.5e9, 61)
     parameters = [100.0, 3.0, 0.9e9, 80.0, 4.0, 1.1e9]
-    impedance = iddefix.Impedances.n_Resonator_longitudinal_imp(frequency, parameters)
+    formula = getattr(iddefix.Impedances, f"n_Resonator_{plane}_imp")
+    impedance = formula(frequency, parameters)
     input_data = impedance if complex_input else np.abs(impedance)
     model = iddefix.EvolutionaryAlgorithm(
-        frequency, input_data, objectiveFunction="abs"
+        frequency, input_data, objectiveFunction="abs", plane=plane
     )
     model.load_resonator_parameters("1 | 100 | 3 | 0.9e9\n2 | 80 | 4 | 1.1e9")
     monkeypatch.setattr(plt, "show", lambda: None)
 
     fig, axes = model.plot_resonator_components()
 
-    assert len(axes) == (2 if complex_input else 1)
-    if not complex_input:
-        components = model.get_resonator_components()
-        np.testing.assert_allclose(axes[0].lines[0].get_ydata(), input_data)
-        np.testing.assert_allclose(
-            axes[0].lines[1].get_ydata(), np.abs(components.sum(axis=0))
-        )
-        for line, component in zip(axes[0].lines[2:], components):
-            np.testing.assert_allclose(line.get_ydata(), np.abs(component))
+    assert len(axes) == 1
+    units = r"[$\Omega$]" if plane == "longitudinal" else r"[$\Omega$/m]"
+    for axis in axes:
+        assert axis.get_ylabel().endswith(units)
+    components = model.get_resonator_components()
+    np.testing.assert_allclose(axes[0].lines[0].get_ydata(), np.abs(input_data))
+    np.testing.assert_allclose(
+        axes[0].lines[1].get_ydata(), np.abs(components.sum(axis=0))
+    )
+    for line, component in zip(axes[0].lines[2:], components):
+        np.testing.assert_allclose(line.get_ydata(), np.abs(component))
     plt.close(fig)
 
 
@@ -432,3 +446,363 @@ def test_plot_many_components(request, monkeypatch, n_resonators, fit_function):
         monkeypatch.setattr(plt, "show", lambda: None)
     fig, _ = model.plot_resonator_components()
     plt.close(fig)
+
+
+@pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
+@pytest.mark.parametrize("part", ["real", "imag", "abs", "both"])
+@pytest.mark.parametrize("components", [False, True])
+def test_plot_impedance_parts(plane, part, components):
+    """Plot selection is independent of complex input and fitting objective."""
+    model = _model(plane=plane, objectiveFunction="abs")
+    model.load_resonator_parameters("1 | 100 | 3 | 1e9\n2 | 200 | 5 | 1.5e9")
+    frequency = model.frequency_data
+    parameters = model.minimizationParameters
+    formula = getattr(iddefix.Impedances, f"n_Resonator_{plane}_imp")
+    data = formula(frequency, parameters) + 1j
+    model.impedance_data = data
+    fig, axes = model.plot(type=part, show_components=components, show=False)
+    selected = (
+        [np.real, np.imag]
+        if part == "both"
+        else [{"real": np.real, "imag": np.imag, "abs": np.abs}[part]]
+    )
+    assert len(axes) == len(selected)
+    for axis, transform in zip(axes, selected):
+        assert len(axis.lines) == (4 if components else 2)
+        np.testing.assert_allclose(axis.lines[0].get_ydata(), transform(data))
+        np.testing.assert_allclose(
+            axis.lines[1].get_ydata(), transform(formula(frequency, parameters))
+        )
+        if components:
+            for line, row in zip(axis.lines[2:], parameters.reshape(-1, 3)):
+                np.testing.assert_allclose(
+                    line.get_ydata(), transform(formula(frequency, row))
+                )
+    assert model.objectiveFunction is iddefix.ObjectiveFunctions.sumOfSquaredErrorAbs
+    plt.close(fig)
+
+
+@pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
+@pytest.mark.parametrize("function", ["impedance", "wake", "wake potential"])
+@pytest.mark.parametrize("components", [False, True])
+@pytest.mark.parametrize("source", ["impedance", "wake", "wake potential"])
+def test_plot_other_functions(plane, function, components, source):
+    """Evaluate each domain on a new grid without modifying stored fitting data."""
+    model = _model(fitFunction=source, plane=plane, sigma=1e-10)
+    model.load_resonator_parameters("1 | 100 | 3 | 1e9\n2 | 200 | 5 | 1.5e9")
+    before = {
+        name: getattr(model, name)
+        for name in [
+            "x_data",
+            "y_data",
+            "time_data",
+            "wake_data",
+            "frequency_data",
+            "impedance_data",
+            "wake_potential_data",
+            "sigma",
+        ]
+    }
+    x = (
+        np.linspace(0.1e9, 3e9, 83)
+        if function == "impedance"
+        else np.linspace(-1e-9, 30e-9, 83)
+    )
+    kwargs = (
+        {"wake_length": 0.5}
+        if function == "impedance"
+        else {"sigma": 2e-10}
+        if function == "wake potential"
+        else {}
+    )
+    if function == "impedance":
+        formula = getattr(iddefix.Impedances, f"n_Resonator_{plane}_imp")
+    else:
+        formula = getattr(
+            iddefix.Wakes, f"n_Resonator_{plane}_{function.replace(' ', '_')}"
+        )
+    method = model.plot_resonator_components if components else model.plot
+    fig, axes = method(x, function=function, type="real", show=False, **kwargs)
+    assert len(axes[0].lines) == (3 if components else 1)
+    np.testing.assert_allclose(axes[0].lines[0].get_xdata(), x)
+    np.testing.assert_allclose(
+        axes[0].lines[0].get_ydata(),
+        np.real(formula(x, model.minimizationParameters, **kwargs)),
+    )
+    if components:
+        contributions = [line.get_ydata() for line in axes[0].lines[1:]]
+        np.testing.assert_allclose(
+            np.sum(contributions, axis=0), axes[0].lines[0].get_ydata()
+        )
+    for name, value in before.items():
+        assert getattr(model, name) is value
+    plt.close(fig)
+
+
+def test_plot_stored_grid_and_reference():
+    """Matching grids use fitting data; a different domain uses only its prediction."""
+    model = _model()
+    model.load_resonator_parameters("1 | 100 | 3 | 1e9\n2 | 200 | 5 | 1.5e9")
+    fig, axes = model.plot(show=False)
+    assert all(len(axis.lines) == 2 for axis in axes)
+    plt.close(fig)
+    with pytest.raises(ValueError, match="x_data"):
+        model.plot(function="wake", show=False)
+    model.time_data = np.linspace(0, 10e-9, 101)
+    fig, axes = model.plot(function="wake", show=False)
+    assert len(axes[0].lines) == 1
+    np.testing.assert_array_equal(axes[0].lines[0].get_xdata(), model.time_data)
+    plt.close(fig)
+
+
+def test_plot_explicit_reference_and_styles(monkeypatch):
+    """Explicit reference data, stage selection, styles, and deferred display work together."""
+    model = _model()
+    model.load_resonator_parameters("1 | 100 | 3 | 1e9\n2 | 200 | 5 | 1.5e9")
+    model.evolutionParameters = model.minimizationParameters * 1.01
+    x = np.linspace(0.2e9, 2e9, 101)
+    y = np.ones(x.shape, dtype=complex) * (3 + 4j)
+    displayed = []
+    monkeypatch.setattr(plt, "show", lambda: displayed.append(True))
+    fig, axes = model.plot_resonator_components(
+        x,
+        y,
+        False,
+        "viridis",
+        (7, 4),
+        80,
+        {"color": "green"},
+        {"linestyle": ":"},
+        {"linewidth": 3},
+        "log",
+        type="abs",
+        show=False,
+        subplot_kw={"yscale": "log"},
+        squeeze=False,
+    )
+    assert displayed == []
+    assert axes.shape == (1,)
+    axis = axes[0]
+    np.testing.assert_array_equal(axis.lines[0].get_ydata(), np.abs(y))
+    np.testing.assert_allclose(
+        axis.lines[1].get_ydata(),
+        np.abs(model.get_impedance(x, use_minimization=False)),
+    )
+    assert axis.lines[0].get_color() == "green"
+    assert axis.lines[1].get_linewidth() == 3
+    assert axis.lines[2].get_linestyle() == ":"
+    assert axis.get_xscale() == axis.get_yscale() == "log"
+    assert fig.dpi == 80
+    np.testing.assert_allclose(fig.get_size_inches(), [7, 4])
+    axis.set_title("Customized before display")
+    plt.show()
+    assert displayed == [True]
+    plt.close(fig)
+    fig, _ = model.plot(type="abs")
+    assert displayed == [True, True]
+    plt.close(fig)
+
+
+@pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
+def test_plot_model_defaults(plane):
+    """Finite impedance and Gaussian duration defaults follow the model settings."""
+    model = _model(plane=plane, wake_length=0.5)
+    model.load_resonator_parameters("1 | 100 | 3 | 1e9\n2 | 200 | 5 | 1.5e9")
+    fig, axes = model.plot(type="real", show=False)
+    formula = getattr(iddefix.Impedances, f"n_Resonator_{plane}_imp")
+    np.testing.assert_allclose(
+        axes[0].lines[1].get_ydata(),
+        formula(
+            model.frequency_data, model.minimizationParameters, wake_length=0.5
+        ).real,
+    )
+    plt.close(fig)
+    time = np.linspace(-1e-9, 10e-9, 101)
+    potential = getattr(iddefix.Wakes, f"n_Resonator_{plane}_wake_potential")
+    for sigma in (None, 2e-10):
+        model.sigma = sigma
+        fig, axes = model.plot(time, function="wake potential", show=False)
+        expected = potential(
+            time, model.minimizationParameters, sigma=1e-10 if sigma is None else sigma
+        )
+        np.testing.assert_allclose(axes[0].lines[0].get_ydata(), expected)
+        assert model.sigma is sigma
+        plt.close(fig)
+
+
+@pytest.mark.parametrize("components", [False, True])
+def test_plot_colorbar(components):
+    """Only displayed resonator contributions trigger the many-mode colorbar."""
+    model = _model(n_resonators=10)
+    model.evolutionParameters = np.tile([100.0, 3.0, 1e9], 10)
+    fig, axes = model.plot(type="abs", show_components=components, show=False)
+    assert len(axes) == 1
+    assert len(fig.axes) == (2 if components else 1)
+    plt.close(fig)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"function": "invalid"},
+        {"type": "invalid"},
+        {"scale": "invalid"},
+        {"x_data": []},
+        {"x_data": [[1, 2]]},
+        {"x_data": [1, 2], "y_data": [1]},
+        {"x_data": [0.0, 1e-9], "function": "wake potential", "sigma": 0},
+    ],
+)
+def test_plot_invalid_arguments(kwargs):
+    """Reject invalid plotting requests before creating a figure."""
+    model = _model()
+    model.load_resonator_parameters("1 | 100 | 3 | 1e9\n2 | 200 | 5 | 1.5e9")
+    before = plt.get_fignums()
+    with pytest.raises(ValueError):
+        model.plot(show=False, **kwargs)
+    assert plt.get_fignums() == before
+
+
+@pytest.mark.parametrize("explicit", [False, True])
+@pytest.mark.parametrize("to_markdown", [False, True])
+def test_display_bounds(explicit, to_markdown, capsys):
+    """Display supplied or stored bound triples without changing model bounds."""
+    model = _model(n_resonators=1)
+    stored = list(model.parameterBounds)
+    supplied = [(2, 4), (3, 6), (1e9, 2e9)] if explicit else None
+    capsys.readouterr()
+    model.display_parameter_bounds(supplied, to_markdown=to_markdown)
+    output = capsys.readouterr().out
+    assert "2 to 4" in output if explicit else "0 to 1000" in output
+    assert "fr [Hz]" in output
+    assert model.parameterBounds == stored
+
+
+def test_display_default_bounds(capsys):
+    """Displaying an unfitted model can derive and store its default bounds."""
+    x = np.linspace(1e8, 2e9, 41)
+    y = iddefix.Impedances.Resonator_longitudinal_imp(x, 100, 3, 1e9)
+    model = iddefix.EvolutionaryAlgorithm(x, y, N_resonators=1)
+    model.display_parameter_bounds(to_markdown=True)
+    assert " to " in capsys.readouterr().out
+    np.testing.assert_allclose(
+        model.parameterBounds, [(0, y.real.max()), (0.001, 1000), (x[0], 10 * x[-1])]
+    )
+
+
+@pytest.mark.parametrize("fit_function", ["impedance", "wake", "wake potential", "abs"])
+@pytest.mark.parametrize("scale", ["linear", "log", "loglog"])
+def test_component_plot_scales(monkeypatch, fit_function, scale):
+    """All plot domains apply scales without changing the plotted values."""
+    model = _model(
+        n_resonators=1,
+        fitFunction="impedance" if fit_function == "abs" else fit_function,
+        objectiveFunction="abs" if fit_function == "abs" else "real",
+        sigma=1e-10,
+    )
+    model.load_resonator_parameters("1 | 100 | 3 | 1e9")
+    monkeypatch.setattr(plt, "show", lambda: None)
+    components = model.get_resonator_components().copy()
+    fig, axes = model.plot_resonator_components(scale=scale)
+    for axis in axes:
+        assert axis.get_xscale() == ("linear" if scale == "linear" else "log")
+        assert axis.get_yscale() == ("log" if scale == "loglog" else "linear")
+    np.testing.assert_array_equal(model.get_resonator_components(), components)
+    plt.close(fig)
+
+
+def test_component_plot_axis_override(monkeypatch):
+    """Explicit subplot axis settings override scale defaults independently."""
+    model = _model(n_resonators=1)
+    model.load_resonator_parameters("1 | 100 | 3 | 1e9")
+    monkeypatch.setattr(plt, "show", lambda: None)
+    fig, axes = model.plot_resonator_components(
+        scale="loglog",
+        subplot_kw={"yscale": "linear"},
+    )
+    for axis in axes:
+        assert axis.get_xscale() == "log"
+        assert axis.get_yscale() == "linear"
+    plt.close(fig)
+
+
+@pytest.fixture
+def estimated_model():
+    frequency = np.linspace(0.1e9, 4e9, 4001)
+    impedance = iddefix.Impedances.n_Resonator_longitudinal_imp(
+        frequency,
+        [100, 20, 1e9, 80, 20, 2e9, 60, 20, 3e9],
+    )
+    model = iddefix.EvolutionaryAlgorithm(frequency, impedance)
+    model.estimate_bounds(show_table=False, show_inspect=False)
+    assert model.N_resonators == 3
+    return model
+
+
+@pytest.mark.parametrize("numbers", [2, [1, 3, 1]])
+def test_remove_linked_resonators(estimated_model, numbers):
+    """Fitted values and uncertainties remain aligned with edited peak metadata."""
+    model = estimated_model
+    parameters = np.asarray(model.parameterEstimates).copy()
+    uncertainty = np.arange(1.0, 10.0)
+    for name in ["evolutionParameters", "minimizationParameters"]:
+        setattr(model, name, parameters.copy())
+        setattr(model, name + "Uncertainties", uncertainty.copy())
+    model.minimization_result = OptimizeResult(x=parameters.copy())
+    kept = np.delete(np.arange(3), np.unique(np.atleast_1d(numbers)) - 1)
+    indices = (3 * kept[:, None] + np.arange(3)).ravel()
+    model.remove_resonator(numbers)
+    assert model.bounds is model.smart_bounds
+    assert model.bounds.N_resonators == model.N_resonators == len(kept)
+    assert model.bounds.parameterBounds is model.parameterBounds
+    assert model.bounds.parameterEstimates is model.parameterEstimates
+    assert model.minimization_result is None
+    for name in ["evolutionParameters", "minimizationParameters"]:
+        np.testing.assert_array_equal(getattr(model, name), parameters[indices])
+        np.testing.assert_array_equal(
+            getattr(model, name + "Uncertainties"), uncertainty[indices]
+        )
+    np.testing.assert_allclose(
+        model.get_impedance(), model.get_resonator_components().sum(axis=0)
+    )
+
+
+def test_edit_model_peaks(estimated_model):
+    """Peak editing clears fits and supports adding a removed peak again."""
+    model = estimated_model
+    model.minimizationParameters = model.parameterEstimates.copy()
+    model.remove_peak(2)
+    assert model.N_resonators == 2
+    assert model.minimizationParameters is None
+    model.add_peak(2e9, Q=20)
+    assert model.N_resonators == model.bounds.N_resonators == 3
+    model.bounds.remove_peak([1, 3])
+    model.apply_bounds(model.bounds)
+    assert model.N_resonators == 1
+    assert model.parameterEstimates[2] == pytest.approx(2e9, rel=0.001)
+
+
+def test_add_resonator_detaches_peaks(estimated_model):
+    """Manual modes leave earlier peak estimates unchanged and remain removable."""
+    model = estimated_model
+    previous_bounds = model.bounds
+    model.minimizationParameters = model.parameterEstimates.copy()
+    model.add_resonator(
+        50, 10, 3.5e9, parameter_bounds=[(0, 100), (1, 100), (3e9, 4e9)]
+    )
+    assert model.bounds is None
+    assert previous_bounds.N_resonators == 3
+    model.remove_resonator([1, 4])
+    assert model.N_resonators == 2
+    assert len(model.parameterBounds) == len(model.parameterEstimates) == 6
+
+
+@pytest.mark.parametrize("numbers", [0, 4, True, 1.5, [1, 2, 3]])
+def test_remove_resonator_invalid(estimated_model, numbers):
+    """Invalid removals preserve model parameters and linked peak metadata."""
+    model = estimated_model
+    before = model.parameterEstimates.copy()
+    with pytest.raises(ValueError):
+        model.remove_resonator(numbers)
+    np.testing.assert_array_equal(model.parameterEstimates, before)
+    assert model.N_resonators == model.bounds.N_resonators == 3

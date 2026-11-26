@@ -68,7 +68,13 @@ class TestAnalyticalImpedance:
             compute_uncertainties=True,
         )
         cls.CMAES_model.run_cmaes(
-            maxiter=5000, popsize=50, sigma=0.6, verbose=False, restarts=3
+            # Resolve imaginary-part zero crossings in this exact-data check.
+            maxiter=5000,
+            popsize=50,
+            sigma=0.6,
+            verbose=False,
+            restarts=3,
+            tol=1e-8,
         )
         cls.CMAES_model.run_minimization_algorithm()
 
@@ -764,3 +770,58 @@ def test_wake_potential_deconvolves_back_to_wake(plane, debug_plot):
     )
     relative_error = np.linalg.norm(recovered - expected) / np.linalg.norm(expected)
     assert relative_error < 0.07
+
+
+@pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
+@pytest.mark.parametrize("function", ["imp", "wake", "wake_potential"])
+def test_resonant_frequency_keyword(plane, function):
+    """All single-resonator formulas accept fr in Hz as a keyword."""
+    namespace = iddefix.Impedances if function == "imp" else iddefix.Wakes
+    formula = getattr(namespace, f"Resonator_{plane}_{function}")
+    x = (
+        np.linspace(0.1e9, 3e9, 101)
+        if function == "imp"
+        else np.linspace(-1e-9, 10e-9, 101)
+    )
+    options = {"sigma": 1e-10} if function == "wake_potential" else {}
+    expected = formula(x, 100, 3, 1e9, **options)
+    actual = formula(x, Rs=100, Q=3, fr=1e9, **options)
+    np.testing.assert_allclose(actual, expected)
+
+
+@pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
+@pytest.mark.parametrize("wake_length", [None, 0.5])
+def test_impedance_frequency_alias(plane, wake_length):
+    """The deprecated keyword preserves both finite and fully decayed impedance."""
+    formula = getattr(iddefix.Impedances, f"Resonator_{plane}_imp")
+    frequency = np.linspace(0, 3e9, 101)
+    expected = formula(frequency, Rs=100, Q=3, fr=1e9, wake_length=wake_length)
+    with pytest.warns(DeprecationWarning) as caught:
+        actual = formula(
+            frequency, Rs=100, Q=3, resonant_frequency=1e9, wake_length=wake_length
+        )
+    assert caught[0].filename == __file__
+    np.testing.assert_allclose(actual, expected)
+
+
+@pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
+@pytest.mark.parametrize("keywords", [{}, {"fr": 1e9, "resonant_frequency": 1e9}])
+def test_impedance_frequency_arguments(plane, keywords):
+    """A frequency is required and ambiguous double specification is rejected."""
+    formula = getattr(iddefix.Impedances, f"Resonator_{plane}_imp")
+    with pytest.raises(TypeError):
+        formula(np.array([1e9]), Rs=100, Q=3, **keywords)
+
+
+@pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
+def test_impedance_preferred_frequency(plane):
+    """Preferred and positional calls preserve wake_length without deprecation warnings."""
+    import warnings
+
+    formula = getattr(iddefix.Impedances, f"Resonator_{plane}_imp")
+    frequency = np.linspace(0, 3e9, 101)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        expected = formula(frequency, Rs=100, Q=3, fr=1e9, wake_length=0.5)
+        actual = formula(frequency, 100, 3, 1e9, 0.5)
+    np.testing.assert_allclose(actual, expected)
