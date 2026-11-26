@@ -19,21 +19,6 @@ ParameterDict = dict[int, Sequence[float]]
 ParsType = ParameterDict | ArrayLike
 
 
-def _overdamped_wake_terms(
-    times: np.ndarray, omega_r: float, Q: float
-) -> tuple[np.ndarray, np.ndarray, float]:
-    """Evaluate stable overdamped exponential combinations for nonnegative times."""
-    B = omega_r / (2 * Q)
-    D = omega_r * np.sqrt(1 / (4 * Q**2) - 1)
-    fast_rate = B + D
-    slow_rate = omega_r**2 / fast_rate
-    slow_decay = np.exp(-slow_rate * times)
-    fast_to_slow = np.exp(-2 * D * times)
-    decay_cosh = slow_decay * (1 + fast_to_slow) / 2
-    decay_sinh_over_D = slow_decay * (-np.expm1(-2 * D * times)) / (2 * D)
-    return decay_cosh, decay_sinh_over_D, B
-
-
 class Wakes:
     """Analytical longitudinal and transverse resonator wakes and potentials.
 
@@ -88,8 +73,16 @@ class Wakes:
                 * (1 - omega_r * positive_times)
             )
         elif Q < 0.5:
-            decay_cosh, decay_sinh_over_D, B = _overdamped_wake_terms(
-                positive_times, omega_r, Q
+            # Use decaying exponentials to avoid overflow in cosh and sinh
+            B = omega_r / (2 * Q)
+            D = omega_r * np.sqrt(1 / (4 * Q**2) - 1)
+            fast_rate = B + D
+            slow_rate = omega_r**2 / fast_rate
+            slow_decay = np.exp(-slow_rate * positive_times)
+            fast_to_slow = np.exp(-2 * D * positive_times)
+            decay_cosh = slow_decay * (1 + fast_to_slow) / 2
+            decay_sinh_over_D = (
+                slow_decay * (-np.expm1(-2 * D * positive_times)) / (2 * D)
             )
             Wl = Rs * omega_r / Q * (decay_cosh - B * decay_sinh_over_D)
         else:
@@ -146,7 +139,15 @@ class Wakes:
             exp_term = np.exp(-omega_r * positive_times / 2 / Q)
             Wt = omega_r**2 * Rs / Q * exp_term * positive_times
         elif Q < 0.5:
-            _, decay_sinh_over_D, _ = _overdamped_wake_terms(positive_times, omega_r, Q)
+            # Use decaying exponentials to avoid overflow in sinh
+            B = omega_r / (2 * Q)
+            D = omega_r * np.sqrt(1 / (4 * Q**2) - 1)
+            fast_rate = B + D
+            slow_rate = omega_r**2 / fast_rate
+            slow_decay = np.exp(-slow_rate * positive_times)
+            decay_sinh_over_D = (
+                slow_decay * (-np.expm1(-2 * D * positive_times)) / (2 * D)
+            )
             Wt = omega_r**2 * Rs / Q * decay_sinh_over_D
         else:
             omega_r_bar = omega_r * np.sqrt(1 - (1 / (4 * Q**2)))
