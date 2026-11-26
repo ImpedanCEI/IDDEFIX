@@ -3,7 +3,7 @@
 from html import escape
 from typing import Sequence
 
-HEADERS = ("Rs [Ohm/m or Ohm]", "Q", "fres [Hz]")
+HEADERS = ("Rs [Ohm/m or Ohm]", "Q", "fr [Hz]")
 COLORS = {
     "blue": ("\033[34m", "#3b82f6"),
     "red": ("\033[31m", "#ef4444"),

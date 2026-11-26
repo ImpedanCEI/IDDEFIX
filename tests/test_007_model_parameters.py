@@ -295,7 +295,7 @@ def test_edit_resonators():
     assert model.evolutionParametersUncertainties is None
     assert model.minimizationParametersUncertainties is None
 
-    model.add_resonator(300.0, 7.0, 1.2e9, uncertainty=[30.0, 0.7, 3e7])
+    model.add_resonator(Rs=300.0, Q=7.0, fr=1.2e9, uncertainty=[30.0, 0.7, 3e7])
     model.remove_resonator(1)
 
     expected = [200.0, 1.2, 1.4e9, 300.0, 7.0, 1.2e9]
@@ -674,7 +674,7 @@ def test_display_bounds(explicit, to_markdown, capsys):
     model.display_parameter_bounds(supplied, to_markdown=to_markdown)
     output = capsys.readouterr().out
     assert "2 to 4" in output if explicit else "0 to 1000" in output
-    assert "fres [Hz]" in output
+    assert "fr [Hz]" in output
     assert model.parameterBounds == stored
 
 

@@ -52,7 +52,7 @@ class SmartBoundDetermination:
     ) -> None:
         """Estimate resonator parameters and bounds from impedance peaks.
 
-        Detect peaks in the real part or magnitude, then estimate (Rs, Q, fres)
+        Detect peaks in the real part or magnitude, then estimate (Rs, Q, fr)
         from each peak and one crossing. These are starting estimates, especially
         for overlapping resonances or spectra with a varying background.
 
@@ -68,7 +68,7 @@ class SmartBoundDetermination:
             use peak location directly and can be approximate for transverse data.
         wake_length : float or None, optional
             Wake truncation length [m]. Enables a finite-decay correction to Rs;
-            Q and fres retain fully decayed estimates. Default is None.
+            Q and fr retain fully decayed estimates. Default is None.
         impedance_type : {"real", "absolute"}, optional
             Detection and estimation trace. Default is "real". Crossing levels are
             peak/2 for real impedance and peak/sqrt(2) for magnitude.
@@ -84,7 +84,7 @@ class SmartBoundDetermination:
         Rs_bounds, Q_bounds : list of float, optional
             Lower/upper multipliers of each estimate. Both default to [0.1, 10].
         fres_bounds : list of float, optional
-            Offsets in multiples of the estimated half-width fres/(2*Q).
+            Offsets in multiples of the estimated half-width fr/(2*Q).
             Default is [-1, 1]; these are not frequency offsets in Hz.
         samples : int or None, optional
             Linearly interpolate onto this many equally spaced frequencies for
@@ -116,7 +116,7 @@ class SmartBoundDetermination:
         Attributes
         ----------
         parameterBounds : list of tuple or None
-            Flattened (Rs, Q, fres) bound pairs, one triple per resonator.
+            Flattened (Rs, Q, fr) bound pairs, one triple per resonator.
         parameterEstimates : list of float or None
             Flattened starting values in the same order as the bounds.
         N_resonators : int
@@ -1402,7 +1402,7 @@ class SmartBoundDetermination:
         Parameters
         ----------
         parameterBounds : list of tuple or None, optional
-            Bound pairs in repeated (Rs, Q, fres) order. None uses stored bounds.
+            Bound pairs in repeated (Rs, Q, fr) order. None uses stored bounds.
         to_markdown : bool, optional
             Print Markdown instead of the terminal/notebook table. Default is False.
         """

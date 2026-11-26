@@ -66,7 +66,7 @@ parameters and finite bounds for subsequent fitting:
 
 ```python
 model.add_resonator(
-    Rs=100, Q=5, fres=2e9,
+    Rs=100, Q=5, fr=2e9,
     parameter_bounds=[(0, 1000), (0.1, 100), (1.5e9, 2.5e9)],
 )
 ```

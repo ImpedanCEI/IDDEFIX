@@ -770,3 +770,20 @@ def test_wake_potential_deconvolves_back_to_wake(plane, debug_plot):
     )
     relative_error = np.linalg.norm(recovered - expected) / np.linalg.norm(expected)
     assert relative_error < 0.07
+
+
+@pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
+@pytest.mark.parametrize("function", ["imp", "wake", "wake_potential"])
+def test_resonant_frequency_keyword(plane, function):
+    """All single-resonator formulas accept fr in Hz as a keyword."""
+    namespace = iddefix.Impedances if function == "imp" else iddefix.Wakes
+    formula = getattr(namespace, f"Resonator_{plane}_{function}")
+    x = (
+        np.linspace(0.1e9, 3e9, 101)
+        if function == "imp"
+        else np.linspace(-1e-9, 10e-9, 101)
+    )
+    options = {"sigma": 1e-10} if function == "wake_potential" else {}
+    expected = formula(x, 100, 3, 1e9, **options)
+    actual = formula(x, Rs=100, Q=3, fr=1e9, **options)
+    np.testing.assert_allclose(actual, expected)

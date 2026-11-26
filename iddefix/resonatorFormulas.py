@@ -49,7 +49,7 @@ class Wakes:
         times: ArrayLike,
         Rs: float,
         Q: float,
-        resonant_frequency: float,
+        fr: float,
     ) -> np.ndarray:
         """Evaluate the longitudinal wake of one resonator.
 
@@ -61,7 +61,7 @@ class Wakes:
             Shunt impedance [Ohm].
         Q : float
             Positive quality factor, including the critical value 0.5.
-        resonant_frequency : float
+        fr : float
             Positive resonant frequency [Hz].
 
         Returns
@@ -77,7 +77,7 @@ class Wakes:
 
         times = np.asarray(times)
         positive_times = np.maximum(times, 0)
-        omega_r = 2 * np.pi * resonant_frequency
+        omega_r = 2 * np.pi * fr
         if Q == 0.5:
             Wl = (
                 2
@@ -112,7 +112,7 @@ class Wakes:
         times: ArrayLike,
         Rs: float,
         Q: float,
-        resonant_frequency: float,
+        fr: float,
     ) -> np.ndarray:
         """Evaluate the transverse wake of one resonator.
 
@@ -124,7 +124,7 @@ class Wakes:
             Shunt impedance [Ohm/m].
         Q : float
             Positive quality factor, including the critical value 0.5.
-        resonant_frequency : float
+        fr : float
             Positive resonant frequency [Hz].
 
         Returns
@@ -140,7 +140,7 @@ class Wakes:
 
         times = np.asarray(times)
         positive_times = np.maximum(times, 0)
-        omega_r = 2 * np.pi * resonant_frequency
+        omega_r = 2 * np.pi * fr
         if Q == 0.5:
             exp_term = np.exp(-omega_r * positive_times / 2 / Q)
             Wt = omega_r**2 * Rs / Q * exp_term * positive_times
@@ -228,7 +228,7 @@ class Wakes:
         times: ArrayLike,
         Rs: float,
         Q: float,
-        resonant_frequency: float,
+        fr: float,
         sigma: float = 1e-10,
         use_mpmath: bool = False,
     ) -> np.ndarray:
@@ -243,7 +243,7 @@ class Wakes:
         Q : float
             Quality factor for the analytic Gaussian expression. Use Q > 0.5;
             its critical-damping limit is not implemented.
-        resonant_frequency : float
+        fr : float
             Positive resonant frequency [Hz].
         sigma : float, optional
             RMS Gaussian bunch duration [s]. Default is 1e-10.
@@ -261,7 +261,7 @@ class Wakes:
         The Gaussian closed form follows Chao's Handbook, section 3.2, and the
         resonator formulas in https://cds.cern.ch/record/192684/files/198812060.pdf.
         """
-        omegar = 2 * np.pi * resonant_frequency
+        omegar = 2 * np.pi * fr
         kr = omegar * (1 - 1 / (4 * Q**2)) ** 0.5
         alphar = omegar / (2 * Q)
         cstsin = -Rs * omegar**2 / (4 * Q**2 * kr)
@@ -358,7 +358,7 @@ class Wakes:
         times: ArrayLike,
         Rs: float,
         Q: float,
-        resonant_frequency: float,
+        fr: float,
         sigma: float = 1e-10,
         use_mpmath: bool = False,
     ) -> np.ndarray:
@@ -373,7 +373,7 @@ class Wakes:
         Q : float
             Quality factor for the analytic Gaussian expression. Use Q > 0.5;
             its critical-damping limit is not implemented.
-        resonant_frequency : float
+        fr : float
             Positive resonant frequency [Hz].
         sigma : float, optional
             RMS Gaussian bunch duration [s]. Default is 1e-10.
@@ -392,7 +392,7 @@ class Wakes:
         resonator formulas in https://cds.cern.ch/record/192684/files/198812060.pdf.
         """
 
-        omegar = 2 * np.pi * resonant_frequency
+        omegar = 2 * np.pi * fr
         kr = omegar * (1 - 1 / (4 * Q**2)) ** 0.5
         alphar = omegar / (2 * Q)
 
@@ -488,7 +488,7 @@ class Impedances:
 
     Call methods on the class with NumPy frequency arrays in Hz. Longitudinal
     Rs and impedance are in Ohm; transverse values are in Ohm/m. Q is positive
-    and dimensionless, and resonant_frequency is in Hz. Multi-resonator methods
+    and dimensionless, and fr is in Hz. Multi-resonator methods
     accept a flat (Rs, Q, fr) vector or a dictionary of parameter triples.
     A wake_length in metres selects the finite-duration Fourier transform;
     None selects the fully decayed formula.
@@ -500,7 +500,7 @@ class Impedances:
         frequencies: ArrayLike,
         Rs: float,
         Q: float,
-        resonant_frequency: float,
+        fr: float,
         wake_length: float | None = None,
     ) -> np.ndarray:
         """Evaluate the complex longitudinal impedance of one resonator.
@@ -513,7 +513,7 @@ class Impedances:
             Shunt impedance [Ohm].
         Q : float
             Positive quality factor; overdamped and critical values are supported.
-        resonant_frequency : float
+        fr : float
             Positive resonant frequency [Hz].
         wake_length : float or None, optional
             Wake truncation length [m]. None uses the fully decayed expression;
@@ -538,17 +538,17 @@ class Impedances:
             Zl[positive] = (
                 Rs
                 * selected_frequencies
-                * resonant_frequency
+                * fr
                 / (
-                    selected_frequencies * resonant_frequency
-                    + 1j * Q * (selected_frequencies**2 - resonant_frequency**2)
+                    selected_frequencies * fr
+                    + 1j * Q * (selected_frequencies**2 - fr**2)
                 )
             )
 
         else:
             # Partially decayed wake
             omega = 2 * np.pi * frequencies
-            omega_r = 2 * np.pi * resonant_frequency
+            omega_r = 2 * np.pi * fr
 
             B = omega_r / 2 / Q
             T = wake_length / c
@@ -590,7 +590,7 @@ class Impedances:
         frequencies: ArrayLike,
         Rs: float,
         Q: float,
-        resonant_frequency: float,
+        fr: float,
         wake_length: float | None = None,
     ) -> np.ndarray:
         """Evaluate the complex transverse impedance of one resonator.
@@ -603,7 +603,7 @@ class Impedances:
             Shunt impedance [Ohm/m].
         Q : float
             Positive quality factor; overdamped and critical values are supported.
-        resonant_frequency : float
+        fr : float
             Positive resonant frequency [Hz].
         wake_length : float or None, optional
             Wake truncation length [m]. None uses the fully decayed expression;
@@ -622,19 +622,12 @@ class Impedances:
         """
         if wake_length is None:
             # Fully decayed wake
-            Zt = (
-                Rs
-                * resonant_frequency**2
-                / (
-                    frequencies * resonant_frequency
-                    + 1j * Q * (frequencies**2 - resonant_frequency**2)
-                )
-            )
+            Zt = Rs * fr**2 / (frequencies * fr + 1j * Q * (frequencies**2 - fr**2))
 
         else:
             # Partially decayed wake
             omega = 2 * np.pi * frequencies
-            omega_r = 2 * np.pi * resonant_frequency
+            omega_r = 2 * np.pi * fr
 
             B = omega_r / 2 / Q
             T = wake_length / c

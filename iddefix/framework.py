@@ -2021,7 +2021,7 @@ class EvolutionaryAlgorithm:
         self,
         Rs: float,
         Q: float,
-        fres: float,
+        fr: float,
         uncertainty: float | Sequence[float] = 0,
         parameter_bounds: ParameterBounds | None = None,
     ) -> None:
@@ -2033,7 +2033,7 @@ class EvolutionaryAlgorithm:
             Shunt impedance: Ohm longitudinally or Ohm/m transversely.
         Q : float
             Positive quality factor for the added mode.
-        fres : float
+        fr : float
             Positive resonant frequency [Hz].
         uncertainty : float or sequence[float], optional
             One standard deviation for all three parameters, or an (Rs, Q, fr) triple.
@@ -2043,22 +2043,22 @@ class EvolutionaryAlgorithm:
         Notes
         -----
         ``uncertainty`` may be one value for all three parameters or a
-        sequence of three values in ``(Rs, Q, fres)`` order. The new mode is
+        sequence of three values in ``(Rs, Q, fr)`` order. The new mode is
         appended to both result stages when both are present. Without explicit
         ``parameter_bounds``, its fit bounds are open apart from Q > 0 and
-        fres >= 0; supply finite bounds before running another fit. Adding a
+        fr >= 0; supply finite bounds before running another fit. Adding a
         mode detaches any SmartBounds estimator because its peak list no longer
         describes the model.
         """
         if self.evolutionParameters is None and self.minimizationParameters is None:
             raise ValueError("Load or fit resonator parameters before adding a mode")
 
-        new_parameters = np.array([Rs, Q, fres], dtype=float)
+        new_parameters = np.array([Rs, Q, fr], dtype=float)
         new_uncertainties = np.broadcast_to(
             np.asarray(uncertainty, dtype=float), (3,)
         ).copy()
-        if Q <= 0 or fres <= 0:
-            raise ValueError("Q and fres must be positive")
+        if Q <= 0 or fr <= 0:
+            raise ValueError("Q and fr must be positive")
         if np.any(new_uncertainties < 0):
             raise ValueError("uncertainties must be non-negative")
         if parameter_bounds is None:

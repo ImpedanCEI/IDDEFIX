@@ -15,7 +15,7 @@ def pars_to_dict(pars: ArrayLike) -> dict[int, ArrayLike]:
     ----------
     pars : array_like
         One-dimensional sequence ordered as consecutive
-        ``(Rs, Q, resonant_frequency)`` triples.
+        ``(Rs, Q, fr)`` triples.
 
     Returns
     -------
