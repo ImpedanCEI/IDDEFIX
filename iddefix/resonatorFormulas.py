@@ -4,6 +4,7 @@ Created on Mon Mar 23 13:20:11 2020
 @author: sjoly
 """
 
+import warnings
 from typing import Sequence
 
 import numpy as np
@@ -494,14 +495,32 @@ class Impedances:
     None selects the fully decayed formula.
     """
 
+    @staticmethod  # Temporary deprecation warning
+    def _resolve_fr(fr: float | None, resonant_frequency: float | None) -> float:
+        """Resolve the preferred frequency keyword and its deprecated alias."""
+        if resonant_frequency is not None:
+            if fr is not None:
+                raise TypeError("Pass only one of 'fr' and 'resonant_frequency'")
+            warnings.warn(
+                "'resonant_frequency' is deprecated; use 'fr' instead",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+            return resonant_frequency
+        if fr is None:
+            raise TypeError("Missing resonant frequency: pass 'fr'")
+        return fr
+
     # Longitudinal and transverse impedance functions
 
     def Resonator_longitudinal_imp(
         frequencies: ArrayLike,
         Rs: float,
         Q: float,
-        fr: float,
+        fr: float | None = None,
         wake_length: float | None = None,
+        *,
+        resonant_frequency: float | None = None,
     ) -> np.ndarray:
         """Evaluate the complex longitudinal impedance of one resonator.
 
@@ -518,11 +537,19 @@ class Impedances:
         wake_length : float or None, optional
             Wake truncation length [m]. None uses the fully decayed expression;
             a finite length uses the truncated wake transform.
+        resonant_frequency : float or None, optional
+            [!] Deprecated keyword-only alias for fr. Emits DeprecationWarning.
+            Do not pass both names.
 
         Returns
         -------
         ndarray
             Complex impedance [Ohm] on the requested frequency grid.
+
+        Raises
+        ------
+        TypeError
+            If neither frequency keyword is supplied, or both are supplied.
 
         Notes
         -----
@@ -530,6 +557,7 @@ class Impedances:
         See https://cds.cern.ch/record/192684/files/198812060.pdf for the resonator
         convention. Finite-length formulas also support any positive Q.
         """
+        fr = Impedances._resolve_fr(fr, resonant_frequency)
         if wake_length is None:
             # Fully decayed wake
             positive = frequencies > 0
@@ -590,8 +618,10 @@ class Impedances:
         frequencies: ArrayLike,
         Rs: float,
         Q: float,
-        fr: float,
+        fr: float | None = None,
         wake_length: float | None = None,
+        *,
+        resonant_frequency: float | None = None,
     ) -> np.ndarray:
         """Evaluate the complex transverse impedance of one resonator.
 
@@ -608,11 +638,19 @@ class Impedances:
         wake_length : float or None, optional
             Wake truncation length [m]. None uses the fully decayed expression;
             a finite length uses the truncated wake transform.
+        resonant_frequency : float or None, optional
+            [!] Deprecated keyword-only alias for fr. Emits DeprecationWarning.
+            Do not pass both names.
 
         Returns
         -------
         ndarray
             Complex impedance [Ohm/m] on the requested frequency grid.
+
+        Raises
+        ------
+        TypeError
+            If neither frequency keyword is supplied, or both are supplied.
 
         Notes
         -----
@@ -620,6 +658,7 @@ class Impedances:
         See https://cds.cern.ch/record/192684/files/198812060.pdf for the resonator
         convention. Finite-length formulas also support any positive Q.
         """
+        fr = Impedances._resolve_fr(fr, resonant_frequency)
         if wake_length is None:
             # Fully decayed wake
             Zt = Rs * fr**2 / (frequencies * fr + 1j * Q * (frequencies**2 - fr**2))
